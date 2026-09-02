@@ -1,5 +1,7 @@
 # 协作开发约定
 
+第一次使用 Git 或 GitHub 时，先完整走一遍 [Ubuntu 与 GitHub 协作教程](docs/guides/github-collaboration.md)。模块负责人如何互不等待地开工，以及何时必须联调，见[模块并行开发指南](docs/guides/parallel-development.md)。
+
 ## 1. 分支和提交
 
 - `main` 保持可配置、契约一致、数据库可初始化；
@@ -44,6 +46,7 @@ V1 可以增加新消息或客户端可忽略的字段。重命名字段、改�
 
 ```bash
 git diff --check
+git diff --cached --check
 git status --short
 ```
 

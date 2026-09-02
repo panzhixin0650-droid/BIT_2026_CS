@@ -45,6 +45,8 @@ web/{css,js}
 
 本次仓库初始化只冻结目录和契约，不预先提交 CMake target、应用源代码、建表 SQL、种子 SQL 或二进制数据库。各负责人开始实现时在自己的目录内补齐构建文件和代码。
 
+“独立开工”不等于零协调。具体替代依赖、共享边界和分阶段联调检查点见[模块并行开发指南](docs/guides/parallel-development.md)。
+
 ## 当前明确不做
 
 - 真实充电桩协议、设备心跳和厂商命令队列；
@@ -57,6 +59,6 @@ web/{css,js}
 
 ## 协作
 
-开发前阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。建议从 `main` 创建短期功能分支，例如 `client/login-page`、`server/order-flow`、`web/revenue-chart`。修改 `contracts/` 的变更必须同时说明客户端和服务端影响。
+开发前阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。第一次使用 GitHub 的成员按 [Ubuntu 与 GitHub 协作教程](docs/guides/github-collaboration.md)完成账号、Git、SSH、克隆、短期分支和 PR 配置。建议从 `main` 创建短期功能分支，例如 `client/login-page`、`server/order-flow`、`web/revenue-chart`。修改 `contracts/` 的变更必须同时说明客户端和服务端影响。
 
 所有人和 AI 工具共同遵守 [PROJECT_RULES.md](PROJECT_RULES.md)。仓库同时提供 `AGENTS.md`、`CLAUDE.md`、`.agents/skills/` 中的 Codex 项目 skill 和 `.claude/skills/` 中的 Claude Code 项目 skill；两种工具都使用 `bit-charging-dev`，但真正的跨工具权威规则只有一份。

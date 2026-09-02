@@ -14,6 +14,14 @@
 
 [`extension/`](extension/README.md) 中的两份复杂文档是未来需求池和设计素材，不是当前接口或数据库事实源。只有在新增功能已经被确认、写出增量迁移和兼容方案后，相关小节才会转化为新的基线文档。
 
+## 开发与协作指南
+
+| 文档 | 作用 |
+| --- | --- |
+| [`guides/parallel-development.md`](guides/parallel-development.md) | 各模块的独立开工条件、共享边界与联调检查点 |
+| [`guides/github-collaboration.md`](guides/github-collaboration.md) | Ubuntu 安装、GitHub 账号与 SSH、短期分支、PR、冲突处理 |
+| [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | 必须遵守的精简协作规则 |
+
 ## 规则
 
 - 当前实现不得因为扩展文档出现某张表或某个接口就提前增加它。
