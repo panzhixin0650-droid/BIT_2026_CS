@@ -69,7 +69,7 @@ Web 是当前依赖最少的模块。它只读取 Dashboard JSON，不连接 TCP
 
 1. 每个应用目录及数据库由谁主要负责；
 2. 谁维护 `contracts/` 和 `shared/protocol/`；
-3. 全员以 Ubuntu 22.04+、Qt 6.2+、C++17 为共同大版本边界；首个构建 PR 再记录团队实际验证的 Qt 小版本、编译器、CMake 和必需 Qt modules；
+3. 参考机按[开发环境基线](development-environment.md)使用 Ubuntu 22.04.3、Linux 6.8.0-138、Qt Framework 6.2.4、Qt Creator 6.0.2、GCC 11.4.0 和 C++17；个人环境可不同，但首个代码 PR 记录实际版本并在参考机复验；
 4. 接口字段只以 V1 契约为准，不从某个模块的临时代码反推；
 5. 当前契约和 fixture 中已出现的固定用户、桩和订单场景不由个人随意改名；
 6. 第一次 TCP 联调前统一主机和端口；第一次 Web/Exporter 联调前统一 Dashboard 导出目录、静态服务根目录、相对 URL 和刷新方式。这些都不阻塞第一天开发。

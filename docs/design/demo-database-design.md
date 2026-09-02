@@ -2,7 +2,7 @@
 
 > 版本：V1.0（精简基线）
 >
-> 适用：Ubuntu 22.04+、Qt 6.2+、C++17、Qt QSQLITE、SQLite 3
+> 适用：当前 Demo 参考环境（Ubuntu 22.04.3、Qt Framework 6.2.4、C++17）、Qt QSQLITE、SQLite 3
 >
 > 原则：只保存当前演示流程真正需要的事实；未进入需求的能力只留接口，不提前建表。
 >

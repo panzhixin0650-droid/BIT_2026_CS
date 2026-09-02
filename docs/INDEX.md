@@ -18,9 +18,17 @@
 
 | 文档 | 作用 |
 | --- | --- |
+| [`guides/development-environment.md`](guides/development-environment.md) | Ubuntu 22.04.3、Qt 6.2.4、Creator 6.0.2、按角色安装和环境自检 |
 | [`guides/parallel-development.md`](guides/parallel-development.md) | 各模块的独立开工条件、共享边界与联调检查点 |
 | [`guides/github-collaboration.md`](guides/github-collaboration.md) | Ubuntu 安装、GitHub 账号与 SSH、短期分支、PR、冲突处理 |
 | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | 必须遵守的精简协作规则 |
+
+## 已接受决策
+
+| 文档 | 作用 |
+| --- | --- |
+| [`decisions/0001-demo-first.md`](decisions/0001-demo-first.md) | Demo 优先，复杂能力按需迁入 |
+| [`decisions/0002-development-environment.md`](decisions/0002-development-environment.md) | 冻结课程 Demo 的参考开发环境 |
 
 ## 规则
 

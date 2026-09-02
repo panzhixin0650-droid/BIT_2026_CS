@@ -12,6 +12,12 @@
 
 发生冲突时必须按这个顺序处理。完整导航见 [docs/INDEX.md](docs/INDEX.md)。
 
+## 开发环境
+
+统一参考环境为 **Ubuntu 22.04.3 LTS、Linux 6.8.0-138、Qt Framework 6.2.4、Qt Creator 6.0.2、GCC 11.4.0 和 C++17**。Qt Creator 是独立的 IDE，必须让 Kit 指向 Qt 6.2.4；Web 开发者不需要安装 Qt。
+
+首次配置请按[开发环境基线与安装指南](docs/guides/development-environment.md)操作。个人可以临时使用其他编辑器或机器，但合并和最终演示前必须回到参考环境验证。
+
 ## 目录与负责人边界
 
 | 目录 | 建议负责人 | 可以独立依赖什么 |
@@ -59,6 +65,6 @@ web/{css,js}
 
 ## 协作
 
-开发前阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。第一次使用 GitHub 的成员按 [Ubuntu 与 GitHub 协作教程](docs/guides/github-collaboration.md)完成账号、Git、SSH、克隆、短期分支和 PR 配置。建议从 `main` 创建短期功能分支，例如 `client/login-page`、`server/order-flow`、`web/revenue-chart`。修改 `contracts/` 的变更必须同时说明客户端和服务端影响。
+开发前阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，并按[开发环境基线与安装指南](docs/guides/development-environment.md)完成本机配置。第一次使用 GitHub 的成员按 [Ubuntu 与 GitHub 协作教程](docs/guides/github-collaboration.md)完成账号、Git、SSH、克隆、短期分支和 PR 配置。建议从 `main` 创建短期功能分支，例如 `client/login-page`、`server/order-flow`、`web/revenue-chart`。修改 `contracts/` 的变更必须同时说明客户端和服务端影响。
 
 所有人和 AI 工具共同遵守 [PROJECT_RULES.md](PROJECT_RULES.md)。仓库同时提供 `AGENTS.md`、`CLAUDE.md`、`.agents/skills/` 中的 Codex 项目 skill 和 `.claude/skills/` 中的 Claude Code 项目 skill；两种工具都使用 `bit-charging-dev`，但真正的跨工具权威规则只有一份。
