@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "system.ping",
+  "requestId": "fixture-ping-1",
+  "data": {
+    "echo": "hello"
+  }
+}

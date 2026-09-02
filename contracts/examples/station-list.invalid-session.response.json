@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "station.list",
+  "requestId": "fixture-invalid-session-1",
+  "code": 40101,
+  "message": "INVALID_SESSION",
+  "data": {}
+}

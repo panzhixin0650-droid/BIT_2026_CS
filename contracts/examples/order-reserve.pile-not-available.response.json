@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "type": "order.reserve",
+  "requestId": "fixture-pile-not-available-1",
+  "code": 40901,
+  "message": "PILE_NOT_AVAILABLE",
+  "data": {
+    "pileCode": "PILE-A-02"
+  }
+}

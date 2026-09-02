@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "type": "station.list",
+  "requestId": "fixture-station-list-1",
+  "token": "fixture-token",
+  "data": {
+    "longitude": 123.42,
+    "latitude": 41.70,
+    "region": "浑南区"
+  }
+}

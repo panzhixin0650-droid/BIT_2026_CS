@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "type": "order.start",
+  "requestId": "fixture-order-start-1",
+  "token": "fixture-token",
+  "data": {
+    "pileCode": "PILE-A-01",
+    "reservationOrderId": 1001
+  }
+}

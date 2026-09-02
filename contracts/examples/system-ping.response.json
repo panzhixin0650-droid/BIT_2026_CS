@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "type": "system.ping",
+  "requestId": "fixture-ping-1",
+  "code": 0,
+  "message": "OK",
+  "data": {
+    "echo": "hello",
+    "serverTime": "2026-09-02T18:59:50Z"
+  }
+}

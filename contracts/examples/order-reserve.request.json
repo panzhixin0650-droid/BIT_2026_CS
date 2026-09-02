@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "type": "order.reserve",
+  "requestId": "fixture-order-reserve-1",
+  "token": "fixture-token",
+  "data": {
+    "pileCode": "PILE-A-01"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "type": "order.progress",
+  "requestId": "fixture-order-progress-1",
+  "token": "fixture-token",
+  "data": {
+    "orderId": 1001
+  }
+}

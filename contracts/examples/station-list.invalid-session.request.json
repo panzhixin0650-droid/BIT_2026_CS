@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "type": "station.list",
+  "requestId": "fixture-invalid-session-1",
+  "data": {}
+}
