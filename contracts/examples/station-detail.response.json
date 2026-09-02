@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "type": "station.detail",
+  "requestId": "fixture-station-detail-1",
+  "code": 0,
+  "message": "OK",
+  "data": {
+    "station": {
+      "stationId": 1,
+      "name": "浑南演示充电站",
+      "region": "浑南区",
+      "address": "浑南区创新路1号",
+      "longitude": 123.43,
+      "latitude": 41.71,
+      "priceCentsPerKwh": 135,
+      "status": "ACTIVE",
+      "totalPileCount": 2,
+      "availablePileCount": 1,
+      "onlineRatePercent": 100.0,
+      "distanceKm": null,
+      "predictedCongestion": "LOW",
+      "recommended": false
+    },
+    "piles": [
+      {
+        "pileId": 1,
+        "stationId": 1,
+        "pileCode": "PILE-A-01",
+        "pileType": "FAST",
+        "ratedPowerKw": 10.0,
+        "status": "IDLE",
+        "chargeCount": 4,
+        "totalChargeSeconds": 14400
+      },
+      {
+        "pileId": 2,
+        "stationId": 1,
+        "pileCode": "PILE-A-02",
+        "pileType": "SLOW",
+        "ratedPowerKw": 7.0,
+        "status": "CHARGING",
+        "chargeCount": 2,
+        "totalChargeSeconds": 7200
+      }
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "order.pay",
+  "requestId": "fixture-insufficient-balance-1",
+  "code": 42201,
+  "message": "INSUFFICIENT_BALANCE",
+  "data": {}
+}
