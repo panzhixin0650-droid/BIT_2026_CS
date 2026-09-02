@@ -1,0 +1,4 @@
+interface:
+  display_name: "BIT 充电桩项目开发"
+  short_description: "按课程 Demo 基线开发、审查并渐进扩展充电桩平台"
+  default_prompt: "Use $bit-charging-dev to handle the next scoped task in BIT_2026_CS without breaking the Demo contracts."

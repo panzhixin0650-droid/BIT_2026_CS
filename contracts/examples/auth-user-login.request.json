@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "auth.user.login",
+  "requestId": "fixture-login-1",
+  "data": {
+    "phone": "13800000001"
+  }
+}

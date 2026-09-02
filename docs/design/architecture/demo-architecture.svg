@@ -1,0 +1,226 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="3200" height="1600" viewBox="0 0 3200 1600">
+  <defs>
+    <style>
+      text { font-family: "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #172033; }
+      .title { font-size: 34px; font-weight: 700; }
+      .panel-title { font-size: 27px; font-weight: 700; }
+      .lane-title { font-size: 22px; font-weight: 700; }
+      .box-title { font-size: 23px; font-weight: 700; }
+      .body { font-size: 19px; }
+      .small { font-size: 17px; fill: #4b5870; }
+      .note { font-size: 18px; fill: #315b9a; }
+      .panel { fill: #f7f8fa; stroke: #c9d0dc; stroke-width: 2; }
+      .main-lane { fill: #eaf2ff; stroke: #a8c2e8; stroke-width: 2; }
+      .core-lane { fill: #edf9f1; stroke: #8fc9a4; stroke-width: 2.5; stroke-dasharray: 12 8; }
+      .box { fill: #ffffff; stroke: #738199; stroke-width: 2; }
+      .mock { fill: #fff5e7; stroke: #d8a252; stroke-width: 2; }
+      .data { fill: #f3efff; stroke: #9a86c8; stroke-width: 2; }
+      .external { fill: #fbfbfc; stroke: #98a1b2; stroke-width: 2; stroke-dasharray: 9 7; }
+      .arrow { fill: none; stroke: #465269; stroke-width: 2.5; marker-end: url(#arrow); }
+      .arrow-bi { fill: none; stroke: #465269; stroke-width: 2.5; marker-start: url(#arrowBack); marker-end: url(#arrow); }
+      .arrow-blue { fill: none; stroke: #3478c6; stroke-width: 3; stroke-dasharray: 10 7; marker-end: url(#arrowBlue); }
+      .arrow-blue-bi { fill: none; stroke: #3478c6; stroke-width: 3; stroke-dasharray: 10 7; marker-start: url(#arrowBlueBack); marker-end: url(#arrowBlue); }
+      .arrow-dash { fill: none; stroke: #65748b; stroke-width: 2.5; stroke-dasharray: 10 7; marker-end: url(#arrow); }
+    </style>
+    <marker id="arrow" markerWidth="12" markerHeight="10" refX="11" refY="5" orient="auto">
+      <path d="M0,0 L12,5 L0,10 z" fill="#465269"/>
+    </marker>
+    <marker id="arrowBack" markerWidth="12" markerHeight="10" refX="1" refY="5" orient="auto">
+      <path d="M12,0 L0,5 L12,10 z" fill="#465269"/>
+    </marker>
+    <marker id="arrowBlue" markerWidth="12" markerHeight="10" refX="11" refY="5" orient="auto">
+      <path d="M0,0 L12,5 L0,10 z" fill="#3478c6"/>
+    </marker>
+    <marker id="arrowBlueBack" markerWidth="12" markerHeight="10" refX="1" refY="5" orient="auto">
+      <path d="M12,0 L0,5 L12,10 z" fill="#3478c6"/>
+    </marker>
+  </defs>
+
+  <rect width="3200" height="1600" fill="#ffffff"/>
+  <text x="1600" y="58" text-anchor="middle" class="title">东软电动汽车充电桩应用管理平台 · 课程 Demo 精简架构</text>
+  <text x="1600" y="91" text-anchor="middle" class="small">主流程可运行 · 接口可替换 · 默认串行 · 无高并发承诺 · 桩硬件交互仅 Mock</text>
+
+  <!-- User client -->
+  <rect x="30" y="120" width="900" height="930" rx="18" class="panel"/>
+  <text x="480" y="166" text-anchor="middle" class="panel-title">用户端 user-client</text>
+
+  <rect x="75" y="210" width="810" height="135" rx="12" class="box"/>
+  <text x="480" y="249" text-anchor="middle" class="box-title">用户界面</text>
+  <text x="480" y="283" text-anchor="middle" class="body">手机号登录 · 站点推荐 · 预约/充电 · 订单 · 个人中心</text>
+  <text x="480" y="315" text-anchor="middle" class="small">头像保存在客户端本地，不上传、不入业务数据库</text>
+
+  <rect x="75" y="420" width="235" height="125" rx="11" class="box"/>
+  <text x="192" y="465" text-anchor="middle" class="box-title">Controller</text>
+  <text x="192" y="498" text-anchor="middle" class="body">页面状态与跳转</text>
+  <text x="192" y="526" text-anchor="middle" class="small">不拼 JSON / 不碰 SQL</text>
+
+  <rect x="350" y="420" width="235" height="125" rx="11" class="box"/>
+  <text x="468" y="465" text-anchor="middle" class="box-title">IChargingApi</text>
+  <text x="468" y="498" text-anchor="middle" class="body">统一用户业务接口</text>
+  <text x="468" y="526" text-anchor="middle" class="small">页面只依赖这一层</text>
+
+  <rect x="650" y="365" width="205" height="118" rx="11" class="mock"/>
+  <text x="753" y="408" text-anchor="middle" class="box-title">MockChargingApi</text>
+  <text x="753" y="441" text-anchor="middle" class="body">前期页面开发</text>
+  <text x="753" y="467" text-anchor="middle" class="small">与真实响应同字段</text>
+
+  <rect x="650" y="540" width="205" height="118" rx="11" class="box"/>
+  <text x="753" y="583" text-anchor="middle" class="box-title">TcpChargingApi</text>
+  <text x="753" y="616" text-anchor="middle" class="body">联调与最终演示</text>
+  <text x="753" y="642" text-anchor="middle" class="small">FrameCodec + JSON</text>
+
+  <rect x="75" y="720" width="510" height="205" rx="12" class="box"/>
+  <text x="330" y="762" text-anchor="middle" class="box-title">客户端本地能力</text>
+  <text x="330" y="802" text-anchor="middle" class="body">头像：QSettings / 应用数据目录</text>
+  <text x="330" y="838" text-anchor="middle" class="body">地图：IMapService（Mock / 腾讯地图可选）</text>
+  <text x="330" y="874" text-anchor="middle" class="body">扫码：IScanner（失败时手输 pileCode）</text>
+  <text x="330" y="904" text-anchor="middle" class="small">这些能力不访问服务端数据库</text>
+
+  <rect x="650" y="744" width="205" height="155" rx="11" class="external"/>
+  <text x="753" y="784" text-anchor="middle" class="box-title">可选外部地图</text>
+  <text x="753" y="820" text-anchor="middle" class="body">Geocode / Route</text>
+  <text x="753" y="852" text-anchor="middle" class="small">无网时用 Mock</text>
+  <text x="753" y="879" text-anchor="middle" class="small">Key 仅本地配置</text>
+
+  <path d="M480 345 L480 390 L192 390 L192 420" class="arrow"/>
+  <line x1="310" y1="482" x2="350" y2="482" class="arrow"/>
+  <path d="M585 463 L618 463 L618 424 L650 424" class="arrow"/>
+  <path d="M585 507 L618 507 L618 599 L650 599" class="arrow"/>
+  <line x1="192" y1="545" x2="192" y2="720" class="arrow"/>
+  <line x1="585" y1="822" x2="650" y2="822" class="arrow-dash"/>
+
+  <text x="480" y="995" text-anchor="middle" class="note">客户端：单 GUI 事件循环 + 异步 QTcpSocket；不需要工作线程</text>
+
+  <!-- Communication -->
+  <rect x="980" y="360" width="300" height="260" rx="16" class="panel"/>
+  <text x="1130" y="405" text-anchor="middle" class="panel-title">通信边界</text>
+  <rect x="1015" y="445" width="230" height="132" rx="11" class="box"/>
+  <text x="1130" y="482" text-anchor="middle" class="box-title">TCP 长连接</text>
+  <text x="1130" y="517" text-anchor="middle" class="body">4 字节大端长度头</text>
+  <text x="1130" y="550" text-anchor="middle" class="body">UTF-8 JSON</text>
+  <text x="1130" y="575" text-anchor="middle" class="small">Request / Response</text>
+  <line x1="855" y1="599" x2="1015" y2="511" class="arrow-bi"/>
+
+  <!-- Server -->
+  <rect x="1330" y="120" width="1830" height="980" rx="18" class="panel"/>
+  <text x="2245" y="166" text-anchor="middle" class="panel-title">服务端与管理端 server-app</text>
+
+  <rect x="1365" y="195" width="1760" height="205" rx="13" class="main-lane"/>
+  <text x="1395" y="228" class="lane-title">主线程 / Qt 事件循环</text>
+
+  <rect x="1410" y="255" width="245" height="105" rx="10" class="box"/>
+  <text x="1533" y="294" text-anchor="middle" class="box-title">TcpGateway</text>
+  <text x="1533" y="326" text-anchor="middle" class="body">连接 · 分帧 · 内存 token</text>
+  <text x="1533" y="350" text-anchor="middle" class="small">不写 SQL</text>
+
+  <rect x="1710" y="255" width="230" height="105" rx="10" class="box"/>
+  <text x="1825" y="294" text-anchor="middle" class="box-title">RequestRouter</text>
+  <text x="1825" y="326" text-anchor="middle" class="body">按 type 分发</text>
+  <text x="1825" y="350" text-anchor="middle" class="small">统一错误响应</text>
+
+  <rect x="2320" y="245" width="245" height="115" rx="10" class="box"/>
+  <text x="2443" y="286" text-anchor="middle" class="box-title">管理员界面</text>
+  <text x="2443" y="319" text-anchor="middle" class="body">营收 · 站桩 · 用户 · 订单 · 预警</text>
+  <text x="2443" y="345" text-anchor="middle" class="small">与服务端同进程</text>
+
+  <rect x="2620" y="245" width="260" height="115" rx="10" class="box"/>
+  <text x="2750" y="286" text-anchor="middle" class="box-title">AdminFacade</text>
+  <text x="2750" y="319" text-anchor="middle" class="body">11 个进程内方法</text>
+  <text x="2750" y="345" text-anchor="middle" class="small">不复制 admin.* TCP</text>
+
+  <line x1="1245" y1="511" x2="1410" y2="308" class="arrow-bi"/>
+  <line x1="1655" y1="308" x2="1710" y2="308" class="arrow"/>
+  <line x1="2565" y1="303" x2="2620" y2="303" class="arrow"/>
+
+  <!-- AppCore / optional thread -->
+  <rect x="1365" y="440" width="1760" height="650" rx="15" class="core-lane"/>
+  <text x="1398" y="477" class="lane-title">AppCore：默认同线程直接调用；答辩需要时整体移入可选的单个 QThread</text>
+  <text x="1398" y="508" class="small">无论是否启用 QThread，内部都按请求顺序串行执行；线程间只传 DTO 值对象</text>
+
+  <rect x="1510" y="555" width="480" height="220" rx="13" class="box"/>
+  <text x="1750" y="600" text-anchor="middle" class="box-title">ApplicationService</text>
+  <text x="1750" y="640" text-anchor="middle" class="body">登录与用户 · 站点与电桩</text>
+  <text x="1750" y="677" text-anchor="middle" class="body">预约 · 充电 · 结算 · 订单</text>
+  <text x="1750" y="714" text-anchor="middle" class="body">管理员查询 · 营收聚合 · 推荐/预警</text>
+  <text x="1750" y="749" text-anchor="middle" class="small">校验、状态和事务只在这里编排</text>
+
+  <rect x="2100" y="545" width="275" height="145" rx="12" class="box"/>
+  <text x="2238" y="592" text-anchor="middle" class="box-title">Repository</text>
+  <text x="2238" y="630" text-anchor="middle" class="body">参数化 SQL</text>
+  <text x="2238" y="663" text-anchor="middle" class="small">联表与实时聚合</text>
+
+  <g>
+    <ellipse cx="2615" cy="561" rx="165" ry="28" class="data"/>
+    <rect x="2450" y="561" width="330" height="140" class="data"/>
+    <ellipse cx="2615" cy="701" rx="165" ry="28" class="data"/>
+    <ellipse cx="2615" cy="561" rx="165" ry="28" fill="#f3efff" stroke="#9a86c8" stroke-width="2"/>
+    <text x="2615" y="605" text-anchor="middle" class="box-title">SQLite</text>
+    <text x="2615" y="641" text-anchor="middle" class="body">一个连接 · 五张表</text>
+    <text x="2615" y="674" text-anchor="middle" class="small">用户 / 管理员 / 站 / 桩 / 订单</text>
+  </g>
+
+  <rect x="2100" y="800" width="275" height="135" rx="12" class="mock"/>
+  <text x="2238" y="844" text-anchor="middle" class="box-title">MockPile</text>
+  <text x="2238" y="880" text-anchor="middle" class="body">start / read / stop</text>
+  <text x="2238" y="912" text-anchor="middle" class="small">故障/离线 → 空闲；业务层校验</text>
+
+  <rect x="2450" y="800" width="330" height="135" rx="12" class="mock"/>
+  <text x="2615" y="844" text-anchor="middle" class="box-title">IPredictionProvider</text>
+  <text x="2615" y="880" text-anchor="middle" class="body">当前：MockPrediction</text>
+  <text x="2615" y="912" text-anchor="middle" class="small">将来可替换真实 Python 模型</text>
+
+  <rect x="2840" y="545" width="240" height="145" rx="12" class="box"/>
+  <text x="2960" y="590" text-anchor="middle" class="box-title">DashboardExporter</text>
+  <text x="2960" y="627" text-anchor="middle" class="body">序列化 DashboardDto</text>
+  <text x="2960" y="660" text-anchor="middle" class="small">写 JSON · 按钮或 QTimer</text>
+
+  <rect x="2840" y="800" width="240" height="135" rx="12" class="data"/>
+  <text x="2960" y="850" text-anchor="middle" class="box-title">dashboard.json</text>
+  <text x="2960" y="885" text-anchor="middle" class="body">版本化只读快照</text>
+  <text x="2960" y="915" text-anchor="middle" class="small">Web 不打开 SQLite</text>
+
+  <path d="M1825 360 L1825 415 L1347 415 L1347 620 L1510 620" class="arrow-blue-bi"/>
+  <path d="M2750 360 L2750 415 L3140 415 L3140 740 L1990 740" class="arrow-blue-bi"/>
+  <line x1="1990" y1="620" x2="2100" y2="620" class="arrow"/>
+  <line x1="2375" y1="620" x2="2450" y2="620" class="arrow"/>
+  <path d="M1880 775 L1880 868 L2100 868" class="arrow"/>
+  <path d="M1830 775 L1830 970 L2420 970 L2420 868 L2450 868" class="arrow"/>
+  <path d="M1950 775 L1950 995 L2810 995 L2810 618 L2840 618" class="arrow"/>
+  <line x1="2960" y1="690" x2="2960" y2="800" class="arrow"/>
+
+  <text x="2245" y="1047" text-anchor="middle" class="note">课程多线程展示点只有这一条可选边界；不引入线程池、连接池、锁或高并发设计</text>
+
+  <!-- Bottom legend and web output -->
+  <rect x="30" y="1110" width="2260" height="430" rx="18" class="panel"/>
+  <text x="70" y="1158" class="panel-title">图例与实现边界</text>
+
+  <line x1="80" y1="1210" x2="220" y2="1210" class="arrow"/>
+  <text x="250" y="1218" class="body">同进程调用</text>
+  <line x1="80" y1="1260" x2="220" y2="1260" class="arrow-bi"/>
+  <text x="250" y="1268" class="body">TCP 长度帧 + JSON</text>
+  <line x1="80" y1="1310" x2="220" y2="1310" class="arrow-blue-bi"/>
+  <text x="250" y="1318" class="body">可选 QThread 跨线程投递；默认可直接调用</text>
+  <line x1="80" y1="1360" x2="220" y2="1360" class="arrow-dash"/>
+  <text x="250" y="1368" class="body">文件、可选外部服务或未来替换实现</text>
+
+  <text x="760" y="1218" class="body">当前必须：</text>
+  <text x="900" y="1218" class="body">用户主流程、管理查询、SQLite 五表、Web 快照</text>
+  <text x="760" y="1270" class="body">当前 Mock：</text>
+  <text x="900" y="1270" class="body">充电读数/重启、地图降级、1h/6h/24h 预测</text>
+  <text x="760" y="1322" class="body">当前不做：</text>
+  <text x="900" y="1322" class="body">真实桩协议、报修/客服、RBAC、审计、幂等、退款、训练平台</text>
+  <text x="760" y="1374" class="body">数据原则：</text>
+  <text x="900" y="1374" class="body">金额用分、电量用 Wh、订单冻结单价、客户端不决定权威状态</text>
+  <text x="760" y="1426" class="body">扩展原则：</text>
+  <text x="900" y="1426" class="body">替换适配器或新增独立表/接口，不修改现有主流程语义</text>
+
+  <rect x="2410" y="1215" width="750" height="250" rx="16" class="external"/>
+  <text x="2785" y="1262" text-anchor="middle" class="panel-title">Web 大数据可视化大屏</text>
+  <text x="2785" y="1310" text-anchor="middle" class="box-title">ECharts 静态页面</text>
+  <text x="2785" y="1352" text-anchor="middle" class="body">营收 7/30 日曲线 · 桩状态 · 站点概况</text>
+  <text x="2785" y="1392" text-anchor="middle" class="body">可选展示 1h / 6h / 24h Mock 预测</text>
+  <text x="2785" y="1430" text-anchor="middle" class="small">只读取 dashboard.json，不写数据库</text>
+  <path d="M2960 935 L2960 1148 L2785 1148 L2785 1215" class="arrow-dash"/>
+
+  <text x="1600" y="1575" text-anchor="middle" class="small">V1.0 · 课程 Demo 基线：能搭建、能联调、能答辩；未进入需求的机制不提前实现</text>
+</svg>

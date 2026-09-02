@@ -1,0 +1,45 @@
+# CMake / Ninja / compiler output
+/build/
+/build-*/
+/cmake-build-*/
+**/CMakeFiles/
+**/CMakeCache.txt
+**/cmake_install.cmake
+**/compile_commands.json
+*.o
+*.obj
+*.a
+*.so
+*.dll
+*.dylib
+*.exe
+
+# Qt Creator and generated UI resources
+*.user
+*.user.*
+*.autosave
+.qtc_clangd/
+
+# Runtime data
+*.db
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+*.db-journal
+dashboard.json
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+config.local.*
+
+# Editor / OS
+.vscode/
+.idea/
+.claude/settings.local.json
+CLAUDE.local.md
+.DS_Store
+Thumbs.db
+*~

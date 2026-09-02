@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "type": "auth.user.login",
+  "requestId": "fixture-login-1",
+  "code": 0,
+  "message": "OK",
+  "data": {
+    "token": "fixture-token",
+    "isNewUser": false,
+    "user": {
+      "userId": 1,
+      "phone": "13800000001",
+      "nickname": "演示用户0001",
+      "balanceCents": 20000,
+      "status": "ACTIVE",
+      "createdAt": "2026-06-04T11:53:41Z"
+    }
+  }
+}
