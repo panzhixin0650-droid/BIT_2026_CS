@@ -165,6 +165,47 @@ QString MockChargingApi::updateNickname(const QString &nickname)
     return requestId;
 }
 
+QString MockChargingApi::recharge(qint64 amountCents)
+{
+    const QString requestId = nextRequestId();
+
+    QTimer::singleShot(0, this, [this, requestId, amountCents]() {
+        RechargeResult result;
+        const auto user = authenticatedUser();
+        if (!user.has_value()) {
+            token_.clear();
+            authenticatedPhone_.clear();
+            result.response = response(requestId,
+                                       protocol::MessageType::WalletRecharge,
+                                       protocol::ErrorCode::InvalidSession,
+                                       QStringLiteral("请先登录"));
+            emit rechargeCompleted(result);
+            return;
+        }
+
+        if (amountCents < 1 || amountCents > 1000000) {
+            result.response = response(requestId,
+                                       protocol::MessageType::WalletRecharge,
+                                       protocol::ErrorCode::InvalidRequest,
+                                       QStringLiteral("充值金额必须在0.01元到10000元之间"));
+            emit rechargeCompleted(result);
+            return;
+        }
+
+        auto updatedUser = *user;
+        updatedUser.balanceCents += amountCents;
+        usersByPhone_.insert(updatedUser.phone, updatedUser);
+        result.response = response(requestId,
+                                   protocol::MessageType::WalletRecharge,
+                                   protocol::ErrorCode::Ok,
+                                   QStringLiteral("OK"));
+        result.payload = RechargePayload{updatedUser.balanceCents};
+        emit rechargeCompleted(result);
+    });
+
+    return requestId;
+}
+
 QString MockChargingApi::nextRequestId()
 {
     return QStringLiteral("mock-%1").arg(++requestSequence_);

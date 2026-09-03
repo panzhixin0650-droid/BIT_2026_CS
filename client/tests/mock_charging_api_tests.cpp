@@ -16,6 +16,7 @@ private slots:
     void unknownPhoneIsAutomaticallyRegisteredOnce();
     void invalidPhoneCompletesWithInvalidRequest();
     void profileRequiresAndUsesAdapterSession();
+    void rechargeRequiresSessionAndReturnsAuthoritativeBalance();
 };
 
 void MockChargingApiTests::initTestCase()
@@ -23,6 +24,7 @@ void MockChargingApiTests::initTestCase()
     qRegisterMetaType<client::LoginResult>();
     qRegisterMetaType<client::LogoutResult>();
     qRegisterMetaType<client::UserResult>();
+    qRegisterMetaType<client::RechargeResult>();
 }
 
 void MockChargingApiTests::existingFixtureUserCanLogin()
@@ -120,6 +122,39 @@ void MockChargingApiTests::profileRequiresAndUsesAdapterSession()
     QTRY_COMPARE(profileSpy.count(), 1);
     profileResult = qvariant_cast<client::UserResult>(profileSpy.takeFirst().at(0));
     QCOMPARE(profileResult.response.code, protocol::ErrorCode::InvalidSession);
+}
+
+void MockChargingApiTests::rechargeRequiresSessionAndReturnsAuthoritativeBalance()
+{
+    client::MockChargingApi api;
+    QSignalSpy rechargeSpy(&api, &client::IChargingApi::rechargeCompleted);
+    QSignalSpy loginSpy(&api, &client::IChargingApi::loginCompleted);
+
+    const QString noSessionRequestId = api.recharge(1000);
+    QVERIFY(!noSessionRequestId.isEmpty());
+    QTRY_COMPARE(rechargeSpy.count(), 1);
+    auto result =
+        qvariant_cast<client::RechargeResult>(rechargeSpy.takeFirst().at(0));
+    QCOMPARE(result.response.code, protocol::ErrorCode::InvalidSession);
+    QVERIFY(!result.payload.has_value());
+
+    const QString loginRequestId = api.loginUser(QStringLiteral("13800000001"));
+    QVERIFY(!loginRequestId.isEmpty());
+    QTRY_COMPARE(loginSpy.count(), 1);
+
+    const QString invalidAmountRequestId = api.recharge(0);
+    QVERIFY(!invalidAmountRequestId.isEmpty());
+    QTRY_COMPARE(rechargeSpy.count(), 1);
+    result = qvariant_cast<client::RechargeResult>(rechargeSpy.takeFirst().at(0));
+    QCOMPARE(result.response.code, protocol::ErrorCode::InvalidRequest);
+
+    const QString rechargeRequestId = api.recharge(1000);
+    QTRY_COMPARE(rechargeSpy.count(), 1);
+    result = qvariant_cast<client::RechargeResult>(rechargeSpy.takeFirst().at(0));
+    QVERIFY(result.ok());
+    QCOMPARE(result.response.requestId, rechargeRequestId);
+    QVERIFY(result.payload.has_value());
+    QCOMPARE(result.payload->balanceCents, 21000);
 }
 
 QTEST_GUILESS_MAIN(MockChargingApiTests)

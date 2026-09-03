@@ -18,6 +18,7 @@ public:
     [[nodiscard]] QString logout() override;
     [[nodiscard]] QString getProfile() override;
     [[nodiscard]] QString updateNickname(const QString &nickname) override;
+    [[nodiscard]] QString recharge(qint64 amountCents) override;
 
 private:
     [[nodiscard]] QString nextRequestId();

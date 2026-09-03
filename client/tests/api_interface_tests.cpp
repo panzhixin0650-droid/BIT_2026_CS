@@ -58,6 +58,12 @@ public:
         return nextRequestId();
     }
 
+    QString recharge(qint64 amountCents) override
+    {
+        Q_UNUSED(amountCents)
+        return nextRequestId();
+    }
+
 private:
     QString nextRequestId()
     {

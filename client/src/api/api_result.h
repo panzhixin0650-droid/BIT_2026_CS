@@ -47,12 +47,18 @@ struct UserPayload {
     protocol::UserDto user;
 };
 
+struct RechargePayload {
+    qint64 balanceCents = 0;
+};
+
 using LoginResult = ApiResult<LoginPayload>;
 using LogoutResult = ApiResult<LogoutPayload>;
 using UserResult = ApiResult<UserPayload>;
+using RechargeResult = ApiResult<RechargePayload>;
 
 }  // namespace charging::client
 
 Q_DECLARE_METATYPE(charging::client::LoginResult)
 Q_DECLARE_METATYPE(charging::client::LogoutResult)
 Q_DECLARE_METATYPE(charging::client::UserResult)
+Q_DECLARE_METATYPE(charging::client::RechargeResult)

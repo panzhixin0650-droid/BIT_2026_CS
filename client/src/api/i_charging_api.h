@@ -18,12 +18,14 @@ public:
     [[nodiscard]] virtual QString logout() = 0;
     [[nodiscard]] virtual QString getProfile() = 0;
     [[nodiscard]] virtual QString updateNickname(const QString &nickname) = 0;
+    [[nodiscard]] virtual QString recharge(qint64 amountCents) = 0;
 
 signals:
     void loginCompleted(const charging::client::LoginResult &result);
     void logoutCompleted(const charging::client::LogoutResult &result);
     void profileCompleted(const charging::client::UserResult &result);
     void profileUpdateCompleted(const charging::client::UserResult &result);
+    void rechargeCompleted(const charging::client::RechargeResult &result);
 };
 
 }  // namespace charging::client
