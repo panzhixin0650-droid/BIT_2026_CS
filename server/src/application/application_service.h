@@ -5,6 +5,7 @@
 #include "charging/protocol/dto.h"
 
 #include <QJsonObject>
+#include <QDate>
 #include <QObject>
 #include <QString>
 
@@ -46,12 +47,19 @@ public:
     [[nodiscard]] ServiceResult loginAdmin(const QString &username,
                                            const QString &password) const;
     [[nodiscard]] ServiceResult getDashboard(int days) const;
+    [[nodiscard]] ServiceResult getDashboard(const QDate &startDate,
+                                             const QDate &endDate) const;
     [[nodiscard]] ServiceResult listAdminStations(const QString &region,
                                                   const QString &keyword) const;
     [[nodiscard]] ServiceResult createAdminStation(const QJsonObject &input);
     [[nodiscard]] ServiceResult deleteAdminStation(qint64 stationId);
     [[nodiscard]] ServiceResult listAdminPiles(
         std::optional<qint64> stationId = std::nullopt) const;
+    [[nodiscard]] ServiceResult createAdminPile(const QJsonObject &input);
+    [[nodiscard]] ServiceResult deleteAdminPile(qint64 pileId);
+    [[nodiscard]] ServiceResult setAdminPileStatus(
+        qint64 pileId,
+        charging::protocol::PileStatus status);
     [[nodiscard]] ServiceResult restartAdminPile(qint64 pileId);
     [[nodiscard]] ServiceResult listAdminUsers(const QString &phoneKeyword) const;
     [[nodiscard]] ServiceResult setAdminUserStatus(

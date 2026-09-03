@@ -3,11 +3,15 @@
 #include <QMainWindow>
 
 class QComboBox;
+class QDateEdit;
+class QDockWidget;
 class QLabel;
 class QLineEdit;
 class QListWidget;
+class QPushButton;
 class QStackedWidget;
 class QTableWidget;
+class QTreeWidget;
 
 namespace charging::server {
 
@@ -42,7 +46,14 @@ private:
     void refreshUsers();
     void refreshOrders();
     void showCreateStationDialog();
+    void showCreatePileDialog();
+    void showStationDetails(qint64 stationId);
+    void showPileDetails(qint64 pileId);
+    void showUserDetails(qint64 userId);
+    void showOrderDetails(qint64 orderId);
+    void showDetails(const QString &title, const QString &content);
     void deleteSelectedStation();
+    void deleteSelectedPile();
     void restartSelectedPile();
     void toggleSelectedUserStatus();
     void showServiceError(int code, const QString &message);
@@ -69,14 +80,31 @@ private:
     QLabel *inUsePiles_ = nullptr;
     QLabel *faultPiles_ = nullptr;
     QComboBox *dashboardDays_ = nullptr;
+    QDateEdit *dashboardStartDate_ = nullptr;
+    QDateEdit *dashboardEndDate_ = nullptr;
+    QPushButton *dashboardApplyButton_ = nullptr;
+    QDockWidget *detailsDock_ = nullptr;
     RevenueChart *revenueChart_ = nullptr;
     QLineEdit *stationSearch_ = nullptr;
     QComboBox *stationRegion_ = nullptr;
-    QTableWidget *stationsTable_ = nullptr;
+    QComboBox *stationStatus_ = nullptr;
+    QTreeWidget *stationsTable_ = nullptr;
+    QLineEdit *pileSearch_ = nullptr;
+    QComboBox *pileStation_ = nullptr;
+    QComboBox *pileStatus_ = nullptr;
     QTableWidget *pilesTable_ = nullptr;
     QLineEdit *userSearch_ = nullptr;
+    QComboBox *userStatus_ = nullptr;
     QTableWidget *usersTable_ = nullptr;
+    QLineEdit *orderSearch_ = nullptr;
+    QComboBox *orderStatus_ = nullptr;
+    QComboBox *orderMode_ = nullptr;
     QTableWidget *ordersTable_ = nullptr;
+    QString appliedStationSearch_;
+    QString appliedPileSearch_;
+    QString appliedUserSearch_;
+    QString appliedOrderSearch_;
+    qint64 expandStationAfterRefresh_ = 0;
 };
 
 }  // namespace charging::server

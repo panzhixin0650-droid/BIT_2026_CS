@@ -16,6 +16,8 @@ struct AdminRecord {
     QString displayName;
 };
 
+enum class DeletePileResult { Deleted, NotFound, HasOrders, Busy, StorageError };
+
 enum class DeleteStationResult {
     Deleted,
     NotFound,
@@ -67,6 +69,9 @@ public:
     listPilesByStationId(qint64 stationId) const = 0;
     [[nodiscard]] virtual QList<charging::protocol::PileDto>
     listPiles() const = 0;
+    [[nodiscard]] virtual charging::protocol::PileDto createPile(
+        charging::protocol::PileDto pile) = 0;
+    [[nodiscard]] virtual DeletePileResult deletePile(qint64 pileId) = 0;
     [[nodiscard]] virtual bool updatePile(
         const charging::protocol::PileDto &pile) = 0;
 

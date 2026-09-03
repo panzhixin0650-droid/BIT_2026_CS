@@ -897,6 +897,74 @@ QList<PileDto> Repository::listPiles() const
     return piles;
 }
 
+PileDto Repository::createPile(PileDto pile)
+{
+    beginOperation();
+    const QString operation = QStringLiteral("createPile");
+    if (!requireOpen(operation) || pile.stationId <= 0 || pile.pileCode.isEmpty()
+        || pile.ratedPowerKw <= 0.0) {
+        failOperation(operation, QStringLiteral("invalid pile"));
+        return {};
+    }
+    QSqlQuery query(database_);
+    if (!query.prepare(QStringLiteral(
+            "INSERT INTO charging_piles (station_id, pile_code, pile_type, rated_power_kw, status) "
+            "VALUES (:station_id, :pile_code, :pile_type, :power, :status)"))) {
+        failOperation(operation, query.lastError().text());
+        return {};
+    }
+    query.bindValue(QStringLiteral(":station_id"), pile.stationId);
+    query.bindValue(QStringLiteral(":pile_code"), pile.pileCode);
+    query.bindValue(QStringLiteral(":pile_type"), toString(pile.pileType));
+    query.bindValue(QStringLiteral(":power"), pile.ratedPowerKw);
+    query.bindValue(QStringLiteral(":status"), toString(PileStatus::Idle));
+    if (!query.exec()) {
+        failOperation(operation, query.lastError().text());
+        return {};
+    }
+    bool idOk = false;
+    pile.pileId = query.lastInsertId().toLongLong(&idOk);
+    if (!idOk || pile.pileId <= 0) {
+        failOperation(operation, QStringLiteral("database did not return a pile id"));
+        return {};
+    }
+    pile.status = PileStatus::Idle;
+    pile.chargeCount = 0;
+    pile.totalChargeSeconds = 0;
+    return pile;
+}
+
+DeletePileResult Repository::deletePile(qint64 pileId)
+{
+    beginOperation();
+    const QString operation = QStringLiteral("deletePile");
+    if (!requireOpen(operation) || pileId <= 0) return DeletePileResult::NotFound;
+    QSqlQuery status(database_);
+    if (!status.prepare(QStringLiteral("SELECT status FROM charging_piles WHERE pile_id = :pile_id"))) {
+        failOperation(operation, status.lastError().text());
+        return DeletePileResult::StorageError;
+    }
+    status.bindValue(QStringLiteral(":pile_id"), pileId);
+    if (!status.exec()) { failOperation(operation, status.lastError().text()); return DeletePileResult::StorageError; }
+    if (!status.next()) return DeletePileResult::NotFound;
+    const QString state = status.value(0).toString();
+    if (state != QStringLiteral("IDLE") && state != QStringLiteral("OFFLINE")) return DeletePileResult::Busy;
+    QSqlQuery orders(database_);
+    if (!orders.prepare(QStringLiteral("SELECT 1 FROM charging_orders WHERE pile_id = :pile_id LIMIT 1"))) {
+        failOperation(operation, orders.lastError().text()); return DeletePileResult::StorageError;
+    }
+    orders.bindValue(QStringLiteral(":pile_id"), pileId);
+    if (!orders.exec()) { failOperation(operation, orders.lastError().text()); return DeletePileResult::StorageError; }
+    if (orders.next()) return DeletePileResult::HasOrders;
+    QSqlQuery query(database_);
+    if (!query.prepare(QStringLiteral("DELETE FROM charging_piles WHERE pile_id = :pile_id"))) {
+        failOperation(operation, query.lastError().text()); return DeletePileResult::StorageError;
+    }
+    query.bindValue(QStringLiteral(":pile_id"), pileId);
+    if (!query.exec()) { failOperation(operation, query.lastError().text()); return DeletePileResult::StorageError; }
+    return query.numRowsAffected() == 1 ? DeletePileResult::Deleted : DeletePileResult::NotFound;
+}
+
 bool Repository::updatePile(const PileDto &pile)
 {
     beginOperation();

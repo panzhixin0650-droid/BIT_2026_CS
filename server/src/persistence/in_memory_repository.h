@@ -46,6 +46,9 @@ public:
     listPilesByStationId(qint64 stationId) const override;
     [[nodiscard]] QList<charging::protocol::PileDto>
     listPiles() const override;
+    [[nodiscard]] charging::protocol::PileDto createPile(
+        charging::protocol::PileDto pile) override;
+    [[nodiscard]] DeletePileResult deletePile(qint64 pileId) override;
     [[nodiscard]] bool updatePile(
         const charging::protocol::PileDto &pile) override;
 

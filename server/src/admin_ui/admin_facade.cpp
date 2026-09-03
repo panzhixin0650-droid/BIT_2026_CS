@@ -24,6 +24,12 @@ ServiceResult AdminFacade::getDashboard(int days) const
     return service_->getDashboard(days);
 }
 
+ServiceResult AdminFacade::getDashboard(const QDate &startDate,
+                                        const QDate &endDate) const
+{
+    return service_->getDashboard(startDate, endDate);
+}
+
 ServiceResult AdminFacade::listStations(const QString &region,
                                         const QString &keyword) const
 {
@@ -43,6 +49,22 @@ ServiceResult AdminFacade::deleteStation(qint64 stationId) const
 ServiceResult AdminFacade::listPiles(std::optional<qint64> stationId) const
 {
     return service_->listAdminPiles(stationId);
+}
+
+ServiceResult AdminFacade::createPile(const QJsonObject &input) const
+{
+    return service_->createAdminPile(input);
+}
+
+ServiceResult AdminFacade::deletePile(qint64 pileId) const
+{
+    return service_->deleteAdminPile(pileId);
+}
+
+ServiceResult AdminFacade::setPileStatus(qint64 pileId,
+                                         charging::protocol::PileStatus status) const
+{
+    return service_->setAdminPileStatus(pileId, status);
 }
 
 ServiceResult AdminFacade::restartPile(qint64 pileId) const
