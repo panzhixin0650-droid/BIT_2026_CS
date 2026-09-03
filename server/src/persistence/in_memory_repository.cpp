@@ -4,6 +4,7 @@
 #include <QCryptographicHash>
 
 #include <algorithm>
+#include <limits>
 
 namespace charging::server {
 
@@ -24,8 +25,10 @@ InMemoryRepository::InMemoryRepository()
     users_ = {
         UserDto{1, QStringLiteral("13800000001"), QStringLiteral("演示用户0001"),
                 20000, UserStatus::Active, QStringLiteral("2026-06-04T11:53:41Z")},
-        UserDto{2, QStringLiteral("13800000005"), QStringLiteral("冻结用户0005"),
-                5000, UserStatus::Frozen, QStringLiteral("2026-06-08T08:00:00Z")},
+        UserDto{4, QStringLiteral("13800000004"), QStringLiteral("冻结用户"),
+                12000, UserStatus::Frozen, QStringLiteral("2026-07-05T08:00:00Z")},
+        UserDto{5, QStringLiteral("13800000005"), QStringLiteral("待支付用户"),
+                100, UserStatus::Active, QStringLiteral("2026-07-15T08:00:00Z")},
     };
 
     stations_ = {
@@ -54,7 +57,7 @@ InMemoryRepository::InMemoryRepository()
         PileDto{6, 3, QStringLiteral("PILE-C-02"), PileType::Fast, 60.0,
                 PileStatus::Offline, 1, 3600},
     };
-    nextUserId_ = 3;
+    nextUserId_ = 6;
     nextStationId_ = 4;
     nextPileId_ = 7;
 
@@ -105,9 +108,14 @@ InMemoryRepository::InMemoryRepository()
                   QStringLiteral("PILE-B-01"), OrderStatus::Completed, 6, 6500, 832),
         makeOrder(1005, 1, 1, QStringLiteral("浑南演示充电站"), 2,
                   QStringLiteral("PILE-A-02"), OrderStatus::Charging, 0, 2400, 324),
-        makeOrder(1006, 2, 3, QStringLiteral("沈北大学城充电站"), 5,
+        makeOrder(1006, 5, 3, QStringLiteral("沈北大学城充电站"), 5,
                   QStringLiteral("PILE-C-01"), OrderStatus::PendingPayment, 2, 4000, 480),
     };
+}
+
+bool InMemoryRepository::lastOperationSucceeded() const noexcept
+{
+    return true;
 }
 
 std::optional<AdminRecord> InMemoryRepository::findAdminByUsername(
@@ -166,6 +174,22 @@ bool InMemoryRepository::updateUser(const UserDto &user)
     }
     *found = user;
     return true;
+}
+
+std::optional<UserDto> InMemoryRepository::addUserBalance(qint64 userId,
+                                                          qint64 amountCents)
+{
+    const auto found = std::find_if(users_.begin(), users_.end(),
+                                    [userId](const UserDto &user) {
+                                        return user.userId == userId;
+                                    });
+    if (found == users_.end() || amountCents <= 0
+        || found->balanceCents
+            > std::numeric_limits<qint64>::max() - amountCents) {
+        return std::nullopt;
+    }
+    found->balanceCents += amountCents;
+    return *found;
 }
 
 QList<UserDto> InMemoryRepository::listUsers() const
@@ -234,6 +258,33 @@ StationDto InMemoryRepository::createStation(StationDto station, qint64 pileCoun
         piles_.append(pile);
     }
     return withPileCounts(station);
+}
+
+DeleteStationResult InMemoryRepository::deleteStation(qint64 stationId)
+{
+    const auto station = std::find_if(
+        stations_.begin(), stations_.end(), [stationId](const StationDto &item) {
+            return item.stationId == stationId;
+        });
+    if (station == stations_.end()) {
+        return DeleteStationResult::NotFound;
+    }
+
+    const bool hasOrders = std::any_of(
+        orders_.cbegin(), orders_.cend(), [stationId](const OrderDto &order) {
+            return order.stationId == stationId;
+        });
+    if (hasOrders) {
+        return DeleteStationResult::HasOrders;
+    }
+
+    piles_.erase(std::remove_if(piles_.begin(), piles_.end(),
+                                [stationId](const PileDto &pile) {
+                                    return pile.stationId == stationId;
+                                }),
+                 piles_.end());
+    stations_.erase(station);
+    return DeleteStationResult::Deleted;
 }
 
 QList<PileDto> InMemoryRepository::listPilesByStationId(qint64 stationId) const

@@ -35,6 +35,11 @@ ServiceResult AdminFacade::createStation(const QJsonObject &input) const
     return service_->createAdminStation(input);
 }
 
+ServiceResult AdminFacade::deleteStation(qint64 stationId) const
+{
+    return service_->deleteAdminStation(stationId);
+}
+
 ServiceResult AdminFacade::listPiles(std::optional<qint64> stationId) const
 {
     return service_->listAdminPiles(stationId);

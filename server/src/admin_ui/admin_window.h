@@ -21,6 +21,7 @@ public:
     explicit AdminWindow(AdminFacade *facade,
                          bool tcpListening,
                          quint16 tcpPort,
+                         bool sqliteRepository,
                          QWidget *parent = nullptr);
 
 private:
@@ -41,6 +42,7 @@ private:
     void refreshUsers();
     void refreshOrders();
     void showCreateStationDialog();
+    void deleteSelectedStation();
     void restartSelectedPile();
     void toggleSelectedUserStatus();
     void showServiceError(int code, const QString &message);
@@ -51,6 +53,7 @@ private:
     AdminFacade *facade_ = nullptr;
     bool tcpListening_ = false;
     quint16 tcpPort_ = 0;
+    bool sqliteRepository_ = false;
     QStackedWidget *rootStack_ = nullptr;
     QStackedWidget *contentStack_ = nullptr;
     QListWidget *navigation_ = nullptr;

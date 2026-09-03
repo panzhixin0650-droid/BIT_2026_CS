@@ -6,11 +6,13 @@
 
 namespace charging::server {
 
-// Development-only Repository replacement used until the numbered SQLite
-// migration is available. Data lives only for the lifetime of server-app.
+// Explicit development/test Repository replacement. Data lives only for the
+// lifetime of server-app and is never selected by the default startup path.
 class InMemoryRepository final : public IRepository {
 public:
     InMemoryRepository();
+
+    [[nodiscard]] bool lastOperationSucceeded() const noexcept override;
 
     [[nodiscard]] std::optional<AdminRecord>
     findAdminByUsername(const QString &username) const override;
@@ -25,6 +27,8 @@ public:
         const QString &createdAt) override;
     [[nodiscard]] bool updateUser(
         const charging::protocol::UserDto &user) override;
+    [[nodiscard]] std::optional<charging::protocol::UserDto>
+    addUserBalance(qint64 userId, qint64 amountCents) override;
     [[nodiscard]] QList<charging::protocol::UserDto>
     listUsers() const override;
 
@@ -37,6 +41,7 @@ public:
     [[nodiscard]] charging::protocol::StationDto createStation(
         charging::protocol::StationDto station,
         qint64 pileCount) override;
+    [[nodiscard]] DeleteStationResult deleteStation(qint64 stationId) override;
     [[nodiscard]] QList<charging::protocol::PileDto>
     listPilesByStationId(qint64 stationId) const override;
     [[nodiscard]] QList<charging::protocol::PileDto>
