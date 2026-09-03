@@ -6,6 +6,8 @@
 int main(int argc, char *argv[])
 {
     QApplication application(argc, argv);
+    QApplication::setOrganizationName(QStringLiteral("BIT"));
+    QApplication::setApplicationName(QStringLiteral("ChargingClient"));
 
     charging::client::MockChargingApi api;
     charging::client::MainWindow window(api);

@@ -37,12 +37,18 @@ target_link_libraries(charging_client_api
 )
 
 add_library(charging_client_ui STATIC
+    src/local/avatar_storage.cpp
+    src/local/avatar_storage.h
     src/ui/login_controller.cpp
     src/ui/login_controller.h
     src/ui/login_page.cpp
     src/ui/login_page.h
     src/ui/main_window.cpp
     src/ui/main_window.h
+    src/ui/profile_controller.cpp
+    src/ui/profile_controller.h
+    src/ui/profile_page.cpp
+    src/ui/profile_page.h
 )
 
 target_include_directories(charging_client_ui
@@ -106,4 +112,19 @@ if(BUILD_TESTING)
     )
 
     add_test(NAME charging_client_mock_api_tests COMMAND charging_client_mock_api_tests)
+
+    add_executable(charging_client_avatar_storage_tests
+        tests/avatar_storage_tests.cpp
+    )
+
+    target_link_libraries(charging_client_avatar_storage_tests
+        PRIVATE
+            charging_client_ui
+            Qt6::Test
+    )
+
+    add_test(
+        NAME charging_client_avatar_storage_tests
+        COMMAND charging_client_avatar_storage_tests
+    )
 endif()

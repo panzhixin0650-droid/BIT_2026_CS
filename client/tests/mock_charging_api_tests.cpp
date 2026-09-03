@@ -129,6 +129,7 @@ void MockChargingApiTests::rechargeRequiresSessionAndReturnsAuthoritativeBalance
     client::MockChargingApi api;
     QSignalSpy rechargeSpy(&api, &client::IChargingApi::rechargeCompleted);
     QSignalSpy loginSpy(&api, &client::IChargingApi::loginCompleted);
+    QSignalSpy profileSpy(&api, &client::IChargingApi::profileCompleted);
 
     const QString noSessionRequestId = api.recharge(1000);
     QVERIFY(!noSessionRequestId.isEmpty());
@@ -155,6 +156,14 @@ void MockChargingApiTests::rechargeRequiresSessionAndReturnsAuthoritativeBalance
     QCOMPARE(result.response.requestId, rechargeRequestId);
     QVERIFY(result.payload.has_value());
     QCOMPARE(result.payload->balanceCents, 21000);
+
+    const QString profileRequestId = api.getProfile();
+    QVERIFY(!profileRequestId.isEmpty());
+    QTRY_COMPARE(profileSpy.count(), 1);
+    const auto profileResult =
+        qvariant_cast<client::UserResult>(profileSpy.takeFirst().at(0));
+    QVERIFY(profileResult.ok());
+    QCOMPARE(profileResult.payload->user.balanceCents, 21000);
 }
 
 QTEST_GUILESS_MAIN(MockChargingApiTests)
