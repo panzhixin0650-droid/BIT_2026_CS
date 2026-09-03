@@ -25,6 +25,7 @@ public:
     [[nodiscard]] ServiceResult listStations(const QString &region = {},
                                              const QString &keyword = {}) const;
     [[nodiscard]] ServiceResult createStation(const QJsonObject &input) const;
+    [[nodiscard]] ServiceResult deleteStation(qint64 stationId) const;
     [[nodiscard]] ServiceResult listPiles(
         std::optional<qint64> stationId = std::nullopt) const;
     [[nodiscard]] ServiceResult restartPile(qint64 pileId) const;

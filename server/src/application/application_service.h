@@ -49,6 +49,7 @@ public:
     [[nodiscard]] ServiceResult listAdminStations(const QString &region,
                                                   const QString &keyword) const;
     [[nodiscard]] ServiceResult createAdminStation(const QJsonObject &input);
+    [[nodiscard]] ServiceResult deleteAdminStation(qint64 stationId);
     [[nodiscard]] ServiceResult listAdminPiles(
         std::optional<qint64> stationId = std::nullopt) const;
     [[nodiscard]] ServiceResult restartAdminPile(qint64 pileId);
