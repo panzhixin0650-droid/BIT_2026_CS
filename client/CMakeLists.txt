@@ -21,6 +21,8 @@ add_library(charging_client_api STATIC
     src/api/api_result.h
     src/api/i_charging_api.cpp
     src/api/i_charging_api.h
+    src/api/mock_charging_api.cpp
+    src/api/mock_charging_api.h
 )
 
 target_include_directories(charging_client_api
@@ -88,4 +90,16 @@ if(BUILD_TESTING)
     )
 
     add_test(NAME charging_client_api_tests COMMAND charging_client_api_tests)
+
+    add_executable(charging_client_mock_api_tests
+        tests/mock_charging_api_tests.cpp
+    )
+
+    target_link_libraries(charging_client_mock_api_tests
+        PRIVATE
+            charging_client_api
+            Qt6::Test
+    )
+
+    add_test(NAME charging_client_mock_api_tests COMMAND charging_client_mock_api_tests)
 endif()
