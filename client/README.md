@@ -27,7 +27,16 @@ tests/           用户端单元测试
 
 ## 当前实现
 
-当前已提供最小 Qt Widgets 应用骨架、独立 CMake 构建入口和窗口构造测试。业务页面、`IChargingApi`、Mock 与 TCP 实现将在后续小任务中逐步加入。
+当前已提供：
+
+- 纯 C++ 构造的 Qt Widgets 应用窗口和手机号登录页；
+- typed `IChargingApi` 登录、退出和个人资料边界；
+- 持有开发期登录态的 `MockChargingApi`；
+- 手机号格式校验、提交 loading、中文错误提示；
+- 已有用户登录和新手机号自动注册后的页面切换；
+- API、Mock、界面与共享协议测试。
+
+当前可执行程序默认装配 `MockChargingApi`，用于在 TCP 客户端接入前独立开发页面。Mock 数据仅保存在当前进程内，退出程序后新注册用户不会保留；它不会连接数据库，也不代表真实服务端已经完成调用。后续接入 `TcpChargingApi` 时，页面和 Controller 继续只依赖 `IChargingApi`。
 
 构建和测试：
 
@@ -42,3 +51,11 @@ ctest --test-dir build/client --output-on-failure
 ```bash
 ./build/client/user-client
 ```
+
+启动后输入 11 位数字手机号：
+
+- `13800000001`：登录契约中的固定演示用户，昵称为“演示用户0001”；
+- 任意其他 11 位数字：在当前 Mock 进程内自动注册，昵称为“用户+手机号后4位”；
+- 少于 11 位：页面直接显示格式错误，不发送 API 请求。
+
+登录成功后暂时进入用户端首页占位区。充电站首页和底部导航不属于本次登录基础任务，将在后续分支逐步接入。

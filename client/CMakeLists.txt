@@ -37,6 +37,10 @@ target_link_libraries(charging_client_api
 )
 
 add_library(charging_client_ui STATIC
+    src/ui/login_controller.cpp
+    src/ui/login_controller.h
+    src/ui/login_page.cpp
+    src/ui/login_page.h
     src/ui/main_window.cpp
     src/ui/main_window.h
 )

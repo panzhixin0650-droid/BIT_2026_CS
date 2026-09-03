@@ -1,3 +1,4 @@
+#include "api/mock_charging_api.h"
 #include "ui/main_window.h"
 
 #include <QApplication>
@@ -6,7 +7,8 @@ int main(int argc, char *argv[])
 {
     QApplication application(argc, argv);
 
-    charging::client::MainWindow window;
+    charging::client::MockChargingApi api;
+    charging::client::MainWindow window(api);
     window.show();
 
     return application.exec();
