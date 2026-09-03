@@ -64,6 +64,7 @@ include(CTest)
 
 if(BUILD_TESTING)
     find_package(Qt6 6.2 REQUIRED COMPONENTS Test)
+    find_program(SQLITE3_EXECUTABLE sqlite3 REQUIRED)
 
     add_executable(charging_server_tests
         tests/server_tests.cpp
@@ -100,4 +101,33 @@ if(BUILD_TESTING)
     )
 
     add_test(NAME charging_server_tests COMMAND charging_server_tests)
+
+    add_executable(charging_repository_tests
+        tests/repository_tests.cpp
+        src/persistence/repository.cpp
+        src/persistence/repository.h
+        src/persistence/i_repository.h
+    )
+
+    target_include_directories(charging_repository_tests
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+
+    target_compile_definitions(charging_repository_tests
+        PRIVATE
+            CHARGING_SQLITE3_EXECUTABLE="${SQLITE3_EXECUTABLE}"
+            CHARGING_DATABASE_MIGRATION_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/migrations/001_initial_demo.sql"
+            CHARGING_DATABASE_SEED_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/seeds/demo.sql"
+    )
+
+    target_link_libraries(charging_repository_tests
+        PRIVATE
+            charging_protocol
+            Qt6::Core
+            Qt6::Sql
+            Qt6::Test
+    )
+
+    add_test(NAME charging_repository_tests COMMAND charging_repository_tests)
 endif()
