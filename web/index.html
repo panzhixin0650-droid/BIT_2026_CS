@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#edf4fb">
+  <title>充电桩运营数据可视化大屏</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script defer src="./vendor/echarts.min.js"></script>
+  <script defer src="./app.js"></script>
+</head>
+<body>
+  <div class="page-glow page-glow-left" aria-hidden="true"></div>
+  <div class="page-glow page-glow-right" aria-hidden="true"></div>
+
+  <main class="dashboard-shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 48 48" role="img">
+            <path d="M27.8 5 13.5 27h9.4L20.2 43 35 20.5h-9.5L27.8 5Z" fill="currentColor"/>
+          </svg>
+        </span>
+        <div>
+          <h1>充电桩运营数据可视化大屏</h1>
+          <p>东软电动汽车充电桩应用管理平台 · 运营决策中心</p>
+        </div>
+      </div>
+
+      <div class="meta-strip" aria-label="数据快照信息">
+        <span class="meta-pill">
+          <i class="status-dot" aria-hidden="true"></i>
+          数据更新：<strong id="generated-at">--</strong>
+        </span>
+        <span class="meta-pill">
+          <i class="meta-icon meta-icon-schema" aria-hidden="true">◆</i>
+          数据版本：<strong id="schema-version">--</strong>
+        </span>
+        <span class="meta-pill meta-pill-wide">
+          <i class="meta-icon" aria-hidden="true">▦</i>
+          分析维度：<strong>营收 · 电桩状态 · 负荷预测</strong>
+        </span>
+      </div>
+
+      <button class="icon-button" id="fullscreen-button" type="button" aria-label="切换全屏" title="切换全屏">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M8 3H4a1 1 0 0 0-1 1v4M16 3h4a1 1 0 0 1 1 1v4M8 21H4a1 1 0 0 1-1-1v-4m13 5h4a1 1 0 0 0 1-1v-4"/>
+        </svg>
+      </button>
+    </header>
+
+    <section class="kpi-grid" aria-label="核心运营指标">
+      <article class="kpi-card kpi-blue">
+        <span class="kpi-icon" aria-hidden="true">¥</span>
+        <div class="kpi-content">
+          <span class="kpi-label">今日营收</span>
+          <strong class="kpi-value" id="today-revenue">--</strong>
+          <small>按中国业务日统计</small>
+        </div>
+      </article>
+      <article class="kpi-card kpi-green">
+        <span class="kpi-icon" aria-hidden="true">↗</span>
+        <div class="kpi-content">
+          <span class="kpi-label">本月营收</span>
+          <strong class="kpi-value" id="month-revenue">--</strong>
+          <small>已完成订单金额</small>
+        </div>
+      </article>
+      <article class="kpi-card kpi-amber">
+        <span class="kpi-icon" aria-hidden="true">◎</span>
+        <div class="kpi-content">
+          <span class="kpi-label">累计营收</span>
+          <strong class="kpi-value" id="total-revenue">--</strong>
+          <small>历史已支付订单</small>
+        </div>
+      </article>
+      <article class="kpi-card kpi-violet">
+        <span class="kpi-icon" aria-hidden="true">▥</span>
+        <div class="kpi-content">
+          <span class="kpi-label">充电站总数</span>
+          <strong class="kpi-value" id="station-count">--</strong>
+          <small>包含全部站点</small>
+        </div>
+      </article>
+      <article class="kpi-card kpi-red">
+        <span class="kpi-icon" aria-hidden="true">ϟ</span>
+        <div class="kpi-content">
+          <span class="kpi-label">充电桩总数</span>
+          <strong class="kpi-value" id="pile-count">--</strong>
+          <small id="pile-count-detail">闲置 -- · 在用 --</small>
+        </div>
+      </article>
+    </section>
+
+    <section class="dashboard-grid">
+      <aside class="dashboard-column left-column">
+        <article class="panel state-panel">
+          <header class="panel-header">
+            <div>
+              <h2>电桩状态分布</h2>
+              <p>实时资源健康度</p>
+            </div>
+            <span class="panel-badge">状态占比</span>
+          </header>
+          <div class="chart chart-donut" id="pile-state-chart" role="img" aria-label="电桩状态分布环形图"></div>
+          <div class="legend-grid" id="pile-state-legend"></div>
+        </article>
+
+        <article class="panel utilization-panel">
+          <header class="panel-header">
+            <div>
+              <h2>资源利用概览</h2>
+              <p>由电桩状态实时计算</p>
+            </div>
+            <span class="panel-badge">利用率</span>
+          </header>
+          <div class="utilization-score">
+            <div>
+              <strong id="availability-rate">--%</strong>
+              <span>当前可用率</span>
+            </div>
+            <span class="score-ring" id="availability-ring" aria-hidden="true"></span>
+          </div>
+          <div class="progress-list" id="state-progress-list"></div>
+          <div class="resource-summary">
+            <div><span>平均每站电桩</span><strong id="piles-per-station">--</strong></div>
+            <div><span>异常 / 离线</span><strong id="fault-rate">--%</strong></div>
+          </div>
+        </article>
+      </aside>
+
+      <section class="dashboard-column center-column">
+        <article class="panel revenue-panel">
+          <header class="panel-header panel-header-actions">
+            <div>
+              <h2>营收趋势分析</h2>
+              <p>连续自然日，无收入日期补零</p>
+            </div>
+            <div class="segmented-control" aria-label="营收趋势时间范围">
+              <button type="button" data-days="7">近 7 日</button>
+              <button class="is-active" type="button" data-days="30">近 30 日</button>
+            </div>
+          </header>
+          <div class="chart chart-revenue" id="revenue-chart" role="img" aria-label="近30日营收趋势图"></div>
+          <footer class="chart-summary">
+            <div><span>区间营收</span><strong id="range-revenue">--</strong></div>
+            <div><span>日均营收</span><strong id="average-revenue">--</strong></div>
+            <div><span>峰值日期</span><strong id="peak-date">--</strong></div>
+            <div><span>单日峰值</span><strong id="peak-revenue">--</strong></div>
+          </footer>
+        </article>
+
+        <article class="panel forecast-panel" id="forecast-panel">
+          <header class="panel-header">
+            <div>
+              <h2>充电负荷智能预测</h2>
+              <p id="forecast-subtitle">代表站点 · Mock 预测</p>
+            </div>
+            <span class="panel-badge panel-badge-green" id="forecast-horizon">未来 -- 小时</span>
+          </header>
+          <div class="forecast-content">
+            <div class="chart chart-forecast" id="forecast-chart" role="img" aria-label="充电负荷和可用电桩预测图"></div>
+            <div class="forecast-readout">
+              <div class="forecast-status" id="forecast-status">
+                <span class="forecast-status-dot" aria-hidden="true"></span>
+                <div><small>拥堵等级</small><strong>--</strong></div>
+              </div>
+              <dl>
+                <div><dt>预测负荷</dt><dd id="forecast-load">--</dd></div>
+                <div><dt>可用电桩</dt><dd id="forecast-available">--</dd></div>
+                <div><dt>预测时点</dt><dd id="forecast-time">--</dd></div>
+              </dl>
+            </div>
+          </div>
+          <div class="empty-state" id="forecast-empty" hidden>当前快照未提供预测数据</div>
+        </article>
+      </section>
+
+      <aside class="dashboard-column right-column">
+        <article class="panel health-panel">
+          <header class="panel-header">
+            <div>
+              <h2>运营健康概览</h2>
+              <p>闲置、在用与异常资源</p>
+            </div>
+            <span class="panel-badge">实时快照</span>
+          </header>
+          <div class="chart chart-gauge" id="health-gauge-chart" role="img" aria-label="电桩可用率仪表图"></div>
+          <div class="health-copy">
+            <strong id="health-title">--</strong>
+            <span id="health-description">正在分析电桩状态</span>
+          </div>
+        </article>
+
+        <article class="panel revenue-structure-panel">
+          <header class="panel-header">
+            <div>
+              <h2>营收指标对照</h2>
+              <p>今日、本月与历史累计</p>
+            </div>
+            <span class="panel-badge">金额概览</span>
+          </header>
+          <div class="revenue-bars" id="revenue-bars"></div>
+          <p class="comparison-note">不同统计周期仅作金额概览，不代表同比或环比。</p>
+        </article>
+
+        <article class="panel snapshot-panel">
+          <header class="panel-header">
+            <div>
+              <h2>数据快照</h2>
+              <p>当前页面数据来源</p>
+            </div>
+            <span class="source-badge" id="data-source-badge">加载中</span>
+          </header>
+          <dl class="snapshot-list">
+            <div><dt>业务时区</dt><dd>Asia/Shanghai</dd></div>
+            <div><dt>营收区间</dt><dd id="revenue-date-range">--</dd></div>
+            <div><dt>预测来源</dt><dd id="prediction-source">--</dd></div>
+            <div><dt>快照版本</dt><dd id="snapshot-version">--</dd></div>
+          </dl>
+        </article>
+      </aside>
+    </section>
+
+    <div class="loading-overlay" id="loading-overlay" role="status" aria-live="polite">
+      <span class="loading-spinner" aria-hidden="true"></span>
+      <strong>正在读取运营数据</strong>
+      <small>优先读取 dashboard.json，缺失时使用契约样例</small>
+    </div>
+
+    <div class="error-banner" id="error-banner" role="alert" hidden>
+      <strong>数据加载失败</strong>
+      <span id="error-message"></span>
+    </div>
+  </main>
+</body>
+</html>
