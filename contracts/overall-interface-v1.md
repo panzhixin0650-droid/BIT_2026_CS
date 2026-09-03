@@ -418,12 +418,15 @@ StationCreateInput = {
 | 方法 | 输入 | 输出 | 含义 |
 | --- | --- | --- | --- |
 | `login` | `username, password` | `Result<AdminInfoDto>` | 校验 `admins.password_hash`；初始账号 `admin/123456`，凭证错误返回 `40102` |
-| `getDashboard` | `days: 7 或 30` | `Result<DashboardDto>` | KPI、营收曲线和桩状态比例 |
+| `getDashboard` | `days: 7 或 30`，或管理端内部 `startDate, endDate` | `Result<DashboardDto>` | KPI、营收曲线和桩状态比例；自定义范围不超过 366 个中国业务日 |
 | `listStations` | `region?, keyword?` | `Result<StationDto[]>` | 管理端包含停用站点 |
 | `getStation` | `stationId` | `Result<StationDetailDto>` | 站点和站内实时 Mock 状态 |
 | `createStation` | `StationCreateInput` | `Result<StationDetailDto>` | 同一事务创建站点和指定数量的 Mock 桩 |
 | `listPiles` | `stationId?, status?` | `Result<PileDto[]>` | 电桩管理列表及累计次数/时长 |
-| `restartPile` | `pileId` | `Result<PileDto>` | 调用 Mock；状态规则见下文 |
+| `createPile` | `stationId, pileCode, pileType, ratedPowerKw` | `Result<PileDto>` | 在已启用站点中新建空闲电桩；所属站点必填，编号唯一 |
+| `deletePile` | `pileId` | `Result<{success}>` | 仅删除无订单且处于 `IDLE/OFFLINE` 的电桩 |
+| `setPileStatus` | `pileId, status: IDLE/OFFLINE/FAULT` | `Result<PileDto>` | 管理端上线、下线或标记故障；不能干预使用中电桩 |
+| `restartPile` | `pileId` | `Result<PileDto>` | 调用 Mock；仅 `IDLE/OFFLINE` 可重启为 `IDLE` |
 | `listUsers` | `phoneKeyword?` | `Result<UserDto[]>` | 支持手机号包含查询 |
 | `setUserStatus` | `userId, UserStatus` | `Result<UserDto>` | 冻结/解冻；业务请求每次读取状态 |
 | `listOrders` | `userId?, stationId?, status?` | `Result<OrderDto[]>` | 查看完整充电过程和账单字段 |
@@ -432,10 +435,14 @@ StationCreateInput = {
 约定：
 
 - `createStation` 自动生成唯一桩编号；桩类型和功率可以用简单默认值，生成规则不是跨模块契约；响应必须返回实际结果；
-- `restartPile` 不创建命令表或审计表；`FAULT/OFFLINE` 变为 `IDLE`，`IDLE` 返回成功且状态不变，`RESERVED/CHARGING` 返回 `40903`；
+- `createPile` 的 `pileId` 由服务端生成，初始状态为 `IDLE`，站点桩数通过实时聚合变化，不在站点表维护计数；
+- `deletePile` 不删除历史：存在任何订单、处于 `RESERVED/CHARGING/FAULT` 时返回 `40903`；
+- `setPileStatus` 不创建命令表或审计表；`OFFLINE -> IDLE` 表示上线，`IDLE -> OFFLINE` 表示下线，`IDLE/OFFLINE -> FAULT` 表示故障；普通管理操作不能将 `FAULT` 恢复；
+- `restartPile` 不创建命令表或审计表；`OFFLINE` 变为 `IDLE`，`IDLE` 返回成功且状态不变，`RESERVED/CHARGING/FAULT` 返回 `40903`；
 - 管理端只需要一个管理员身份；没有新增管理员、角色分配或改密接口；
 - 冻结用户不删除其历史订单和余额；用户存在 `RESERVED/CHARGING/PENDING_PAYMENT` 订单时暂不允许冻结，返回 `40902`，避免订单和电桩无人结束；
 - `getDashboard(days)` 的 `revenuePoints` 必须按中国业务日补齐为恰好 7 或 30 个点；不需要日期表；
+- 管理端自定义日期查询包含起止日，只改变 `revenuePoints`，今日/月/累计 KPI 的业务含义不变；
 - `getPrediction` 返回 `HIGH` 时管理界面显示负荷预警，显示方式不是接口契约。
 
 ---
@@ -500,7 +507,7 @@ restart(pileId) -> success/error
 
 1. 同一次充电的 `durationSeconds` 和 `energyWh` 不倒退；
 2. `stop` 返回最终读数，此后由订单保存；
-3. `restart` 对 `FAULT/OFFLINE` 返回成功并恢复 `IDLE`，对 `IDLE` 成功且状态不变，对 `RESERVED/CHARGING` 返回 `40903`；不模拟真实厂商协议、确认消息、心跳、超时或命令历史。
+3. `restart` 对 `OFFLINE` 返回成功并恢复 `IDLE`，对 `IDLE` 成功且状态不变，对 `RESERVED/CHARGING/FAULT` 返回 `40903`；故障恢复留给后续报修流程，不模拟真实厂商协议、确认消息、心跳、超时或命令历史。
 
 以后接真实设备时，可以让真实实现提供相同四项能力，ApplicationService 不需要改接口。
 

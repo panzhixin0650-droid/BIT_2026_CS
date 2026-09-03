@@ -458,7 +458,17 @@ ServiceResult ApplicationService::loginAdmin(const QString &username,
 
 ServiceResult ApplicationService::getDashboard(int days) const
 {
-    if (repository_ == nullptr || (days != 7 && days != 30)) {
+    if (days != 7 && days != 30) return invalidRequest();
+    const QTimeZone businessZone("Asia/Shanghai");
+    const QDate today = QDateTime::currentDateTimeUtc().toTimeZone(businessZone).date();
+    return getDashboard(today.addDays(1 - days), today);
+}
+
+ServiceResult ApplicationService::getDashboard(const QDate &startDate,
+                                                const QDate &endDate) const
+{
+    if (repository_ == nullptr || !startDate.isValid() || !endDate.isValid()
+        || startDate > endDate || startDate.daysTo(endDate) > 365) {
         return invalidRequest();
     }
 
@@ -512,8 +522,7 @@ ServiceResult ApplicationService::getDashboard(int days) const
     }
 
     QJsonArray revenuePoints;
-    for (int offset = days - 1; offset >= 0; --offset) {
-        const QDate date = today.addDays(-offset);
+    for (QDate date = startDate; date <= endDate; date = date.addDays(1)) {
         revenuePoints.append(QJsonObject{
             {QStringLiteral("date"), date.toString(Qt::ISODate)},
             {QStringLiteral("revenueCents"),
@@ -656,6 +665,86 @@ ServiceResult ApplicationService::listAdminPiles(
     });
 }
 
+ServiceResult ApplicationService::createAdminPile(const QJsonObject &input)
+{
+    if (repository_ == nullptr) return internalError();
+    qint64 stationId = 0;
+    QString pileCode;
+    QString pileType;
+    const QJsonValue powerValue = input.value(QStringLiteral("ratedPowerKw"));
+    if (!readInteger(input, QStringLiteral("stationId"), &stationId)
+        || !readString(input, QStringLiteral("pileCode"), &pileCode)
+        || !readString(input, QStringLiteral("pileType"), &pileType)
+        || !powerValue.isDouble() || stationId <= 0 || pileCode.trimmed().isEmpty()
+        || pileCode.size() > 64 || !std::isfinite(powerValue.toDouble())
+        || powerValue.toDouble() <= 0.0
+        || (pileType != QStringLiteral("FAST") && pileType != QStringLiteral("SLOW"))) {
+        return invalidRequest();
+    }
+    const auto station = repository_->findStationById(stationId);
+    if (!repository_->lastOperationSucceeded()) return internalError();
+    if (!station.has_value() || station->status != StationStatus::Active) {
+        return ServiceResult::failure(ErrorCode::InvalidRequest,
+                                      QStringLiteral("INVALID_STATION"));
+    }
+    const QList<PileDto> existingPiles = repository_->listPiles();
+    if (!repository_->lastOperationSucceeded()) return internalError();
+    if (std::any_of(existingPiles.cbegin(), existingPiles.cend(), [&pileCode](const PileDto &pile) {
+            return pile.pileCode.compare(pileCode.trimmed(), Qt::CaseInsensitive) == 0;
+        })) {
+        return ServiceResult::failure(ErrorCode::InvalidRequest,
+                                      QStringLiteral("PILE_CODE_EXISTS"));
+    }
+    PileDto pile;
+    pile.stationId = stationId;
+    pile.pileCode = pileCode.trimmed();
+    pile.pileType = pileType == QStringLiteral("FAST") ? PileType::Fast : PileType::Slow;
+    pile.ratedPowerKw = powerValue.toDouble();
+    pile = repository_->createPile(pile);
+    if (!repository_->lastOperationSucceeded() || pile.pileId <= 0) return internalError();
+    return ServiceResult::success({{QStringLiteral("pile"), toJson(pile)}});
+}
+
+ServiceResult ApplicationService::deleteAdminPile(qint64 pileId)
+{
+    if (repository_ == nullptr || pileId <= 0) return invalidRequest();
+    switch (repository_->deletePile(pileId)) {
+    case DeletePileResult::Deleted:
+        return ServiceResult::success({{QStringLiteral("success"), true}});
+    case DeletePileResult::NotFound:
+        return ServiceResult::failure(ErrorCode::NotFound, QStringLiteral("NOT_FOUND"));
+    case DeletePileResult::Busy:
+        return ServiceResult::failure(ErrorCode::IllegalOrderState, QStringLiteral("ILLEGAL_ORDER_STATE"));
+    case DeletePileResult::HasOrders:
+        return ServiceResult::failure(ErrorCode::IllegalOrderState, QStringLiteral("ILLEGAL_ORDER_STATE"));
+    case DeletePileResult::StorageError:
+        return internalError();
+    }
+    return internalError();
+}
+
+ServiceResult ApplicationService::setAdminPileStatus(qint64 pileId, PileStatus status)
+{
+    if (repository_ == nullptr || pileId <= 0
+        || (status != PileStatus::Idle && status != PileStatus::Offline
+            && status != PileStatus::Fault)) {
+        return invalidRequest();
+    }
+    QList<PileDto> piles = repository_->listPiles();
+    if (!repository_->lastOperationSucceeded()) return internalError();
+    const auto found = std::find_if(piles.begin(), piles.end(), [pileId](const PileDto &pile) {
+        return pile.pileId == pileId;
+    });
+    if (found == piles.end()) return ServiceResult::failure(ErrorCode::NotFound, QStringLiteral("NOT_FOUND"));
+    if (found->status == PileStatus::Reserved || found->status == PileStatus::Charging
+        || (found->status == PileStatus::Fault && status != PileStatus::Fault)) {
+        return ServiceResult::failure(ErrorCode::IllegalOrderState, QStringLiteral("ILLEGAL_ORDER_STATE"));
+    }
+    found->status = status;
+    if (!repository_->updatePile(*found)) return internalError();
+    return ServiceResult::success({{QStringLiteral("pile"), toJson(*found)}});
+}
+
 ServiceResult ApplicationService::restartAdminPile(qint64 pileId)
 {
     if (repository_ == nullptr || pileGateway_ == nullptr || pileId <= 0) {
@@ -674,7 +763,8 @@ ServiceResult ApplicationService::restartAdminPile(qint64 pileId)
                                       QStringLiteral("NOT_FOUND"));
     }
     QString error;
-    if (!pileGateway_->restart(found->pileId, found->status, &error)) {
+    if (found->status == PileStatus::Fault
+        || !pileGateway_->restart(found->pileId, found->status, &error)) {
         return ServiceResult::failure(ErrorCode::IllegalOrderState,
                                       QStringLiteral("ILLEGAL_ORDER_STATE"));
     }
@@ -698,7 +788,8 @@ ServiceResult ApplicationService::listAdminUsers(const QString &phoneKeyword) co
     }
     QJsonArray items;
     for (const UserDto &user : users) {
-        if (phoneKeyword.isEmpty() || user.phone.contains(phoneKeyword)) {
+        if (phoneKeyword.isEmpty() || user.phone.contains(phoneKeyword)
+            || user.nickname.contains(phoneKeyword, Qt::CaseInsensitive)) {
             items.append(toJson(user));
         }
     }

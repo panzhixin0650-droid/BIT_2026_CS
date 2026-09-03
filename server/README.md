@@ -6,6 +6,9 @@
 
 - [`版本日志.md`](版本日志.md)：只记录服务端与同进程管理员端的版本，后续版本继续在此文件中追加；
 - [`服务端网络接口.md`](服务端网络接口.md)：记录服务端当前已经完成、可供客户端联调的 TCP 接口。
+- [`uidesign.md`](uidesign.md)：管理员端全局视觉与交互规范；
+- [`logic.md`](logic.md)：当前业务规则和管理员端交互逻辑；
+- [`improvement.md`](improvement.md)：已确认改进项及实现记录。
 
 ## 边界
 
@@ -38,10 +41,10 @@ tests/               服务端单元测试
 - `RequestRouter` / `ApplicationService`：已打通 ping、用户登录/退出、资料、充值和站点查询；
 - `Repository`：通过 QSQLITE 实现当前用户、管理员、站点、电桩和订单查询，连接后校验外键、结构版本与五张 Demo 表；
 - `InMemoryRepository`：保留为显式启用的开发和单元测试替身，进程退出后修改丢失；
-- 管理员 UI：支持登录、7/30 日概览、站点新增、删除无订单站点、电桩模拟重启、用户查询及冻结/解冻、订单列表；
+- 管理员 UI：支持登录、7/30 日及自定义日期概览、站点搜索/筛选/新增/安全删除和站内电桩展开、电桩搜索/筛选/新增/安全删除/上线/下线/重启/故障标记、用户查询及冻结/解冻、订单查看，以及站点/电桩/用户/订单详情；
 - `AdminFacade`：所有管理员界面操作均通过 `ApplicationService`，UI 不直接访问 Repository；
-- `charging_server_tests`：覆盖基础 TCP 业务、管理员登录、Dashboard、站点新增/安全删除、桩重启和冻结限制；
-- `charging_repository_tests`：在临时 SQLite 数据库中覆盖种子读取、派生聚合、持久化、结构拒绝和事务回滚。
+- `charging_server_tests`：覆盖基础 TCP 业务、管理员登录、Dashboard、自定义日期、站点新增/安全删除、电桩生命周期和冻结限制；
+- `charging_repository_tests`：在临时 SQLite 数据库中覆盖种子读取、派生聚合、持久化、结构拒绝、站点/电桩安全删除和事务回滚。
 
 `server-app` 默认使用 SQLite，但不在运行时创建数据库或执行迁移。启动前按
 [`database/README.md`](../database/README.md) 初始化数据库；服务端会拒绝不存在的文件、未知 `user_version` 或缺少 Demo 表的数据库。该切换不改变 UI、TCP 和 ApplicationService 对外语义。

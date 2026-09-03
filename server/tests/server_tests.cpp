@@ -32,9 +32,10 @@ private slots:
     void adminLoginAcceptsDemoCredentials();
     void adminLoginRejectsWrongPassword();
     void adminDashboardContainsExactRevenueRange();
+    void adminDashboardAcceptsCustomDateRange();
     void adminListsAndCreatesStationsWithPiles();
     void adminDeletesOnlyStationsWithoutOrders();
-    void adminRestartsFaultPile();
+    void adminManagesPileLifecycleSafely();
     void adminCannotFreezeUserWithCurrentOrder();
 };
 
@@ -211,6 +212,18 @@ void ServerTests::adminDashboardContainsExactRevenueRange()
     QCOMPARE(thirtyDays.data.value(QStringLiteral("revenuePoints")).toArray().size(), 30);
 }
 
+void ServerTests::adminDashboardAcceptsCustomDateRange()
+{
+    ServiceFixture fixture;
+    AdminFacade facade(&fixture.service);
+    const QDate end = QDate::currentDate();
+    const ServiceResult result = facade.getDashboard(end.addDays(-12), end);
+    QCOMPARE(result.code, ErrorCode::Ok);
+    QCOMPARE(result.data.value(QStringLiteral("revenuePoints")).toArray().size(), 13);
+    QCOMPARE(facade.getDashboard(end, end.addDays(-1)).code, ErrorCode::InvalidRequest);
+    QCOMPARE(facade.getDashboard(end.addDays(-366), end).code, ErrorCode::InvalidRequest);
+}
+
 void ServerTests::adminListsAndCreatesStationsWithPiles()
 {
     ServiceFixture fixture;
@@ -269,16 +282,41 @@ void ServerTests::adminDeletesOnlyStationsWithoutOrders()
     QCOMPARE(missing.code, ErrorCode::NotFound);
 }
 
-void ServerTests::adminRestartsFaultPile()
+void ServerTests::adminManagesPileLifecycleSafely()
 {
     ServiceFixture fixture;
     AdminFacade facade(&fixture.service);
-
-    const ServiceResult result = facade.restartPile(4);
-    QCOMPARE(result.code, ErrorCode::Ok);
-    QCOMPARE(result.data.value(QStringLiteral("pile")).toObject()
-                 .value(QStringLiteral("status")).toString(),
-             QStringLiteral("IDLE"));
+    const ServiceResult created = facade.createPile({
+        {QStringLiteral("stationId"), 1},
+        {QStringLiteral("pileCode"), QStringLiteral("PILE-NEW-01")},
+        {QStringLiteral("pileType"), QStringLiteral("FAST")},
+        {QStringLiteral("ratedPowerKw"), 60.0},
+    });
+    QCOMPARE(created.code, ErrorCode::Ok);
+    QCOMPARE(facade.createPile({
+        {QStringLiteral("stationId"), 1},
+        {QStringLiteral("pileCode"), QStringLiteral("PILE-NEW-01")},
+        {QStringLiteral("pileType"), QStringLiteral("FAST")},
+        {QStringLiteral("ratedPowerKw"), 60.0},
+    }).code, ErrorCode::InvalidRequest);
+    const qint64 pileId = created.data.value(QStringLiteral("pile")).toObject()
+                              .value(QStringLiteral("pileId")).toInteger();
+    QCOMPARE(facade.setPileStatus(pileId, PileStatus::Offline).code, ErrorCode::Ok);
+    QCOMPARE(facade.restartPile(pileId).code, ErrorCode::Ok);
+    QCOMPARE(facade.setPileStatus(pileId, PileStatus::Fault).code, ErrorCode::Ok);
+    QCOMPARE(facade.restartPile(pileId).code, ErrorCode::IllegalOrderState);
+    QCOMPARE(facade.setPileStatus(pileId, PileStatus::Idle).code, ErrorCode::IllegalOrderState);
+    QCOMPARE(facade.deletePile(pileId).code, ErrorCode::IllegalOrderState);
+    const ServiceResult removable = facade.createPile({
+        {QStringLiteral("stationId"), 1},
+        {QStringLiteral("pileCode"), QStringLiteral("PILE-NEW-02")},
+        {QStringLiteral("pileType"), QStringLiteral("SLOW")},
+        {QStringLiteral("ratedPowerKw"), 7.0},
+    });
+    QCOMPARE(removable.code, ErrorCode::Ok);
+    QCOMPARE(facade.deletePile(removable.data.value(QStringLiteral("pile")).toObject()
+                                   .value(QStringLiteral("pileId")).toInteger()).code,
+             ErrorCode::Ok);
 }
 
 void ServerTests::adminCannotFreezeUserWithCurrentOrder()
