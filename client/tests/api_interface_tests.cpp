@@ -64,6 +64,40 @@ public:
         return nextRequestId();
     }
 
+    QString listStations(const client::StationQuery &query) override
+    {
+        Q_UNUSED(query)
+        return nextRequestId();
+    }
+
+    QString getStation(qint64 stationId) override
+    {
+        Q_UNUSED(stationId)
+        return nextRequestId();
+    }
+
+    QString getCurrentOrder() override
+    {
+        return nextRequestId();
+    }
+
+    QString listOrders() override
+    {
+        return nextRequestId();
+    }
+
+    QString reserve(const QString &pileCode) override
+    {
+        Q_UNUSED(pileCode)
+        return nextRequestId();
+    }
+
+    QString cancel(qint64 orderId) override
+    {
+        Q_UNUSED(orderId)
+        return nextRequestId();
+    }
+
 private:
     QString nextRequestId()
     {

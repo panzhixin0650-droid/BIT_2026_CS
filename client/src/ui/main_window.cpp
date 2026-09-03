@@ -4,8 +4,12 @@
 #include "local/avatar_storage.h"
 #include "ui/login_controller.h"
 #include "ui/login_page.h"
+#include "ui/order_controller.h"
+#include "ui/order_page.h"
 #include "ui/profile_controller.h"
 #include "ui/profile_page.h"
+#include "ui/station_browser_controller.h"
+#include "ui/station_browser_page.h"
 
 #include <QLabel>
 #include <QStackedWidget>
@@ -31,34 +35,8 @@ MainWindow::MainWindow(IChargingApi &api, QWidget *parent)
     mainTabs_->setTabPosition(QTabWidget::South);
     mainTabs_->setDocumentMode(true);
 
-    homePage_ = new QWidget(mainTabs_);
-    homePage_->setObjectName(QStringLiteral("authenticatedHomePage"));
-    auto *homeLayout = new QVBoxLayout(homePage_);
-    homeLayout->setContentsMargins(28, 36, 28, 36);
-    homeLayout->setSpacing(12);
-
-    welcomeLabel_ = new QLabel(homePage_);
-    welcomeLabel_->setObjectName(QStringLiteral("welcomeLabel"));
-    QFont welcomeFont = welcomeLabel_->font();
-    welcomeFont.setPointSize(18);
-    welcomeFont.setBold(true);
-    welcomeLabel_->setFont(welcomeFont);
-
-    loginNoticeLabel_ = new QLabel(homePage_);
-    loginNoticeLabel_->setObjectName(QStringLiteral("loginNoticeLabel"));
-    loginNoticeLabel_->setStyleSheet(QStringLiteral("color: #1677ff;"));
-
-    auto *placeholder = new QLabel(QStringLiteral("登录成功，充电首页将在下一阶段接入"),
-                                   homePage_);
-    placeholder->setObjectName(QStringLiteral("appPlaceholder"));
-    placeholder->setAlignment(Qt::AlignCenter);
-    placeholder->setWordWrap(true);
-
-    homeLayout->addWidget(welcomeLabel_);
-    homeLayout->addWidget(loginNoticeLabel_);
-    homeLayout->addStretch();
-    homeLayout->addWidget(placeholder);
-    homeLayout->addStretch();
+    homePage_ = new StationBrowserPage(mainTabs_);
+    orderPage_ = new OrderPage(mainTabs_);
 
     const auto createPlaceholderPage = [this](const QString &objectName,
                                                const QString &message) {
@@ -73,9 +51,7 @@ MainWindow::MainWindow(IChargingApi &api, QWidget *parent)
     };
 
     mainTabs_->addTab(homePage_, QStringLiteral("充电"));
-    mainTabs_->addTab(createPlaceholderPage(QStringLiteral("ordersPage"),
-                                             QStringLiteral("订单功能将在后续阶段接入")),
-                      QStringLiteral("订单"));
+    mainTabs_->addTab(orderPage_, QStringLiteral("订单"));
     mainTabs_->addTab(createPlaceholderPage(QStringLiteral("scanPage"),
                                              QStringLiteral("扫码功能将在后续阶段接入")),
                       QStringLiteral("扫一扫"));
@@ -94,12 +70,19 @@ MainWindow::MainWindow(IChargingApi &api, QWidget *parent)
     avatarStorage_ = std::make_unique<AvatarStorage>();
     profileController_ =
         new ProfileController(*profilePage_, api, *avatarStorage_, this);
+    stationBrowserController_ =
+        new StationBrowserController(*homePage_, api, this);
+    orderController_ = new OrderController(*orderPage_, api, this);
     connect(loginController_,
             &LoginController::loginSucceeded,
             this,
             &MainWindow::showAuthenticatedHome);
     connect(mainTabs_, &QTabWidget::currentChanged, this, [this](int index) {
-        if (mainTabs_->widget(index) == profilePage_) {
+        if (mainTabs_->widget(index) == homePage_) {
+            stationBrowserController_->refreshStations();
+        } else if (mainTabs_->widget(index) == orderPage_) {
+            orderController_->refreshOrders();
+        } else if (mainTabs_->widget(index) == profilePage_) {
             profileController_->refreshProfile();
         }
     });
@@ -110,24 +93,33 @@ MainWindow::MainWindow(IChargingApi &api, QWidget *parent)
             &ProfileController::authenticationRequired,
             this,
             &MainWindow::showLoginPage);
+    connect(stationBrowserController_,
+            &StationBrowserController::authenticationRequired,
+            this,
+            &MainWindow::showLoginPage);
+    connect(orderController_,
+            &OrderController::authenticationRequired,
+            this,
+            &MainWindow::showLoginPage);
 }
 
 MainWindow::~MainWindow() = default;
 
 void MainWindow::showAuthenticatedHome(const protocol::UserDto &user, bool isNewUser)
 {
-    welcomeLabel_->setText(QStringLiteral("你好，%1").arg(user.nickname));
-    loginNoticeLabel_->setText(isNewUser ? QStringLiteral("账号已自动注册并登录")
-                                         : QStringLiteral("登录成功"));
+    homePage_->setGreeting(user.nickname, isNewUser);
     profileController_->setInitialUser(user);
     mainTabs_->setCurrentWidget(homePage_);
     pages_->setCurrentWidget(mainTabs_);
+    stationBrowserController_->refreshStations();
 }
 
 void MainWindow::showLoginPage(const QString &message)
 {
     loginPage_->setLoading(false);
     loginPage_->setErrorMessage(message);
+    homePage_->reset();
+    orderPage_->reset();
     pages_->setCurrentWidget(loginPage_);
 }
 

@@ -1,0 +1,255 @@
+#include "ui/station_browser_controller.h"
+
+#include "api/i_charging_api.h"
+#include "charging/protocol/protocol_constants.h"
+#include "ui/station_browser_page.h"
+
+namespace charging::client {
+
+StationBrowserController::StationBrowserController(StationBrowserPage &page,
+                                                   IChargingApi &api,
+                                                   QObject *parent)
+    : QObject(parent), page_(page), api_(api)
+{
+    connect(&page_, &StationBrowserPage::refreshRequested,
+            this, &StationBrowserController::refreshStations);
+    connect(&page_, &StationBrowserPage::stationSelected,
+            this, &StationBrowserController::requestStation);
+    connect(&page_, &StationBrowserPage::reservationRequested,
+            this, &StationBrowserController::requestReservation);
+    connect(&page_, &StationBrowserPage::cancellationRequested,
+            this, &StationBrowserController::requestCancellation);
+    connect(&page_, &StationBrowserPage::detailBackRequested, this, [this]() {
+        pendingDetailRequestId_.clear();
+        page_.reset();
+        refreshStations();
+    });
+    connect(&api_, &IChargingApi::stationListCompleted,
+            this, &StationBrowserController::handleStationList);
+    connect(&api_, &IChargingApi::stationDetailCompleted,
+            this, &StationBrowserController::handleStationDetail);
+    connect(&api_, &IChargingApi::currentOrderCompleted,
+            this, &StationBrowserController::handleCurrentOrder);
+    connect(&api_, &IChargingApi::reservationCompleted,
+            this, &StationBrowserController::handleReservation);
+    connect(&api_, &IChargingApi::cancellationCompleted,
+            this, &StationBrowserController::handleCancellation);
+}
+
+void StationBrowserController::refreshStations()
+{
+    page_.setListLoading(true);
+    pendingListRequestId_ = api_.listStations(page_.stationQuery());
+    refreshCurrentOrder();
+}
+
+void StationBrowserController::requestStation(qint64 stationId)
+{
+    selectedStationId_ = stationId;
+    page_.showDetailLoading();
+    pendingDetailRequestId_ = api_.getStation(stationId);
+}
+
+void StationBrowserController::requestReservation(const QString &pileCode)
+{
+    if (!pendingReservationRequestId_.isEmpty()
+        || !pendingCancellationRequestId_.isEmpty()) {
+        return;
+    }
+    pendingReservationPileCode_ = pileCode;
+    currentOrderPurpose_ = CurrentOrderPurpose::BeforeReservation;
+    page_.setReservationBusy(true);
+    page_.showDetailMessage(QStringLiteral("正在检查当前订单…"));
+    if (pendingCurrentOrderRequestId_.isEmpty()) {
+        pendingCurrentOrderRequestId_ = api_.getCurrentOrder();
+    }
+}
+
+void StationBrowserController::requestCancellation(qint64 orderId)
+{
+    if (!pendingCancellationRequestId_.isEmpty()
+        || !pendingReservationRequestId_.isEmpty()
+        || orderId <= 0) {
+        return;
+    }
+    page_.setReservationBusy(true);
+    page_.showListMessage(QStringLiteral("正在取消预约…"));
+    pendingCancellationRequestId_ = api_.cancel(orderId);
+}
+
+void StationBrowserController::refreshCurrentOrder()
+{
+    if (!pendingCurrentOrderRequestId_.isEmpty()) {
+        return;
+    }
+    currentOrderPurpose_ = CurrentOrderPurpose::Refresh;
+    pendingCurrentOrderRequestId_ = api_.getCurrentOrder();
+}
+
+void StationBrowserController::handleStationList(const StationListResult &result)
+{
+    if (result.response.requestId != pendingListRequestId_
+        || result.response.type
+            != QString::fromLatin1(protocol::MessageType::StationList)) {
+        return;
+    }
+    pendingListRequestId_.clear();
+    if (handleAuthenticationFailure(result.response.code)) {
+        return;
+    }
+    if (!result.ok() || !result.payload.has_value()) {
+        page_.showListError(result.response.message.isEmpty()
+                                ? QStringLiteral("获取充电站失败，请稍后重试")
+                                : result.response.message);
+        return;
+    }
+    page_.showStations(result.payload->items);
+}
+
+void StationBrowserController::handleStationDetail(const StationDetailResult &result)
+{
+    if (result.response.requestId != pendingDetailRequestId_
+        || result.response.type
+            != QString::fromLatin1(protocol::MessageType::StationDetail)) {
+        return;
+    }
+    pendingDetailRequestId_.clear();
+    if (handleAuthenticationFailure(result.response.code)) {
+        return;
+    }
+    if (!result.ok() || !result.payload.has_value()) {
+        page_.showDetailError(result.response.message.isEmpty()
+                                  ? QStringLiteral("获取充电站详情失败，请稍后重试")
+                                  : result.response.message);
+        return;
+    }
+    page_.showStationDetail(*result.payload);
+    if (!detailNoticeAfterRefresh_.isEmpty()) {
+        page_.showDetailMessage(detailNoticeAfterRefresh_, true);
+        detailNoticeAfterRefresh_.clear();
+    }
+}
+
+void StationBrowserController::handleCurrentOrder(const CurrentOrderResult &result)
+{
+    if (result.response.requestId != pendingCurrentOrderRequestId_
+        || result.response.type
+            != QString::fromLatin1(protocol::MessageType::OrderCurrent)) {
+        return;
+    }
+    pendingCurrentOrderRequestId_.clear();
+    const CurrentOrderPurpose purpose = currentOrderPurpose_;
+    currentOrderPurpose_ = CurrentOrderPurpose::None;
+    if (handleAuthenticationFailure(result.response.code)) {
+        page_.setReservationBusy(false);
+        return;
+    }
+    if (!result.ok() || !result.payload.has_value()) {
+        page_.setReservationBusy(false);
+        const QString message = result.response.message.isEmpty()
+            ? QStringLiteral("获取当前订单失败，请稍后重试")
+            : result.response.message;
+        if (purpose == CurrentOrderPurpose::BeforeReservation) {
+            page_.showDetailMessage(message, true);
+        } else {
+            page_.showListMessage(message, true);
+        }
+        return;
+    }
+
+    page_.showCurrentOrder(result.payload->order);
+    if (purpose != CurrentOrderPurpose::BeforeReservation) {
+        return;
+    }
+    if (result.payload->order.has_value()) {
+        page_.setReservationBusy(false);
+        page_.showListPage();
+        page_.showListMessage(
+            QStringLiteral("您已有进行中的订单，请先处理当前订单"), true);
+        return;
+    }
+
+    page_.showDetailMessage(QStringLiteral("正在预约…"));
+    pendingReservationRequestId_ = api_.reserve(pendingReservationPileCode_);
+    pendingReservationPileCode_.clear();
+}
+
+void StationBrowserController::handleReservation(const OrderResult &result)
+{
+    if (result.response.requestId != pendingReservationRequestId_
+        || result.response.type
+            != QString::fromLatin1(protocol::MessageType::OrderReserve)) {
+        return;
+    }
+    pendingReservationRequestId_.clear();
+    page_.setReservationBusy(false);
+    if (handleAuthenticationFailure(result.response.code)) {
+        return;
+    }
+    if (!result.ok() || !result.payload.has_value()) {
+        const QString message = result.response.message.isEmpty()
+            ? QStringLiteral("预约失败，请稍后重试")
+            : result.response.message;
+        if (result.response.code == protocol::ErrorCode::CurrentOrderExists) {
+            page_.showListPage();
+            page_.showListMessage(message, true);
+            refreshStations();
+        } else if (result.response.code == protocol::ErrorCode::PileNotAvailable
+                   && selectedStationId_ > 0) {
+            detailNoticeAfterRefresh_ = message;
+            requestStation(selectedStationId_);
+        } else {
+            page_.showDetailMessage(message, true);
+        }
+        return;
+    }
+
+    page_.showListPage();
+    page_.showListMessage(QStringLiteral("预约成功"));
+    refreshStations();
+}
+
+void StationBrowserController::handleCancellation(const OrderResult &result)
+{
+    if (result.response.requestId != pendingCancellationRequestId_
+        || result.response.type
+            != QString::fromLatin1(protocol::MessageType::OrderCancel)) {
+        return;
+    }
+    pendingCancellationRequestId_.clear();
+    page_.setReservationBusy(false);
+    if (handleAuthenticationFailure(result.response.code)) {
+        return;
+    }
+    if (!result.ok() || !result.payload.has_value()) {
+        page_.showListMessage(result.response.message.isEmpty()
+                                  ? QStringLiteral("取消预约失败，请稍后重试")
+                                  : result.response.message,
+                              true);
+        refreshStations();
+        return;
+    }
+
+    page_.showListMessage(QStringLiteral("预约已取消"));
+    refreshStations();
+}
+
+bool StationBrowserController::handleAuthenticationFailure(int code)
+{
+    if (code != protocol::ErrorCode::InvalidSession) {
+        return false;
+    }
+    pendingListRequestId_.clear();
+    pendingDetailRequestId_.clear();
+    pendingCurrentOrderRequestId_.clear();
+    pendingReservationRequestId_.clear();
+    pendingCancellationRequestId_.clear();
+    pendingReservationPileCode_.clear();
+    detailNoticeAfterRefresh_.clear();
+    currentOrderPurpose_ = CurrentOrderPurpose::None;
+    page_.setReservationBusy(false);
+    emit authenticationRequired(QStringLiteral("登录状态已失效，请重新登录"));
+    return true;
+}
+
+}  // namespace charging::client

@@ -47,10 +47,18 @@ add_library(charging_client_ui STATIC
     src/ui/login_page.h
     src/ui/main_window.cpp
     src/ui/main_window.h
+    src/ui/order_controller.cpp
+    src/ui/order_controller.h
+    src/ui/order_page.cpp
+    src/ui/order_page.h
     src/ui/profile_controller.cpp
     src/ui/profile_controller.h
     src/ui/profile_page.cpp
     src/ui/profile_page.h
+    src/ui/station_browser_controller.cpp
+    src/ui/station_browser_controller.h
+    src/ui/station_browser_page.cpp
+    src/ui/station_browser_page.h
 )
 
 target_include_directories(charging_client_ui
