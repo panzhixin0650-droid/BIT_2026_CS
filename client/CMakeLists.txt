@@ -39,6 +39,8 @@ target_link_libraries(charging_client_api
 add_library(charging_client_ui STATIC
     src/local/avatar_storage.cpp
     src/local/avatar_storage.h
+    src/local/input_method_setup.cpp
+    src/local/input_method_setup.h
     src/ui/login_controller.cpp
     src/ui/login_controller.h
     src/ui/login_page.cpp
@@ -126,5 +128,20 @@ if(BUILD_TESTING)
     add_test(
         NAME charging_client_avatar_storage_tests
         COMMAND charging_client_avatar_storage_tests
+    )
+
+    add_executable(charging_client_input_method_tests
+        tests/input_method_setup_tests.cpp
+    )
+
+    target_link_libraries(charging_client_input_method_tests
+        PRIVATE
+            charging_client_ui
+            Qt6::Test
+    )
+
+    add_test(
+        NAME charging_client_input_method_tests
+        COMMAND charging_client_input_method_tests
     )
 endif()
