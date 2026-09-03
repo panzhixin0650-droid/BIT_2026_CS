@@ -31,6 +31,12 @@ ServiceResult invalidRequest()
                                   QStringLiteral("INVALID_REQUEST"));
 }
 
+ServiceResult internalError()
+{
+    return ServiceResult::failure(ErrorCode::InternalError,
+                                  QStringLiteral("INTERNAL_ERROR"));
+}
+
 bool readString(const QJsonObject &input, const QString &key, QString *value)
 {
     const QJsonValue item = input.value(key);
@@ -145,12 +151,19 @@ ServiceResult ApplicationService::loginUser(const QJsonObject &input)
 
     bool isNewUser = false;
     std::optional<UserDto> user = repository_->findUserByPhone(phone);
+    if (!repository_->lastOperationSucceeded()) {
+        return internalError();
+    }
     if (!user.has_value()) {
         isNewUser = true;
         user = repository_->createUser(
             phone,
             QStringLiteral("用户") + phone.right(4),
             QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+        if (!repository_->lastOperationSucceeded() || !user.has_value()
+            || user->userId <= 0) {
+            return internalError();
+        }
     }
 
     if (user->status == UserStatus::Frozen) {
@@ -187,6 +200,9 @@ ServiceResult ApplicationService::getProfile(const QString &token) const
         return failure;
     }
     const std::optional<UserDto> user = repository_->findUserById(*userId);
+    if (!repository_->lastOperationSucceeded()) {
+        return internalError();
+    }
     if (!user.has_value()) {
         return ServiceResult::failure(ErrorCode::NotFound,
                                       QStringLiteral("NOT_FOUND"));
@@ -210,6 +226,9 @@ ServiceResult ApplicationService::updateProfile(const QString &token,
     }
 
     std::optional<UserDto> user = repository_->findUserById(*userId);
+    if (!repository_->lastOperationSucceeded()) {
+        return internalError();
+    }
     if (!user.has_value()) {
         return ServiceResult::failure(ErrorCode::NotFound,
                                       QStringLiteral("NOT_FOUND"));
@@ -237,16 +256,10 @@ ServiceResult ApplicationService::recharge(const QString &token,
         return invalidRequest();
     }
 
-    std::optional<UserDto> user = repository_->findUserById(*userId);
-    if (!user.has_value()
-        || user->balanceCents > std::numeric_limits<qint64>::max() - amountCents) {
-        return ServiceResult::failure(ErrorCode::InternalError,
-                                      QStringLiteral("INTERNAL_ERROR"));
-    }
-    user->balanceCents += amountCents;
-    if (!repository_->updateUser(*user)) {
-        return ServiceResult::failure(ErrorCode::InternalError,
-                                      QStringLiteral("INTERNAL_ERROR"));
+    const std::optional<UserDto> user =
+        repository_->addUserBalance(*userId, amountCents);
+    if (!repository_->lastOperationSucceeded() || !user.has_value()) {
+        return internalError();
     }
     return ServiceResult::success({
         {QStringLiteral("balanceCents"), static_cast<double>(user->balanceCents)},
@@ -295,8 +308,13 @@ ServiceResult ApplicationService::listStations(const QString &token,
         return invalidRequest();
     }
 
+    const QList<StationDto> storedStations = repository_->listActiveStations();
+    if (!repository_->lastOperationSucceeded()) {
+        return internalError();
+    }
+
     QList<StationDto> stations;
-    for (StationDto station : repository_->listActiveStations()) {
+    for (StationDto station : storedStations) {
         if (!region.isEmpty() && station.region != region) {
             continue;
         }
@@ -354,6 +372,9 @@ ServiceResult ApplicationService::getStation(const QString &token,
     }
 
     std::optional<StationDto> station = repository_->findStationById(stationId);
+    if (!repository_->lastOperationSucceeded()) {
+        return internalError();
+    }
     if (!station.has_value() || station->status != StationStatus::Active) {
         return ServiceResult::failure(ErrorCode::NotFound,
                                       QStringLiteral("NOT_FOUND"));
@@ -365,10 +386,14 @@ ServiceResult ApplicationService::getStation(const QString &token,
         : predictions_->congestionForStation(stationId);
     station->recommended = false;
 
+    const QList<PileDto> piles = repository_->listPilesByStationId(stationId);
+    if (!repository_->lastOperationSucceeded()) {
+        return internalError();
+    }
+
     return ServiceResult::success({
         {QStringLiteral("station"), toJson(*station)},
-        {QStringLiteral("piles"),
-         pilesToJson(repository_->listPilesByStationId(stationId))},
+        {QStringLiteral("piles"), pilesToJson(piles)},
     });
 }
 
@@ -390,6 +415,10 @@ std::optional<qint64> ApplicationService::authenticatedUserId(
     }
 
     const std::optional<UserDto> user = repository_->findUserById(*userId);
+    if (!repository_->lastOperationSucceeded()) {
+        *failure = internalError();
+        return std::nullopt;
+    }
     if (!user.has_value()) {
         *failure = ServiceResult::failure(ErrorCode::InvalidSession,
                                           QStringLiteral("INVALID_SESSION"));
@@ -412,6 +441,9 @@ ServiceResult ApplicationService::loginAdmin(const QString &username,
     }
     const std::optional<AdminRecord> admin =
         repository_->findAdminByUsername(username);
+    if (!repository_->lastOperationSucceeded()) {
+        return internalError();
+    }
     const QString passwordHash = QString::fromLatin1(QCryptographicHash::hash(
         password.toUtf8(), QCryptographicHash::Sha256).toHex());
     if (!admin.has_value() || admin->passwordHash != passwordHash) {
@@ -431,8 +463,17 @@ ServiceResult ApplicationService::getDashboard(int days) const
     }
 
     const QList<OrderDto> orders = repository_->listOrders();
+    if (!repository_->lastOperationSucceeded()) {
+        return internalError();
+    }
     const QList<StationDto> stations = repository_->listStations();
+    if (!repository_->lastOperationSucceeded()) {
+        return internalError();
+    }
     const QList<PileDto> piles = repository_->listPiles();
+    if (!repository_->lastOperationSucceeded()) {
+        return internalError();
+    }
     const QTimeZone businessZone("Asia/Shanghai");
     const QDate today = QDateTime::currentDateTimeUtc().toTimeZone(businessZone).date();
 
@@ -505,8 +546,12 @@ ServiceResult ApplicationService::listAdminStations(const QString &region,
         return ServiceResult::failure(ErrorCode::InternalError,
                                       QStringLiteral("INTERNAL_ERROR"));
     }
+    const QList<StationDto> storedStations = repository_->listStations();
+    if (!repository_->lastOperationSucceeded()) {
+        return internalError();
+    }
     QList<StationDto> result;
-    for (StationDto station : repository_->listStations()) {
+    for (StationDto station : storedStations) {
         if (!region.isEmpty() && station.region != region) {
             continue;
         }
@@ -558,11 +603,39 @@ ServiceResult ApplicationService::createAdminStation(const QJsonObject &input)
     station.priceCentsPerKwh = price;
     station.status = StationStatus::Active;
     station = repository_->createStation(station, pileCount);
+    if (!repository_->lastOperationSucceeded() || station.stationId <= 0) {
+        return internalError();
+    }
+    const QList<PileDto> piles =
+        repository_->listPilesByStationId(station.stationId);
+    if (!repository_->lastOperationSucceeded()) {
+        return internalError();
+    }
     return ServiceResult::success({
         {QStringLiteral("station"), toJson(station)},
-        {QStringLiteral("piles"),
-         pilesToJson(repository_->listPilesByStationId(station.stationId))},
+        {QStringLiteral("piles"), pilesToJson(piles)},
     });
+}
+
+ServiceResult ApplicationService::deleteAdminStation(qint64 stationId)
+{
+    if (repository_ == nullptr || stationId <= 0) {
+        return invalidRequest();
+    }
+
+    switch (repository_->deleteStation(stationId)) {
+    case DeleteStationResult::Deleted:
+        return ServiceResult::success({{QStringLiteral("success"), true}});
+    case DeleteStationResult::NotFound:
+        return ServiceResult::failure(ErrorCode::NotFound,
+                                      QStringLiteral("NOT_FOUND"));
+    case DeleteStationResult::HasOrders:
+        return ServiceResult::failure(ErrorCode::IllegalOrderState,
+                                      QStringLiteral("ILLEGAL_ORDER_STATE"));
+    case DeleteStationResult::StorageError:
+        return internalError();
+    }
+    return internalError();
 }
 
 ServiceResult ApplicationService::listAdminPiles(
@@ -575,6 +648,9 @@ ServiceResult ApplicationService::listAdminPiles(
     const QList<PileDto> piles = stationId.has_value()
         ? repository_->listPilesByStationId(*stationId)
         : repository_->listPiles();
+    if (!repository_->lastOperationSucceeded()) {
+        return internalError();
+    }
     return ServiceResult::success({
         {QStringLiteral("items"), pilesToJson(piles)},
     });
@@ -586,6 +662,9 @@ ServiceResult ApplicationService::restartAdminPile(qint64 pileId)
         return invalidRequest();
     }
     QList<PileDto> piles = repository_->listPiles();
+    if (!repository_->lastOperationSucceeded()) {
+        return internalError();
+    }
     const auto found = std::find_if(piles.begin(), piles.end(),
                                     [pileId](const PileDto &pile) {
                                         return pile.pileId == pileId;
@@ -613,8 +692,12 @@ ServiceResult ApplicationService::listAdminUsers(const QString &phoneKeyword) co
         return ServiceResult::failure(ErrorCode::InternalError,
                                       QStringLiteral("INTERNAL_ERROR"));
     }
+    const QList<UserDto> users = repository_->listUsers();
+    if (!repository_->lastOperationSucceeded()) {
+        return internalError();
+    }
     QJsonArray items;
-    for (const UserDto &user : repository_->listUsers()) {
+    for (const UserDto &user : users) {
         if (phoneKeyword.isEmpty() || user.phone.contains(phoneKeyword)) {
             items.append(toJson(user));
         }
@@ -629,12 +712,18 @@ ServiceResult ApplicationService::setAdminUserStatus(qint64 userId,
         return invalidRequest();
     }
     std::optional<UserDto> user = repository_->findUserById(userId);
+    if (!repository_->lastOperationSucceeded()) {
+        return internalError();
+    }
     if (!user.has_value()) {
         return ServiceResult::failure(ErrorCode::NotFound,
                                       QStringLiteral("NOT_FOUND"));
     }
     if (status == UserStatus::Frozen) {
         const QList<OrderDto> orders = repository_->listOrders();
+        if (!repository_->lastOperationSucceeded()) {
+            return internalError();
+        }
         const bool hasCurrentOrder = std::any_of(
             orders.cbegin(), orders.cend(),
             [userId](const OrderDto &order) {
@@ -662,8 +751,12 @@ ServiceResult ApplicationService::listAdminOrders() const
         return ServiceResult::failure(ErrorCode::InternalError,
                                       QStringLiteral("INTERNAL_ERROR"));
     }
+    const QList<OrderDto> orders = repository_->listOrders();
+    if (!repository_->lastOperationSucceeded()) {
+        return internalError();
+    }
     QJsonArray items;
-    for (const OrderDto &order : repository_->listOrders()) {
+    for (const OrderDto &order : orders) {
         items.append(toJson(order));
     }
     return ServiceResult::success({{QStringLiteral("items"), items}});

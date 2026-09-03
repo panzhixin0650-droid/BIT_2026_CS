@@ -131,11 +131,13 @@ void colorStatus(QTableWidgetItem *tableItem, const QString &status)
 AdminWindow::AdminWindow(AdminFacade *facade,
                          bool tcpListening,
                          quint16 tcpPort,
+                         bool sqliteRepository,
                          QWidget *parent)
     : QMainWindow(parent)
     , facade_(facade)
     , tcpListening_(tcpListening)
     , tcpPort_(tcpPort)
+    , sqliteRepository_(sqliteRepository)
 {
     setWindowTitle(QStringLiteral("BIT 充电桩应用管理平台 · 管理端"));
     resize(1380, 860);
@@ -204,7 +206,11 @@ QWidget *AdminWindow::buildLoginPage()
     brandSub->setWordWrap(true);
     brandLayout->addWidget(brandSub);
     brandLayout->addStretch();
-    auto *mode = new QLabel(QStringLiteral("当前模式  ·  内存开发数据"), brand);
+    auto *mode = new QLabel(
+        QStringLiteral("当前模式  ·  %1")
+            .arg(sqliteRepository_ ? QStringLiteral("SQLite 本地数据库")
+                                   : QStringLiteral("内存开发数据")),
+        brand);
     mode->setStyleSheet(QStringLiteral(
         "color:#d9e6ff;background:#2459a8;border-radius:8px;padding:10px 12px;"));
     brandLayout->addWidget(mode);
@@ -291,10 +297,17 @@ QWidget *AdminWindow::buildApplicationPage()
                       : QStringLiteral("● TCP 未启动"), mainArea);
     connection->setProperty("role", tcpListening_ ? "badgeOk" : "badgeBad");
     topBar->addWidget(connection);
-    auto *memoryBadge = new QLabel(QStringLiteral("内存开发模式"), mainArea);
-    memoryBadge->setStyleSheet(QStringLiteral(
-        "color:#8a5900;background:#fff3cd;padding:6px 10px;border-radius:12px;"));
-    topBar->addWidget(memoryBadge);
+    auto *repositoryBadge = new QLabel(
+        sqliteRepository_ ? QStringLiteral("SQLite 本地数据库")
+                          : QStringLiteral("内存开发模式"),
+        mainArea);
+    repositoryBadge->setStyleSheet(
+        sqliteRepository_
+            ? QStringLiteral("color:#157347;background:#e7f7ed;padding:6px "
+                             "10px;border-radius:12px;")
+            : QStringLiteral("color:#8a5900;background:#fff3cd;padding:6px "
+                             "10px;border-radius:12px;"));
+    topBar->addWidget(repositoryBadge);
     auto *refreshButton = new QPushButton(QStringLiteral("刷新"), mainArea);
     connect(refreshButton, &QPushButton::clicked, this, &AdminWindow::refreshAll);
     topBar->addWidget(refreshButton);
@@ -366,7 +379,7 @@ QWidget *AdminWindow::buildDashboardPage()
         stateLayout->addWidget(label);
     }
     stateLayout->addStretch();
-    auto *note = new QLabel(QStringLiteral("状态来自内存数据；接入 SQLite 后实时聚合。"), statePanel);
+    auto *note = new QLabel(QStringLiteral("状态由服务端数据源实时聚合。"), statePanel);
     note->setProperty("role", "muted");
     note->setWordWrap(true);
     stateLayout->addWidget(note);
@@ -393,10 +406,15 @@ QWidget *AdminWindow::buildStationsPage()
     auto *createButton = new QPushButton(QStringLiteral("＋ 新增充电站"), page);
     createButton->setProperty("primary", true);
     connect(createButton, &QPushButton::clicked, this, &AdminWindow::showCreateStationDialog);
+    auto *deleteButton = new QPushButton(QStringLiteral("删除选中站点"), page);
+    deleteButton->setProperty("danger", true);
+    connect(deleteButton, &QPushButton::clicked,
+            this, &AdminWindow::deleteSelectedStation);
     controls->addWidget(stationSearch_);
     controls->addWidget(stationRegion_);
     controls->addWidget(searchButton);
     controls->addStretch();
+    controls->addWidget(deleteButton);
     controls->addWidget(createButton);
     layout->addLayout(controls);
     stationsTable_ = new QTableWidget(page);
@@ -654,7 +672,7 @@ void AdminWindow::refreshOrders()
 void AdminWindow::showCreateStationDialog()
 {
     QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("新增充电站（内存模式）"));
+    dialog.setWindowTitle(QStringLiteral("新增充电站"));
     dialog.setMinimumWidth(460);
     auto *layout = new QFormLayout(&dialog);
     auto *name = new QLineEdit(&dialog);
@@ -696,6 +714,45 @@ void AdminWindow::showCreateStationDialog()
     });
     if (!result.ok()) return showServiceError(result.code, result.message);
     refreshAll();
+}
+
+void AdminWindow::deleteSelectedStation()
+{
+    const int row = stationsTable_->currentRow();
+    if (row < 0) {
+        QMessageBox::information(this, QStringLiteral("删除站点"),
+                                 QStringLiteral("请先选择一个充电站。"));
+        return;
+    }
+
+    const qint64 stationId =
+        stationsTable_->item(row, 0)->data(Qt::UserRole).toLongLong();
+    const QString stationName = stationsTable_->item(row, 1)->text();
+    const auto answer = QMessageBox::question(
+        this, QStringLiteral("删除站点"),
+        QStringLiteral("确定删除“%1”及其所有无订单电桩吗？\n"
+                       "已存在历史或进行中订单的站点不允许删除。")
+            .arg(stationName),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (answer != QMessageBox::Yes) {
+        return;
+    }
+
+    const ServiceResult result = facade_->deleteStation(stationId);
+    if (!result.ok()) {
+        if (result.code == ErrorCode::IllegalOrderState) {
+            QMessageBox::warning(
+                this, QStringLiteral("无法删除"),
+                QStringLiteral("该站点已有历史或进行中订单，"
+                               "为保留订单数据不能物理删除。"));
+            return;
+        }
+        return showServiceError(result.code, result.message);
+    }
+
+    refreshAll();
+    QMessageBox::information(this, QStringLiteral("删除站点"),
+                             QStringLiteral("站点及其无订单电桩已删除。"));
 }
 
 void AdminWindow::restartSelectedPile()

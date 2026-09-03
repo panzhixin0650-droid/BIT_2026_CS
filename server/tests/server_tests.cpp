@@ -33,6 +33,7 @@ private slots:
     void adminLoginRejectsWrongPassword();
     void adminDashboardContainsExactRevenueRange();
     void adminListsAndCreatesStationsWithPiles();
+    void adminDeletesOnlyStationsWithoutOrders();
     void adminRestartsFaultPile();
     void adminCannotFreezeUserWithCurrentOrder();
 };
@@ -118,7 +119,7 @@ void ServerTests::frozenUserCannotLogin()
 {
     ServiceFixture fixture;
     const ServiceResult result = fixture.service.loginUser({
-        {QStringLiteral("phone"), QStringLiteral("13800000005")},
+        {QStringLiteral("phone"), QStringLiteral("13800000004")},
     });
     QCOMPARE(result.code, ErrorCode::Forbidden);
     QCOMPARE(result.message, QStringLiteral("FORBIDDEN"));
@@ -231,6 +232,41 @@ void ServerTests::adminListsAndCreatesStationsWithPiles()
     QCOMPARE(created.data.value(QStringLiteral("piles")).toArray().size(), 2);
     QCOMPARE(facade.listStations().data.value(QStringLiteral("items")).toArray().size(), 4);
     QCOMPARE(facade.listPiles().data.value(QStringLiteral("items")).toArray().size(), 8);
+}
+
+void ServerTests::adminDeletesOnlyStationsWithoutOrders()
+{
+    ServiceFixture fixture;
+    AdminFacade facade(&fixture.service);
+
+    const ServiceResult created = facade.createStation({
+        {QStringLiteral("name"), QStringLiteral("可删除测试站")},
+        {QStringLiteral("region"), QStringLiteral("铁西区")},
+        {QStringLiteral("address"), QStringLiteral("铁西区删除测试路1号")},
+        {QStringLiteral("longitude"), 123.36},
+        {QStringLiteral("latitude"), 41.80},
+        {QStringLiteral("priceCentsPerKwh"), 130},
+        {QStringLiteral("pileCount"), 2},
+    });
+    QCOMPARE(created.code, ErrorCode::Ok);
+    const qint64 stationId = created.data.value(QStringLiteral("station"))
+                                 .toObject()
+                                 .value(QStringLiteral("stationId"))
+                                 .toInteger();
+
+    const ServiceResult deleted = facade.deleteStation(stationId);
+    QCOMPARE(deleted.code, ErrorCode::Ok);
+    QCOMPARE(deleted.data.value(QStringLiteral("success")).toBool(), true);
+    QCOMPARE(facade.listStations().data.value(QStringLiteral("items")).toArray().size(), 3);
+    QCOMPARE(facade.listPiles().data.value(QStringLiteral("items")).toArray().size(), 6);
+
+    const ServiceResult historyPreserved = facade.deleteStation(1);
+    QCOMPARE(historyPreserved.code, ErrorCode::IllegalOrderState);
+    QCOMPARE(historyPreserved.message, QStringLiteral("ILLEGAL_ORDER_STATE"));
+    QCOMPARE(facade.listStations().data.value(QStringLiteral("items")).toArray().size(), 3);
+
+    const ServiceResult missing = facade.deleteStation(99999);
+    QCOMPARE(missing.code, ErrorCode::NotFound);
 }
 
 void ServerTests::adminRestartsFaultPile()
