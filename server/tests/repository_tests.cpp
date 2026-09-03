@@ -89,6 +89,7 @@ private slots:
     void readsSeedAndDerivedFields();
     void writesPersistAcrossReopen();
     void deletesOnlyStationsWithoutOrders();
+    void createsAndDeletesPileWithoutOrders();
     void stationCreationRollsBackCompletely();
 };
 
@@ -263,6 +264,28 @@ void RepositoryTests::deletesOnlyStationsWithoutOrders()
     QVERIFY(!reopened.findStationById(stationId).has_value());
     QCOMPARE(reopened.listStations().size(), 3);
     QCOMPARE(reopened.listPiles().size(), 12);
+}
+
+void RepositoryTests::createsAndDeletesPileWithoutOrders()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString databasePath = directory.filePath(QStringLiteral("demo.db"));
+    QString error;
+    QVERIFY2(initializeDemoDatabase(databasePath, &error), qPrintable(error));
+    Repository repository(QStringLiteral("repository-test-pile-lifecycle"));
+    QVERIFY2(repository.open(databasePath, &error), qPrintable(error));
+    PileDto pile;
+    pile.stationId = 1;
+    pile.pileCode = QStringLiteral("PILE-REPOSITORY-NEW");
+    pile.pileType = PileType::Fast;
+    pile.ratedPowerKw = 60.0;
+    pile = repository.createPile(pile);
+    QVERIFY(repository.lastOperationSucceeded());
+    QVERIFY(pile.pileId > 0);
+    QVERIFY(pile.status == PileStatus::Idle);
+    QCOMPARE(repository.deletePile(pile.pileId), DeletePileResult::Deleted);
+    QCOMPARE(repository.deletePile(1), DeletePileResult::HasOrders);
 }
 
 void RepositoryTests::stationCreationRollsBackCompletely()

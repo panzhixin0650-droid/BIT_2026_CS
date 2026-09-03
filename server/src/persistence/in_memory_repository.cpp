@@ -311,6 +311,46 @@ QList<PileDto> InMemoryRepository::listPiles() const
     return result;
 }
 
+PileDto InMemoryRepository::createPile(PileDto pile)
+{
+    if (pile.stationId <= 0
+        || std::none_of(stations_.cbegin(), stations_.cend(), [&pile](const StationDto &station) {
+               return station.stationId == pile.stationId
+                   && station.status == StationStatus::Active;
+           })
+        || pile.pileCode.isEmpty()
+        || std::any_of(piles_.cbegin(), piles_.cend(), [&pile](const PileDto &stored) {
+               return stored.pileCode == pile.pileCode;
+           })
+        || pile.ratedPowerKw <= 0.0) {
+        return {};
+    }
+    pile.pileId = nextPileId_++;
+    pile.status = PileStatus::Idle;
+    pile.chargeCount = 0;
+    pile.totalChargeSeconds = 0;
+    piles_.append(pile);
+    return pile;
+}
+
+DeletePileResult InMemoryRepository::deletePile(qint64 pileId)
+{
+    const auto found = std::find_if(piles_.begin(), piles_.end(), [pileId](const PileDto &pile) {
+        return pile.pileId == pileId;
+    });
+    if (found == piles_.end()) return DeletePileResult::NotFound;
+    if (found->status != PileStatus::Idle && found->status != PileStatus::Offline) {
+        return DeletePileResult::Busy;
+    }
+    if (std::any_of(orders_.cbegin(), orders_.cend(), [pileId](const OrderDto &order) {
+            return order.pileId == pileId;
+        })) {
+        return DeletePileResult::HasOrders;
+    }
+    piles_.erase(found);
+    return DeletePileResult::Deleted;
+}
+
 bool InMemoryRepository::updatePile(const PileDto &pile)
 {
     const auto found = std::find_if(piles_.begin(), piles_.end(),
