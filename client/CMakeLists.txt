@@ -17,6 +17,23 @@ add_subdirectory(
     "${CMAKE_CURRENT_BINARY_DIR}/shared-protocol"
 )
 
+add_library(charging_client_api STATIC
+    src/api/api_result.h
+    src/api/i_charging_api.cpp
+    src/api/i_charging_api.h
+)
+
+target_include_directories(charging_client_api
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+)
+
+target_link_libraries(charging_client_api
+    PUBLIC
+        charging_protocol
+        Qt6::Core
+)
+
 add_library(charging_client_ui STATIC
     src/ui/main_window.cpp
     src/ui/main_window.h
@@ -29,7 +46,7 @@ target_include_directories(charging_client_ui
 
 target_link_libraries(charging_client_ui
     PUBLIC
-        charging_protocol
+        charging_client_api
         Qt6::Widgets
 )
 
@@ -59,4 +76,16 @@ if(BUILD_TESTING)
     set_tests_properties(charging_client_tests PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
+
+    add_executable(charging_client_api_tests
+        tests/api_interface_tests.cpp
+    )
+
+    target_link_libraries(charging_client_api_tests
+        PRIVATE
+            charging_client_api
+            Qt6::Test
+    )
+
+    add_test(NAME charging_client_api_tests COMMAND charging_client_api_tests)
 endif()
