@@ -4,7 +4,19 @@
 #include "local/i_map_service.h"
 #include "ui/station_browser_page.h"
 
+#include <cmath>
+
 namespace charging::client {
+namespace {
+
+bool validCoordinate(const MapLocation &location)
+{
+    return std::isfinite(location.longitude) && std::isfinite(location.latitude)
+        && location.longitude >= -180.0 && location.longitude <= 180.0
+        && location.latitude >= -90.0 && location.latitude <= 90.0;
+}
+
+}  // namespace
 
 MapController::MapController(StationBrowserPage &page,
                              IMapService &mapService,
@@ -54,8 +66,17 @@ void MapController::requestRoute(const QString &startAddress, RouteMode mode)
         return;
     }
     page_.setRouteBusy(true);
-    page_.showRouteMessage(QStringLiteral("正在解析起点…"));
     pendingRouteMode_ = mode;
+    const MapLocation current = page_.currentLocation();
+    if (startAddress.trimmed() == current.address.trimmed()
+        && validCoordinate(current)) {
+        page_.showRouteMessage(QStringLiteral("正在生成路线…"));
+        pendingRouteRequestId_ =
+            mapService_.openRoute(current, routeDestination_, pendingRouteMode_);
+        return;
+    }
+
+    page_.showRouteMessage(QStringLiteral("正在解析起点…"));
     geocodePurpose_ = GeocodePurpose::RouteStart;
     pendingGeocodeRequestId_ = mapService_.geocode(startAddress);
 }

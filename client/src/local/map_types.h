@@ -32,6 +32,7 @@ struct RouteResult {
     QString message;
     QString summary;
     QUrl routeUrl;
+    QString routeHtml;
 };
 
 }  // namespace charging::client

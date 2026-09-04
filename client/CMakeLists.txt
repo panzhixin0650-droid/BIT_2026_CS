@@ -8,6 +8,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC OFF)
 
+option(CHARGING_CLIENT_ENABLE_WEBENGINE
+       "Build the embedded Tencent map view with Qt WebEngine"
+       OFF)
+
 find_package(Qt6 6.2 REQUIRED COMPONENTS Network Widgets)
 
 include(CTest)
@@ -49,6 +53,8 @@ add_library(charging_client_ui STATIC
     src/local/map_types.h
     src/local/mock_map_service.cpp
     src/local/mock_map_service.h
+    src/local/tencent_map_service.cpp
+    src/local/tencent_map_service.h
     src/ui/charging_stop_dialog.cpp
     src/ui/charging_stop_dialog.h
     src/ui/login_controller.cpp
@@ -85,8 +91,18 @@ target_include_directories(charging_client_ui
 target_link_libraries(charging_client_ui
     PUBLIC
         charging_client_api
+        Qt6::Network
         Qt6::Widgets
 )
+
+if(CHARGING_CLIENT_ENABLE_WEBENGINE)
+    find_package(Qt6 6.2 REQUIRED COMPONENTS WebEngineWidgets)
+    target_link_libraries(charging_client_ui PUBLIC Qt6::WebEngineWidgets)
+    target_compile_definitions(
+        charging_client_ui
+        PUBLIC CHARGING_CLIENT_HAS_WEBENGINE=1
+    )
+endif()
 
 add_executable(user-client
     src/main.cpp

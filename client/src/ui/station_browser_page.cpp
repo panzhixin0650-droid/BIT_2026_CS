@@ -12,8 +12,12 @@
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSignalBlocker>
 #include <QStackedWidget>
 #include <QVBoxLayout>
+#ifdef CHARGING_CLIENT_HAS_WEBENGINE
+#include <QWebEngineView>
+#endif
 
 #include <functional>
 #include <utility>
@@ -277,13 +281,19 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     locationAddressInput_ = new QLineEdit(queryCard);
     locationAddressInput_->setObjectName(QStringLiteral("locationAddressInput"));
     locationAddressInput_->setPlaceholderText(
-        QStringLiteral("输入地址，例如“沈阳市和平区青年大街”"));
+        QStringLiteral("输入城市和具体位置，如“沈阳市和平区青年大街”"));
     locationAddressInput_->setText(QStringLiteral("演示位置"));
     resolveLocationButton_ = new QPushButton(QStringLiteral("确定位置"), queryCard);
     resolveLocationButton_->setObjectName(QStringLiteral("resolveLocationButton"));
     auto *locationInputRow = new QHBoxLayout();
     locationInputRow->addWidget(locationAddressInput_, 1);
     locationInputRow->addWidget(resolveLocationButton_);
+    auto *locationInputHint = new QLabel(
+        QStringLiteral("请输入包含城市名称的完整地址，以便腾讯地图准确解析。"),
+        queryCard);
+    locationInputHint->setObjectName(QStringLiteral("locationInputHint"));
+    locationInputHint->setStyleSheet(QStringLiteral("color: #667085;"));
+    locationInputHint->setWordWrap(true);
     locationMessageLabel_ = new QLabel(queryCard);
     locationMessageLabel_->setObjectName(QStringLiteral("locationMessage"));
     locationMessageLabel_->setWordWrap(true);
@@ -322,6 +332,7 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     queryLayout->addWidget(demoLocationCheck_);
     queryLayout->addWidget(locationPresetCombo_);
     queryLayout->addLayout(locationInputRow);
+    queryLayout->addWidget(locationInputHint);
     queryLayout->addWidget(locationMessageLabel_);
     queryLayout->addSpacing(4);
     queryLayout->addWidget(filterTitle);
@@ -418,7 +429,8 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     navigationTitle->setFont(navigationTitleFont);
     routeStartInput_ = new QLineEdit(navigationPage_);
     routeStartInput_->setObjectName(QStringLiteral("routeStartInput"));
-    routeStartInput_->setPlaceholderText(QStringLiteral("输入路线起点"));
+    routeStartInput_->setPlaceholderText(
+        QStringLiteral("输入包含城市名称的路线起点"));
     routeDestinationLabel_ = new QLabel(navigationPage_);
     routeDestinationLabel_->setObjectName(QStringLiteral("routeDestination"));
     routeDestinationLabel_->setWordWrap(true);
@@ -446,6 +458,9 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     routeDisplayLabel_->setStyleSheet(QStringLiteral(
         "background: #f2f4f7; border: 1px solid #d0d5dd; border-radius: 12px; "
         "color: #475467; padding: 16px;"));
+    routeDisplayStack_ = new QStackedWidget(navigationPage_);
+    routeDisplayStack_->setObjectName(QStringLiteral("routeDisplayStack"));
+    routeDisplayStack_->addWidget(routeDisplayLabel_);
     navigationLayout->addWidget(navigationBackButton, 0, Qt::AlignLeft);
     navigationLayout->addWidget(navigationTitle);
     navigationLayout->addWidget(new QLabel(QStringLiteral("起点"), navigationPage_));
@@ -453,7 +468,7 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     navigationLayout->addWidget(routeDestinationLabel_);
     navigationLayout->addLayout(routeOptions);
     navigationLayout->addWidget(routeMessageLabel_);
-    navigationLayout->addWidget(routeDisplayLabel_, 1);
+    navigationLayout->addWidget(routeDisplayStack_, 1);
 
     pages_->addWidget(listPage_);
     pages_->addWidget(detailPage_);
@@ -475,6 +490,15 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
                     locationAddressInput_->setFocus();
                 }
             });
+    connect(locationAddressInput_, &QLineEdit::textEdited, this,
+            [this](const QString &) {
+                const int manualIndex = locationPresetCombo_->findData(QString{});
+                if (manualIndex >= 0
+                    && locationPresetCombo_->currentIndex() != manualIndex) {
+                    const QSignalBlocker blocker(locationPresetCombo_);
+                    locationPresetCombo_->setCurrentIndex(manualIndex);
+                }
+            });
     connect(resolveLocationButton_, &QPushButton::clicked, this, [this]() {
         emit locationResolutionRequested(locationAddressInput_->text());
     });
@@ -487,6 +511,11 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
         emit navigationRequested(navigationStation_);
     });
     connect(navigationBackButton, &QPushButton::clicked, this, [this]() {
+#ifdef CHARGING_CLIENT_HAS_WEBENGINE
+        if (routeWebView_ != nullptr) {
+            routeWebView_->stop();
+        }
+#endif
         pages_->setCurrentWidget(navigationReturnPage_ != nullptr
                                      ? navigationReturnPage_
                                      : listPage_);
@@ -828,6 +857,12 @@ void StationBrowserPage::showNavigation(const protocol::StationDto &station,
             .arg(station.longitude, 0, 'f', 4)
             .arg(station.latitude, 0, 'f', 4));
     routeDisplayLabel_->setText(QStringLiteral("选择出行方式后点击“开始导航”"));
+    routeDisplayStack_->setCurrentWidget(routeDisplayLabel_);
+#ifdef CHARGING_CLIENT_HAS_WEBENGINE
+    if (routeWebView_ != nullptr) {
+        routeWebView_->stop();
+    }
+#endif
     routeMessageLabel_->hide();
     pages_->setCurrentWidget(navigationPage_);
 }
@@ -851,6 +886,42 @@ void StationBrowserPage::showRouteResult(const RouteResult &result)
 {
     showRouteMessage(result.message);
     routeDisplayLabel_->setText(result.summary);
+    const bool hasHtml = !result.routeHtml.isEmpty();
+    const bool hasUrl = result.routeUrl.isValid() && !result.routeUrl.isEmpty();
+    if (!hasHtml && !hasUrl) {
+        routeDisplayStack_->setCurrentWidget(routeDisplayLabel_);
+        return;
+    }
+
+#ifdef CHARGING_CLIENT_HAS_WEBENGINE
+    if (routeWebView_ == nullptr) {
+        routeWebView_ = new QWebEngineView(routeDisplayStack_);
+        routeWebView_->setObjectName(QStringLiteral("routeWebView"));
+        routeDisplayStack_->addWidget(routeWebView_);
+        connect(routeWebView_, &QWebEngineView::loadFinished, this,
+                [this](bool success) {
+                    if (success) {
+                        showRouteMessage(QStringLiteral("腾讯地图路线已加载"));
+                    } else {
+                        showRouteMessage(
+                            QStringLiteral("腾讯地图页面加载失败，请检查网络或 Key 配置"),
+                            true);
+                    }
+                });
+    }
+    routeDisplayStack_->setCurrentWidget(routeWebView_);
+    if (hasHtml) {
+        routeWebView_->setHtml(result.routeHtml,
+                               QUrl(QStringLiteral("https://map.qq.com/")));
+    } else {
+        routeWebView_->load(result.routeUrl);
+    }
+#else
+    routeDisplayStack_->setCurrentWidget(routeDisplayLabel_);
+    showRouteMessage(
+        QStringLiteral("当前构建未启用 Qt WebEngine，请使用 Mock 地图或重新配置客户端"),
+        true);
+#endif
 }
 
 void StationBrowserPage::reset()
@@ -864,6 +935,12 @@ void StationBrowserPage::reset()
     detailMessageLabel_->hide();
     locationMessageLabel_->hide();
     routeMessageLabel_->hide();
+    routeDisplayStack_->setCurrentWidget(routeDisplayLabel_);
+#ifdef CHARGING_CLIENT_HAS_WEBENGINE
+    if (routeWebView_ != nullptr) {
+        routeWebView_->stop();
+    }
+#endif
     setLocationBusy(false);
     setRouteBusy(false);
     pages_->setCurrentWidget(listPage_);

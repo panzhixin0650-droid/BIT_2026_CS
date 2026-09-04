@@ -13,6 +13,7 @@ class QLineEdit;
 class QPushButton;
 class QStackedWidget;
 class QVBoxLayout;
+class QWebEngineView;
 
 namespace charging::client {
 
@@ -106,7 +107,9 @@ private:
     QComboBox *routeModeCombo_ = nullptr;
     QPushButton *routePlanButton_ = nullptr;
     QLabel *routeMessageLabel_ = nullptr;
+    QStackedWidget *routeDisplayStack_ = nullptr;
     QLabel *routeDisplayLabel_ = nullptr;
+    QWebEngineView *routeWebView_ = nullptr;
     QList<QPushButton *> reservationButtons_;
     MapLocation currentLocation_{QStringLiteral("演示位置"), 123.42, 41.70};
     protocol::StationDto navigationStation_;

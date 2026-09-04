@@ -302,9 +302,20 @@ void MainWindowTests::locationCanResolveAndOpenMockRoute()
         window.findChild<QLabel *>(QStringLiteral("stationLocationSummary"));
     auto *locationMessage =
         window.findChild<QLabel *>(QStringLiteral("locationMessage"));
+    auto *locationHint =
+        window.findChild<QLabel *>(QStringLiteral("locationInputHint"));
     QVERIFY(preset != nullptr);
     QCOMPARE(preset->count(), 4);
+    QVERIFY(address->placeholderText().contains(QStringLiteral("城市")));
+    QVERIFY(locationHint->text().contains(QStringLiteral("城市名称")));
 
+    preset->setCurrentIndex(1);
+    QCOMPARE(address->text(), QStringLiteral("沈阳市和平区"));
+    address->setFocus();
+    QTest::keyClicks(address, "1");
+    QCOMPARE(preset->currentText(), QStringLiteral("手动输入地址"));
+    QCOMPARE(address->text(), QStringLiteral("沈阳市和平区1"));
+    preset->setCurrentIndex(2);
     preset->setCurrentIndex(1);
     QCOMPARE(address->text(), QStringLiteral("沈阳市和平区"));
     QTest::mouseClick(resolve, Qt::LeftButton);
@@ -343,8 +354,10 @@ void MainWindowTests::locationCanResolveAndOpenMockRoute()
     QCOMPARE(routeMode->count(), 2);
 
     routeMode->setCurrentIndex(1);
+    routeStart->setText(QStringLiteral("沈阳市浑南区"));
     QTest::mouseClick(routeButton, Qt::LeftButton);
     QTRY_VERIFY(routeDisplay->text().contains(QStringLiteral("步行路线")));
+    QVERIFY(routeDisplay->text().contains(QStringLiteral("沈阳市浑南区")));
     QCOMPARE(routeMessage->text(), QStringLiteral("Mock 路线已生成"));
 
     routeStart->setText(QStringLiteral("无法解析的位置"));
