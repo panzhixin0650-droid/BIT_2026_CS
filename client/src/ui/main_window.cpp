@@ -4,6 +4,7 @@
 #include "local/avatar_storage.h"
 #include "local/i_map_service.h"
 #include "local/mock_map_service.h"
+#include "ui/client_theme.h"
 #include "ui/login_controller.h"
 #include "ui/login_page.h"
 #include "ui/map_controller.h"
@@ -16,7 +17,9 @@
 #include "ui/station_browser_controller.h"
 #include "ui/station_browser_page.h"
 
+#include <QFrame>
 #include <QLabel>
+#include <QSizePolicy>
 #include <QStackedWidget>
 #include <QTabBar>
 #include <QTabWidget>
@@ -45,6 +48,7 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService)
     setWindowTitle(QStringLiteral("新能源汽车充电服务"));
     resize(420, 760);
     setMinimumSize(360, 640);
+    setStyleSheet(clientThemeStyleSheet());
 
     pages_ = new QStackedWidget(this);
     pages_->setObjectName(QStringLiteral("applicationPages"));
@@ -61,23 +65,61 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService)
     orderPage_ = new OrderPage(mainTabs_);
     scanPage_ = new ScanPage(mainTabs_);
 
-    const auto createPlaceholderPage = [this](const QString &objectName,
-                                               const QString &message) {
+    const auto createSupportPage = [this]() {
         auto *page = new QWidget(mainTabs_);
-        page->setObjectName(objectName);
+        page->setObjectName(QStringLiteral("supportPage"));
         auto *layout = new QVBoxLayout(page);
-        auto *label = new QLabel(message, page);
-        label->setAlignment(Qt::AlignCenter);
-        label->setWordWrap(true);
-        layout->addWidget(label);
+        layout->setContentsMargins(20, 24, 20, 20);
+        layout->setSpacing(14);
+
+        auto *heading = new QLabel(QStringLiteral("客服助理"), page);
+        heading->setObjectName(QStringLiteral("supportHeading"));
+        QFont headingFont = heading->font();
+        headingFont.setPointSize(24);
+        headingFont.setBold(true);
+        heading->setFont(headingFont);
+
+        auto *card = new QFrame(page);
+        card->setObjectName(QStringLiteral("supportCard"));
+        card->setMaximumWidth(520);
+        auto *cardLayout = new QVBoxLayout(card);
+        cardLayout->setContentsMargins(24, 28, 24, 28);
+        cardLayout->setSpacing(12);
+
+        auto *badge = new QLabel(QStringLiteral("功能预留"), card);
+        badge->setObjectName(QStringLiteral("supportBadge"));
+        badge->setAlignment(Qt::AlignCenter);
+        badge->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+        auto *title = new QLabel(QStringLiteral("客服助理将在后续阶段接入"), card);
+        title->setObjectName(QStringLiteral("supportTitle"));
+        QFont titleFont = title->font();
+        titleFont.setPointSize(16);
+        titleFont.setBold(true);
+        title->setFont(titleFont);
+        title->setAlignment(Qt::AlignCenter);
+        auto *description = new QLabel(
+            QStringLiteral("当前 Demo 暂不提供客服业务。充电、订单和账户功能可从底部导航继续使用。"),
+            card);
+        description->setObjectName(QStringLiteral("supportDescription"));
+        description->setAlignment(Qt::AlignCenter);
+        description->setWordWrap(true);
+        description->setStyleSheet(QStringLiteral("color: #667085;"));
+
+        cardLayout->addWidget(badge, 0, Qt::AlignHCenter);
+        cardLayout->addWidget(title);
+        cardLayout->addWidget(description);
+
+        layout->addWidget(heading);
+        layout->addStretch();
+        layout->addWidget(card, 0, Qt::AlignHCenter);
+        layout->addStretch(2);
         return page;
     };
 
     mainTabs_->addTab(homePage_, QStringLiteral("充电"));
     mainTabs_->addTab(orderPage_, QStringLiteral("订单"));
     mainTabs_->addTab(scanPage_, QStringLiteral("扫一扫"));
-    mainTabs_->addTab(createPlaceholderPage(QStringLiteral("supportPage"),
-                                             QStringLiteral("客服助理将在后续阶段接入")),
+    mainTabs_->addTab(createSupportPage(),
                       QStringLiteral("客服助理"));
     profilePage_ = new ProfilePage(mainTabs_);
     mainTabs_->addTab(profilePage_, QStringLiteral("我的"));
@@ -101,11 +143,15 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService)
             this,
             &MainWindow::showAuthenticatedHome);
     connect(mainTabs_, &QTabWidget::currentChanged, this, [this](int index) {
-        if (mainTabs_->widget(index) == homePage_) {
+        QWidget *selectedPage = mainTabs_->widget(index);
+        if (selectedPage != orderPage_) {
+            orderPage_->showListPage();
+        }
+        if (selectedPage == homePage_) {
             stationBrowserController_->refreshStations();
-        } else if (mainTabs_->widget(index) == orderPage_) {
+        } else if (selectedPage == orderPage_) {
             orderController_->refreshOrders();
-        } else if (mainTabs_->widget(index) == profilePage_) {
+        } else if (selectedPage == profilePage_) {
             profileController_->refreshProfile();
         }
     });
@@ -128,6 +174,16 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService)
             &MainWindow::showLoginPage);
     connect(mapController_, &MapController::locationChanged,
             stationBrowserController_, &StationBrowserController::refreshStations);
+    const auto openOrderStationNavigation =
+        [this](const protocol::StationDto &station) {
+            homePage_->showListPage();
+            mainTabs_->setCurrentWidget(homePage_);
+            mapController_->openNavigation(station);
+        };
+    connect(stationBrowserController_,
+            &StationBrowserController::navigationReady,
+            this,
+            openOrderStationNavigation);
     connect(stationBrowserController_,
             &StationBrowserController::currentOrderRequiresAttention,
             this, [this](protocol::OrderStatus status) {
@@ -143,6 +199,14 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService)
             &MainWindow::showLoginPage);
     connect(orderController_, &OrderController::rechargeRequested,
             this, [this]() { mainTabs_->setCurrentWidget(profilePage_); });
+    connect(orderController_,
+            &OrderController::navigationReady,
+            this,
+            openOrderStationNavigation);
+    connect(orderController_,
+            &OrderController::chargingStopped,
+            stationBrowserController_,
+            &StationBrowserController::synchronizeChargingStop);
     const auto openReservationScan = [this](const QString &pileCode) {
         scanPage_->preparePileCode(pileCode);
         mainTabs_->setCurrentWidget(scanPage_);

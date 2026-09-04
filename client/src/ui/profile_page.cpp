@@ -47,8 +47,9 @@ ProfilePage::ProfilePage(QWidget *parent)
     contentLayout->setSpacing(14);
 
     auto *heading = new QLabel(QStringLiteral("我的"), content);
+    heading->setObjectName(QStringLiteral("profileHeading"));
     QFont headingFont = heading->font();
-    headingFont.setPointSize(20);
+    headingFont.setPointSize(24);
     headingFont.setBold(true);
     heading->setFont(headingFont);
 
@@ -97,9 +98,10 @@ ProfilePage::ProfilePage(QWidget *parent)
     balanceLabel_ = new QLabel(QStringLiteral("¥0.00"), walletCard);
     balanceLabel_->setObjectName(QStringLiteral("profileBalanceLabel"));
     QFont balanceFont = balanceLabel_->font();
-    balanceFont.setPointSize(22);
+    balanceFont.setPointSize(30);
     balanceFont.setBold(true);
     balanceLabel_->setFont(balanceFont);
+    balanceLabel_->setStyleSheet(QStringLiteral("color: #155eef;"));
 
     auto *quickAmounts = new QHBoxLayout();
     for (const QString &amount : {QStringLiteral("10"),

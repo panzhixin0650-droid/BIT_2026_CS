@@ -10,6 +10,7 @@
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSizePolicy>
 #include <QStackedWidget>
 #include <QStringList>
 #include <QVBoxLayout>
@@ -175,8 +176,9 @@ OrderPage::OrderPage(QWidget *parent)
 
     auto *headingRow = new QHBoxLayout();
     auto *heading = new QLabel(QStringLiteral("我的订单"), listPage_);
+    heading->setObjectName(QStringLiteral("orderListHeading"));
     QFont headingFont = heading->font();
-    headingFont.setPointSize(20);
+    headingFont.setPointSize(24);
     headingFont.setBold(true);
     heading->setFont(headingFont);
     refreshButton_ = new QPushButton(QStringLiteral("刷新"), listPage_);
@@ -218,38 +220,82 @@ OrderPage::OrderPage(QWidget *parent)
     auto *backButton = new QPushButton(QStringLiteral("‹ 返回订单列表"), detailPage_);
     backButton->setObjectName(QStringLiteral("orderDetailBackButton"));
     backButton->setFlat(true);
-    detailOrderNumberLabel_ = new QLabel(detailPage_);
+    auto *detailHeading = new QLabel(QStringLiteral("订单详情"), detailPage_);
+    detailHeading->setObjectName(QStringLiteral("orderDetailHeading"));
+    QFont detailHeadingFont = detailHeading->font();
+    detailHeadingFont.setPointSize(24);
+    detailHeadingFont.setBold(true);
+    detailHeading->setFont(detailHeadingFont);
+
+    auto *detailScrollArea = new QScrollArea(detailPage_);
+    detailScrollArea->setObjectName(QStringLiteral("orderDetailScrollArea"));
+    detailScrollArea->setWidgetResizable(true);
+    detailScrollArea->setFrameShape(QFrame::NoFrame);
+    auto *detailContent = new QWidget(detailScrollArea);
+    auto *detailContentLayout = new QVBoxLayout(detailContent);
+    detailContentLayout->setContentsMargins(0, 0, 0, 0);
+
+    auto *detailCard = new QFrame(detailContent);
+    detailCard->setObjectName(QStringLiteral("orderDetailCard"));
+    detailCard->setStyleSheet(QStringLiteral(
+        "QFrame#orderDetailCard { background: white; border: 1px solid #e4e7ec; "
+        "border-radius: 14px; } "
+        "QFrame#orderDetailCard QLabel { border: none; background: transparent; }"));
+    auto *detailCardLayout = new QVBoxLayout(detailCard);
+    detailCardLayout->setContentsMargins(20, 20, 20, 20);
+    detailCardLayout->setSpacing(14);
+
+    auto *detailSummaryRow = new QHBoxLayout();
+    detailSummaryRow->setSpacing(12);
+    detailOrderNumberLabel_ = new QLabel(detailCard);
     detailOrderNumberLabel_->setObjectName(QStringLiteral("orderDetailNumber"));
     QFont orderNumberFont = detailOrderNumberLabel_->font();
-    orderNumberFont.setPointSize(18);
+    orderNumberFont.setPointSize(17);
     orderNumberFont.setBold(true);
     detailOrderNumberLabel_->setFont(orderNumberFont);
-    detailStatusLabel_ = new QLabel(detailPage_);
+    detailOrderNumberLabel_->setWordWrap(true);
+    detailStatusLabel_ = new QLabel(detailCard);
     detailStatusLabel_->setObjectName(QStringLiteral("orderDetailStatus"));
-    detailBodyLabel_ = new QLabel(detailPage_);
+    detailStatusLabel_->setAlignment(Qt::AlignCenter);
+    detailStatusLabel_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    detailSummaryRow->addWidget(detailOrderNumberLabel_, 1);
+    detailSummaryRow->addWidget(detailStatusLabel_, 0, Qt::AlignTop);
+
+    auto *separator = new QFrame(detailCard);
+    separator->setObjectName(QStringLiteral("orderDetailSeparator"));
+    separator->setFrameShape(QFrame::HLine);
+    separator->setStyleSheet(QStringLiteral("color: #e4e7ec;"));
+
+    detailBodyLabel_ = new QLabel(detailCard);
     detailBodyLabel_->setObjectName(QStringLiteral("orderDetailBody"));
+    detailBodyLabel_->setTextFormat(Qt::RichText);
     detailBodyLabel_->setWordWrap(true);
     detailBodyLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    detailMessageLabel_ = new QLabel(detailPage_);
+    detailBodyLabel_->setStyleSheet(QStringLiteral("color: #475467;"));
+    detailMessageLabel_ = new QLabel(detailCard);
     detailMessageLabel_->setObjectName(QStringLiteral("orderDetailMessage"));
     detailMessageLabel_->setWordWrap(true);
     detailMessageLabel_->hide();
-    cancelButton_ = new QPushButton(QStringLiteral("取消预约"), detailPage_);
+    cancelButton_ = new QPushButton(QStringLiteral("取消预约"), detailCard);
     cancelButton_->setObjectName(QStringLiteral("orderDetailCancelButton"));
+    navigationButton_ =
+        new QPushButton(QStringLiteral("导航到充电站"), detailCard);
+    navigationButton_->setObjectName(
+        QStringLiteral("orderDetailNavigationButton"));
     reservationScanButton_ =
-        new QPushButton(QStringLiteral("前往扫码充电"), detailPage_);
+        new QPushButton(QStringLiteral("前往扫码充电"), detailCard);
     reservationScanButton_->setObjectName(
         QStringLiteral("orderDetailReservationScanButton"));
-    stopButton_ = new QPushButton(QStringLiteral("结束充电"), detailPage_);
+    stopButton_ = new QPushButton(QStringLiteral("结束充电"), detailCard);
     stopButton_->setObjectName(QStringLiteral("orderDetailStopButton"));
-    progressButton_ = new QPushButton(QStringLiteral("刷新充电进度"), detailPage_);
+    progressButton_ = new QPushButton(QStringLiteral("刷新充电进度"), detailCard);
     progressButton_->setObjectName(QStringLiteral("orderDetailProgressButton"));
-    payButton_ = new QPushButton(QStringLiteral("立即结算"), detailPage_);
+    payButton_ = new QPushButton(QStringLiteral("立即结算"), detailCard);
     payButton_->setObjectName(QStringLiteral("orderDetailPayButton"));
-    rechargeButton_ = new QPushButton(QStringLiteral("前往充值"), detailPage_);
+    rechargeButton_ = new QPushButton(QStringLiteral("前往充值"), detailCard);
     rechargeButton_->setObjectName(QStringLiteral("orderDetailRechargeButton"));
     auto *actionRow = new QHBoxLayout();
-    actionRow->addStretch();
+    actionRow->setSpacing(8);
     actionRow->addWidget(rechargeButton_);
     actionRow->addWidget(cancelButton_);
     actionRow->addWidget(reservationScanButton_);
@@ -257,13 +303,20 @@ OrderPage::OrderPage(QWidget *parent)
     actionRow->addWidget(stopButton_);
     actionRow->addWidget(payButton_);
 
+    detailCardLayout->addLayout(detailSummaryRow);
+    detailCardLayout->addWidget(separator);
+    detailCardLayout->addWidget(detailBodyLabel_);
+    detailCardLayout->addWidget(detailMessageLabel_);
+    detailCardLayout->addSpacing(2);
+    detailCardLayout->addWidget(navigationButton_);
+    detailCardLayout->addLayout(actionRow);
+    detailContentLayout->addWidget(detailCard);
+    detailContentLayout->addStretch();
+    detailScrollArea->setWidget(detailContent);
+
     detailLayout->addWidget(backButton, 0, Qt::AlignLeft);
-    detailLayout->addWidget(detailOrderNumberLabel_);
-    detailLayout->addWidget(detailStatusLabel_);
-    detailLayout->addWidget(detailBodyLabel_);
-    detailLayout->addWidget(detailMessageLabel_);
-    detailLayout->addLayout(actionRow);
-    detailLayout->addStretch();
+    detailLayout->addWidget(detailHeading);
+    detailLayout->addWidget(detailScrollArea, 1);
 
     pages_->addWidget(listPage_);
     pages_->addWidget(detailPage_);
@@ -273,6 +326,10 @@ OrderPage::OrderPage(QWidget *parent)
     connect(backButton, &QPushButton::clicked, this, &OrderPage::showListPage);
     connect(cancelButton_, &QPushButton::clicked, this, [this]() {
         emit cancellationRequested(cancelButton_->property("orderId").toLongLong());
+    });
+    connect(navigationButton_, &QPushButton::clicked, this, [this]() {
+        emit navigationRequested(
+            navigationButton_->property("stationId").toLongLong());
     });
     connect(reservationScanButton_, &QPushButton::clicked, this, [this]() {
         showListPage();
@@ -300,6 +357,7 @@ void OrderPage::setLoading(bool loading)
 {
     refreshButton_->setDisabled(loading);
     orderListContent_->setDisabled(loading);
+    setActionBusy(loading);
     if (loading) {
         showMessage(QStringLiteral("正在获取订单…"));
     }
@@ -309,6 +367,7 @@ void OrderPage::setActionBusy(bool busy)
 {
     actionBusy_ = busy;
     cancelButton_->setDisabled(busy);
+    navigationButton_->setDisabled(busy);
     reservationScanButton_->setDisabled(busy);
     stopButton_->setDisabled(busy);
     progressButton_->setDisabled(busy);
@@ -434,40 +493,79 @@ void OrderPage::showOrderDetail(qint64 orderId)
     const protocol::OrderDto order = ordersById_.value(orderId);
     detailOrderNumberLabel_->setText(QStringLiteral("订单 %1").arg(order.orderNo));
     detailStatusLabel_->setText(orderStatusText(order.status));
-    detailStatusLabel_->setStyleSheet(QStringLiteral("color: %1; font-weight: 600;")
-                                          .arg(orderStatusColor(order.status)));
+    detailStatusLabel_->setStyleSheet(
+        QStringLiteral("color: %1; background: %2; border-radius: 10px; "
+                       "padding: 5px 10px; font-weight: 700;")
+            .arg(orderStatusColor(order.status),
+                 order.status == protocol::OrderStatus::Completed
+                     ? QStringLiteral("#e8f7ee")
+                 : order.status == protocol::OrderStatus::Cancelled
+                     ? QStringLiteral("#f2f4f7")
+                 : order.status == protocol::OrderStatus::PendingPayment
+                     ? QStringLiteral("#fff0ee")
+                     : QStringLiteral("#eaf2ff")));
 
-    QStringList details{
-        QStringLiteral("充电站：%1").arg(order.stationName),
-        QStringLiteral("充电桩：%1").arg(order.pileCode),
-        QStringLiteral("充电方式：%1").arg(orderModeText(order.mode)),
-        QStringLiteral("创建时间：%1").arg(formatDateTime(order.createdAt)),
+    QString detailTable = QStringLiteral(
+        "<table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">");
+    QStringList accessibleDetails;
+    const auto appendDetail = [&detailTable, &accessibleDetails](
+                                  const QString &label,
+                                  const QString &value) {
+        detailTable += QStringLiteral(
+                           "<tr><td width=\"92\" valign=\"top\" "
+                           "style=\"padding: 0 12px 9px 0; color: #667085; "
+                           "white-space: nowrap;\">%1：</td>"
+                           "<td valign=\"top\" style=\"padding: 0 0 9px 0; "
+                           "color: #1d2939;\">%2</td></tr>")
+                           .arg(label.toHtmlEscaped(), value.toHtmlEscaped());
+        accessibleDetails.append(QStringLiteral("%1：%2").arg(label, value));
     };
+    appendDetail(QStringLiteral("充电站"), order.stationName);
+    appendDetail(QStringLiteral("充电桩"), order.pileCode);
+    appendDetail(QStringLiteral("充电方式"), orderModeText(order.mode));
+    appendDetail(QStringLiteral("创建时间"), formatDateTime(order.createdAt));
     if (order.reservedAt.has_value()) {
-        details.append(QStringLiteral("预约时间：%1").arg(formatDateTime(*order.reservedAt)));
+        appendDetail(QStringLiteral("预约时间"),
+                     formatDateTime(*order.reservedAt));
     }
     if (order.startedAt.has_value()) {
-        details.append(QStringLiteral("开始时间：%1").arg(formatDateTime(*order.startedAt)));
+        appendDetail(QStringLiteral("开始时间"),
+                     formatDateTime(*order.startedAt));
     }
     if (order.endedAt.has_value()) {
-        details.append(QStringLiteral("结束时间：%1").arg(formatDateTime(*order.endedAt)));
+        appendDetail(QStringLiteral("结束时间"),
+                     formatDateTime(*order.endedAt));
     }
     if (order.paidAt.has_value()) {
-        details.append(QStringLiteral("支付时间：%1").arg(formatDateTime(*order.paidAt)));
+        appendDetail(QStringLiteral("支付时间"),
+                     formatDateTime(*order.paidAt));
     }
     if (order.startedAt.has_value() || order.endedAt.has_value()) {
-        details.append(QStringLiteral("充电时长：%1").arg(formatDuration(order.durationSeconds)));
-        details.append(QStringLiteral("充电量：%1 度").arg(order.energyWh / 1000.0, 0, 'f', 2));
+        appendDetail(QStringLiteral("充电时长"),
+                     formatDuration(order.durationSeconds));
+        appendDetail(QStringLiteral("充电量"),
+                     QStringLiteral("%1 度").arg(
+                         order.energyWh / 1000.0, 0, 'f', 2));
     }
     if (order.unitPriceCentsPerKwh.has_value()) {
-        details.append(QStringLiteral("订单单价：%1/度")
-                           .arg(formatMoney(*order.unitPriceCentsPerKwh)));
+        appendDetail(QStringLiteral("订单单价"),
+                     QStringLiteral("%1/度").arg(
+                         formatMoney(*order.unitPriceCentsPerKwh)));
     }
     if (order.amountCents > 0) {
-        details.append(QStringLiteral("订单金额：%1").arg(formatMoney(order.amountCents)));
+        appendDetail(QStringLiteral("订单金额"),
+                     formatMoney(order.amountCents));
     }
-    detailBodyLabel_->setText(details.join(QChar('\n')));
+    detailTable += QStringLiteral("</table>");
+    detailBodyLabel_->setText(detailTable);
+    detailBodyLabel_->setAccessibleDescription(
+        accessibleDetails.join(QChar('\n')));
     cancelButton_->setProperty("orderId", order.orderId);
+    navigationButton_->setProperty("stationId", order.stationId);
+    navigationButton_->setVisible(
+        order.status == protocol::OrderStatus::Reserved
+        || order.status == protocol::OrderStatus::Charging);
+    navigationButton_->setDisabled(actionBusy_);
     cancelButton_->setVisible(order.status == protocol::OrderStatus::Reserved);
     cancelButton_->setDisabled(actionBusy_);
     reservationScanButton_->setProperty("pileCode", order.pileCode);

@@ -57,6 +57,8 @@ add_library(charging_client_ui STATIC
     src/local/tencent_map_service.h
     src/ui/charging_stop_dialog.cpp
     src/ui/charging_stop_dialog.h
+    src/ui/client_theme.cpp
+    src/ui/client_theme.h
     src/ui/login_controller.cpp
     src/ui/login_controller.h
     src/ui/login_page.cpp
