@@ -1,24 +1,82 @@
 #include "ui/station_browser_page.h"
 
+#include "ui/charging_stop_dialog.h"
+
 #include <QCheckBox>
 #include <QFrame>
 #include <QHBoxLayout>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMouseEvent>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QStackedWidget>
 #include <QVBoxLayout>
 
+#include <functional>
+#include <utility>
+
 namespace charging::client {
 
 namespace {
+
+class ClickableStationCard final : public QFrame {
+public:
+    explicit ClickableStationCard(QWidget *parent = nullptr)
+        : QFrame(parent)
+    {
+        setCursor(Qt::PointingHandCursor);
+        setFocusPolicy(Qt::StrongFocus);
+    }
+
+    void setActivatedHandler(std::function<void()> handler)
+    {
+        activatedHandler_ = std::move(handler);
+    }
+
+protected:
+    void mouseReleaseEvent(QMouseEvent *event) override
+    {
+        if (event->button() == Qt::LeftButton && rect().contains(event->position().toPoint())) {
+            event->accept();
+            if (activatedHandler_) {
+                activatedHandler_();
+            }
+            return;
+        }
+        QFrame::mouseReleaseEvent(event);
+    }
+
+    void keyPressEvent(QKeyEvent *event) override
+    {
+        if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter
+            || event->key() == Qt::Key_Space) {
+            event->accept();
+            if (activatedHandler_) {
+                activatedHandler_();
+            }
+            return;
+        }
+        QFrame::keyPressEvent(event);
+    }
+
+private:
+    std::function<void()> activatedHandler_;
+};
 
 QString formatPrice(qint64 centsPerKwh)
 {
     return QStringLiteral("¥%1.%2/度")
         .arg(centsPerKwh / 100)
         .arg(centsPerKwh % 100, 2, 10, QChar('0'));
+}
+
+QString formatMoney(qint64 cents)
+{
+    return QStringLiteral("¥%1.%2")
+        .arg(cents / 100)
+        .arg(cents % 100, 2, 10, QChar('0'));
 }
 
 QString congestionText(const std::optional<protocol::CongestionLevel> &level)
@@ -119,25 +177,36 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     listPage_ = new QWidget(pages_);
     listPage_->setObjectName(QStringLiteral("stationListPage"));
     auto *listPageLayout = new QVBoxLayout(listPage_);
-    listPageLayout->setContentsMargins(20, 20, 20, 16);
-    listPageLayout->setSpacing(12);
+    listPageLayout->setContentsMargins(0, 0, 0, 0);
 
-    welcomeLabel_ = new QLabel(listPage_);
+    auto *homeScrollArea = new QScrollArea(listPage_);
+    homeScrollArea->setObjectName(QStringLiteral("stationHomeScrollArea"));
+    homeScrollArea->setWidgetResizable(true);
+    homeScrollArea->setFrameShape(QFrame::NoFrame);
+    auto *homeContent = new QWidget(homeScrollArea);
+    homeContent->setObjectName(QStringLiteral("stationHomeScrollContent"));
+    auto *homeContentLayout = new QVBoxLayout(homeContent);
+    homeContentLayout->setContentsMargins(20, 20, 20, 16);
+    homeContentLayout->setSpacing(12);
+    homeScrollArea->setWidget(homeContent);
+    listPageLayout->addWidget(homeScrollArea);
+
+    welcomeLabel_ = new QLabel(homeContent);
     welcomeLabel_->setObjectName(QStringLiteral("welcomeLabel"));
     QFont welcomeFont = welcomeLabel_->font();
     welcomeFont.setPointSize(18);
     welcomeFont.setBold(true);
     welcomeLabel_->setFont(welcomeFont);
-    loginNoticeLabel_ = new QLabel(listPage_);
+    loginNoticeLabel_ = new QLabel(homeContent);
     loginNoticeLabel_->setObjectName(QStringLiteral("loginNoticeLabel"));
     loginNoticeLabel_->setStyleSheet(QStringLiteral("color: #1677ff;"));
 
-    actionMessageLabel_ = new QLabel(listPage_);
+    actionMessageLabel_ = new QLabel(homeContent);
     actionMessageLabel_->setObjectName(QStringLiteral("stationActionMessage"));
     actionMessageLabel_->setWordWrap(true);
     actionMessageLabel_->hide();
 
-    currentOrderCard_ = createCard(listPage_);
+    currentOrderCard_ = createCard(homeContent);
     currentOrderCard_->setObjectName(QStringLiteral("currentOrderCard"));
     auto *currentOrderLayout = new QVBoxLayout(currentOrderCard_);
     currentOrderLayout->setContentsMargins(14, 14, 14, 14);
@@ -150,14 +219,35 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     currentOrderSummaryLabel_ = new QLabel(currentOrderCard_);
     currentOrderSummaryLabel_->setObjectName(QStringLiteral("currentOrderSummary"));
     currentOrderSummaryLabel_->setWordWrap(true);
+    currentOrderProgressLabel_ = new QLabel(currentOrderCard_);
+    currentOrderProgressLabel_->setObjectName(
+        QStringLiteral("currentOrderProgress"));
+    currentOrderProgressLabel_->setWordWrap(true);
+    currentOrderProgressLabel_->setStyleSheet(QStringLiteral("color: #667085;"));
     cancelOrderButton_ = new QPushButton(QStringLiteral("取消预约"), currentOrderCard_);
     cancelOrderButton_->setObjectName(QStringLiteral("cancelReservationButton"));
+    reservationScanButton_ =
+        new QPushButton(QStringLiteral("前往扫码充电"), currentOrderCard_);
+    reservationScanButton_->setObjectName(
+        QStringLiteral("startReservedChargingButton"));
+    progressButton_ = new QPushButton(QStringLiteral("刷新充电进度"), currentOrderCard_);
+    progressButton_->setObjectName(QStringLiteral("chargingProgressButton"));
+    stopButton_ = new QPushButton(QStringLiteral("结束充电"), currentOrderCard_);
+    stopButton_->setObjectName(QStringLiteral("chargingStopButton"));
+    auto *currentOrderActions = new QHBoxLayout();
+    currentOrderActions->addStretch();
+    currentOrderActions->addWidget(cancelOrderButton_);
+    currentOrderActions->addWidget(reservationScanButton_);
+    currentOrderActions->addWidget(progressButton_);
+    currentOrderActions->addWidget(stopButton_);
     currentOrderLayout->addWidget(currentOrderTitle);
     currentOrderLayout->addWidget(currentOrderSummaryLabel_);
-    currentOrderLayout->addWidget(cancelOrderButton_, 0, Qt::AlignRight);
+    currentOrderLayout->addWidget(currentOrderProgressLabel_);
+    currentOrderLayout->addLayout(currentOrderActions);
     currentOrderCard_->hide();
 
-    auto *queryCard = createCard(listPage_);
+    auto *queryCard = createCard(homeContent);
+    queryCard->setObjectName(QStringLiteral("stationQueryCard"));
     auto *queryLayout = new QVBoxLayout(queryCard);
     queryLayout->setContentsMargins(14, 14, 14, 14);
     queryLayout->setSpacing(8);
@@ -211,29 +301,26 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     queryLayout->addLayout(filterLayout);
     queryLayout->addWidget(filterHint);
 
-    listMessageLabel_ = new QLabel(listPage_);
+    listMessageLabel_ = new QLabel(homeContent);
     listMessageLabel_->setObjectName(QStringLiteral("stationListMessage"));
     listMessageLabel_->setWordWrap(true);
     listMessageLabel_->hide();
 
-    auto *stationScrollArea = new QScrollArea(listPage_);
-    stationScrollArea->setObjectName(QStringLiteral("stationListScrollArea"));
-    stationScrollArea->setWidgetResizable(true);
-    stationScrollArea->setFrameShape(QFrame::NoFrame);
-    stationListContent_ = new QWidget(stationScrollArea);
+    stationListContent_ = new QWidget(homeContent);
+    stationListContent_->setObjectName(QStringLiteral("stationListContent"));
     stationListLayout_ = new QVBoxLayout(stationListContent_);
     stationListLayout_->setContentsMargins(0, 0, 0, 0);
     stationListLayout_->setSpacing(10);
     stationListLayout_->addStretch();
-    stationScrollArea->setWidget(stationListContent_);
 
-    listPageLayout->addWidget(welcomeLabel_);
-    listPageLayout->addWidget(loginNoticeLabel_);
-    listPageLayout->addWidget(actionMessageLabel_);
-    listPageLayout->addWidget(currentOrderCard_);
-    listPageLayout->addWidget(queryCard);
-    listPageLayout->addWidget(listMessageLabel_);
-    listPageLayout->addWidget(stationScrollArea, 1);
+    homeContentLayout->addWidget(welcomeLabel_);
+    homeContentLayout->addWidget(loginNoticeLabel_);
+    homeContentLayout->addWidget(actionMessageLabel_);
+    homeContentLayout->addWidget(currentOrderCard_);
+    homeContentLayout->addWidget(queryCard);
+    homeContentLayout->addWidget(listMessageLabel_);
+    homeContentLayout->addWidget(stationListContent_);
+    homeContentLayout->addStretch();
 
     detailPage_ = new QWidget(pages_);
     detailPage_->setObjectName(QStringLiteral("stationDetailPage"));
@@ -298,6 +385,18 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     connect(cancelOrderButton_, &QPushButton::clicked, this, [this]() {
         emit cancellationRequested(cancelOrderButton_->property("orderId").toLongLong());
     });
+    connect(reservationScanButton_, &QPushButton::clicked, this, [this]() {
+        emit reservationScanRequested(
+            reservationScanButton_->property("pileCode").toString());
+    });
+    connect(progressButton_, &QPushButton::clicked, this, [this]() {
+        emit progressRequested(progressButton_->property("orderId").toLongLong());
+    });
+    connect(stopButton_, &QPushButton::clicked, this, [this]() {
+        if (confirmChargingStop(this)) {
+            emit stopRequested(stopButton_->property("orderId").toLongLong());
+        }
+    });
     updateLocationSummary();
 }
 
@@ -315,9 +414,14 @@ StationQuery StationBrowserPage::stationQuery() const
 
 void StationBrowserPage::setGreeting(const QString &nickname, bool isNewUser)
 {
-    welcomeLabel_->setText(QStringLiteral("你好，%1").arg(nickname));
+    setGreetingNickname(nickname);
     loginNoticeLabel_->setText(isNewUser ? QStringLiteral("账号已自动注册并登录")
                                          : QStringLiteral("登录成功"));
+}
+
+void StationBrowserPage::setGreetingNickname(const QString &nickname)
+{
+    welcomeLabel_->setText(QStringLiteral("你好，%1").arg(nickname));
 }
 
 void StationBrowserPage::setListLoading(bool loading)
@@ -336,6 +440,9 @@ void StationBrowserPage::setReservationBusy(bool busy)
 {
     reservationBusy_ = busy;
     cancelOrderButton_->setDisabled(busy);
+    reservationScanButton_->setDisabled(busy);
+    progressButton_->setDisabled(busy);
+    stopButton_->setDisabled(busy);
     for (QPushButton *button : reservationButtons_) {
         const bool canReserve = button->property("canReserve").toBool();
         button->setDisabled(busy || !canReserve);
@@ -354,8 +461,18 @@ void StationBrowserPage::showStations(const QList<protocol::StationDto> &station
     }
 
     for (const auto &station : stations) {
-        auto *card = createCard(stationListContent_);
+        auto *card = new ClickableStationCard(stationListContent_);
+        card->setFrameShape(QFrame::StyledPanel);
+        card->setStyleSheet(QStringLiteral(
+            "QFrame { background: white; border: 1px solid #e4e7ec; "
+            "border-radius: 12px; } "
+            "QFrame:hover, QFrame:focus { border: 2px solid #91caff; "
+            "background: #f5f9ff; } QLabel { border: none; background: transparent; }"));
         card->setObjectName(QStringLiteral("stationCard_%1").arg(station.stationId));
+        card->setAccessibleName(QStringLiteral("查看%1详情").arg(station.name));
+        card->setActivatedHandler([this, stationId = station.stationId]() {
+            emit stationSelected(stationId);
+        });
         auto *layout = new QVBoxLayout(card);
         layout->setContentsMargins(14, 14, 14, 14);
         layout->setSpacing(6);
@@ -372,6 +489,7 @@ void StationBrowserPage::showStations(const QList<protocol::StationDto> &station
                                      .arg(station.stationId));
             badge->setStyleSheet(QStringLiteral(
                 "color: white; background: #137333; border-radius: 8px; padding: 2px 7px;"));
+            badge->setAttribute(Qt::WA_TransparentForMouseEvents);
             titleRow->addWidget(badge);
         }
         auto *address = new QLabel(station.address, card);
@@ -388,17 +506,19 @@ void StationBrowserPage::showStations(const QList<protocol::StationDto> &station
             card);
         auto *prediction = new QLabel(congestionText(station.predictedCongestion), card);
         prediction->setStyleSheet(QStringLiteral("color: #667085;"));
-        auto *detailButton = new QPushButton(QStringLiteral("查看详情"), card);
-        detailButton->setObjectName(QStringLiteral("stationDetailButton_%1")
-                                        .arg(station.stationId));
-        connect(detailButton, &QPushButton::clicked, this, [this, station]() {
-            emit stationSelected(station.stationId);
-        });
+        auto *detailHint = new QLabel(QStringLiteral("点击卡片查看详情  ›"), card);
+        detailHint->setObjectName(
+            QStringLiteral("stationDetailHint_%1").arg(station.stationId));
+        detailHint->setAlignment(Qt::AlignRight);
+        detailHint->setStyleSheet(QStringLiteral("color: #1677ff;"));
+        for (QLabel *label : {name, address, availability, prediction, detailHint}) {
+            label->setAttribute(Qt::WA_TransparentForMouseEvents);
+        }
         layout->addLayout(titleRow);
         layout->addWidget(address);
         layout->addWidget(availability);
         layout->addWidget(prediction);
-        layout->addWidget(detailButton, 0, Qt::AlignRight);
+        layout->addWidget(detailHint);
         stationListLayout_->addWidget(card);
     }
     stationListLayout_->addStretch();
@@ -434,8 +554,32 @@ void StationBrowserPage::showCurrentOrder(
                  order->pileCode,
                  orderStatusText(order->status)));
     cancelOrderButton_->setProperty("orderId", order->orderId);
+    reservationScanButton_->setProperty("pileCode", order->pileCode);
+    progressButton_->setProperty("orderId", order->orderId);
+    stopButton_->setProperty("orderId", order->orderId);
     cancelOrderButton_->setVisible(order->status == protocol::OrderStatus::Reserved);
+    reservationScanButton_->setVisible(
+        order->status == protocol::OrderStatus::Reserved);
+    progressButton_->setVisible(order->status == protocol::OrderStatus::Charging);
+    stopButton_->setVisible(order->status == protocol::OrderStatus::Charging);
+    currentOrderProgressLabel_->hide();
+    if (order->status == protocol::OrderStatus::Charging) {
+        currentOrderProgressLabel_->setText(
+            QStringLiteral("已充电 %1 度 · %2 分钟\n当前预估金额：%3")
+                .arg(order->energyWh / 1000.0, 0, 'f', 2)
+                .arg(order->durationSeconds / 60)
+                .arg(formatMoney(order->amountCents)));
+        currentOrderProgressLabel_->show();
+    } else if (order->status == protocol::OrderStatus::PendingPayment) {
+        currentOrderProgressLabel_->setText(
+            QStringLiteral("待支付金额：%1\n请前往“订单”查看并完成结算。")
+                .arg(formatMoney(order->amountCents)));
+        currentOrderProgressLabel_->show();
+    }
     cancelOrderButton_->setDisabled(reservationBusy_);
+    reservationScanButton_->setDisabled(reservationBusy_);
+    progressButton_->setDisabled(reservationBusy_);
+    stopButton_->setDisabled(reservationBusy_);
     currentOrderCard_->show();
 }
 

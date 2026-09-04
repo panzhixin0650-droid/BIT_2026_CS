@@ -98,6 +98,33 @@ public:
         return nextRequestId();
     }
 
+    QString startCharging(
+        const QString &pileCode,
+        std::optional<qint64> reservationOrderId = std::nullopt) override
+    {
+        Q_UNUSED(pileCode)
+        Q_UNUSED(reservationOrderId)
+        return nextRequestId();
+    }
+
+    QString getChargingProgress(qint64 orderId) override
+    {
+        Q_UNUSED(orderId)
+        return nextRequestId();
+    }
+
+    QString stopCharging(qint64 orderId) override
+    {
+        Q_UNUSED(orderId)
+        return nextRequestId();
+    }
+
+    QString payOrder(qint64 orderId) override
+    {
+        Q_UNUSED(orderId)
+        return nextRequestId();
+    }
+
 private:
     QString nextRequestId()
     {

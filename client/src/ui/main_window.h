@@ -19,6 +19,8 @@ class OrderController;
 class OrderPage;
 class ProfileController;
 class ProfilePage;
+class ScanController;
+class ScanPage;
 class StationBrowserController;
 class StationBrowserPage;
 
@@ -36,11 +38,13 @@ private:
     QTabWidget *mainTabs_ = nullptr;
     StationBrowserPage *homePage_ = nullptr;
     OrderPage *orderPage_ = nullptr;
+    ScanPage *scanPage_ = nullptr;
     ProfilePage *profilePage_ = nullptr;
     LoginController *loginController_ = nullptr;
     ProfileController *profileController_ = nullptr;
     StationBrowserController *stationBrowserController_ = nullptr;
     OrderController *orderController_ = nullptr;
+    ScanController *scanController_ = nullptr;
     std::unique_ptr<AvatarStorage> avatarStorage_;
 };
 

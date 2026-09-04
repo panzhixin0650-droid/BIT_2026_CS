@@ -80,6 +80,23 @@ struct OrderListPayload {
     QList<protocol::OrderDto> items;
 };
 
+struct ChargingProgressPayload {
+    protocol::OrderDto order;
+    QString measuredAt;
+};
+
+struct ChargingStopPayload {
+    protocol::OrderDto order;
+    bool paid = false;
+    qint64 balanceCents = 0;
+    std::optional<qint64> shortfallCents;
+};
+
+struct PaymentPayload {
+    protocol::OrderDto order;
+    qint64 balanceCents = 0;
+};
+
 using LoginResult = ApiResult<LoginPayload>;
 using LogoutResult = ApiResult<LogoutPayload>;
 using UserResult = ApiResult<UserPayload>;
@@ -89,6 +106,9 @@ using StationDetailResult = ApiResult<StationDetailPayload>;
 using CurrentOrderResult = ApiResult<CurrentOrderPayload>;
 using OrderResult = ApiResult<OrderPayload>;
 using OrderListResult = ApiResult<OrderListPayload>;
+using ChargingProgressResult = ApiResult<ChargingProgressPayload>;
+using ChargingStopResult = ApiResult<ChargingStopPayload>;
+using PaymentResult = ApiResult<PaymentPayload>;
 
 }  // namespace charging::client
 
@@ -101,3 +121,6 @@ Q_DECLARE_METATYPE(charging::client::StationDetailResult)
 Q_DECLARE_METATYPE(charging::client::CurrentOrderResult)
 Q_DECLARE_METATYPE(charging::client::OrderResult)
 Q_DECLARE_METATYPE(charging::client::OrderListResult)
+Q_DECLARE_METATYPE(charging::client::ChargingProgressResult)
+Q_DECLARE_METATYPE(charging::client::ChargingStopResult)
+Q_DECLARE_METATYPE(charging::client::PaymentResult)

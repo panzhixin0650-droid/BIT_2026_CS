@@ -24,12 +24,18 @@ public:
     void showError(const QString &message);
     void showMessage(const QString &message, bool error = false);
     void showDetailMessage(const QString &message, bool error = false);
+    void updateOrderDetail(const protocol::OrderDto &order);
     void showListPage();
     void reset();
 
 signals:
     void refreshRequested();
     void cancellationRequested(qint64 orderId);
+    void reservationScanRequested(const QString &pileCode);
+    void stopRequested(qint64 orderId);
+    void progressRequested(qint64 orderId);
+    void paymentRequested(qint64 orderId);
+    void rechargeRequested();
 
 private:
     void clearOrderCards();
@@ -47,6 +53,11 @@ private:
     QLabel *detailBodyLabel_ = nullptr;
     QLabel *detailMessageLabel_ = nullptr;
     QPushButton *cancelButton_ = nullptr;
+    QPushButton *reservationScanButton_ = nullptr;
+    QPushButton *stopButton_ = nullptr;
+    QPushButton *progressButton_ = nullptr;
+    QPushButton *payButton_ = nullptr;
+    QPushButton *rechargeButton_ = nullptr;
     QHash<qint64, protocol::OrderDto> ordersById_;
     bool actionBusy_ = false;
 };

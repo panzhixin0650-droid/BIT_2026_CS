@@ -21,6 +21,9 @@ private slots:
     void stationDetailReturnsPilesAndNotFound();
     void orderListRequiresSessionAndReturnsNewestFirst();
     void reservationCreatesCurrentOrderAndUpdatesPile();
+    void chargingStartsDirectlyOrFromMatchingReservation();
+    void chargingProgressAndStopUseAuthoritativeSettlement();
+    void pendingPaymentCanBePaidOnlyAfterRecharge();
     void cancellationReleasesPileAndRejectsIllegalState();
 };
 
@@ -35,6 +38,9 @@ void MockChargingApiTests::initTestCase()
     qRegisterMetaType<client::CurrentOrderResult>();
     qRegisterMetaType<client::OrderResult>();
     qRegisterMetaType<client::OrderListResult>();
+    qRegisterMetaType<client::ChargingProgressResult>();
+    qRegisterMetaType<client::ChargingStopResult>();
+    qRegisterMetaType<client::PaymentResult>();
 }
 
 void MockChargingApiTests::existingFixtureUserCanLogin()
@@ -386,6 +392,221 @@ void MockChargingApiTests::reservationCreatesCurrentOrderAndUpdatesPile()
     QTRY_COMPARE(reserveSpy.count(), 1);
     reserveResult = qvariant_cast<client::OrderResult>(reserveSpy.takeFirst().at(0));
     QCOMPARE(reserveResult.response.code, protocol::ErrorCode::CurrentOrderExists);
+}
+
+void MockChargingApiTests::chargingStartsDirectlyOrFromMatchingReservation()
+{
+    client::MockChargingApi directApi;
+    QSignalSpy directLoginSpy(&directApi, &client::IChargingApi::loginCompleted);
+    QSignalSpy directStartSpy(&directApi, &client::IChargingApi::chargingStartCompleted);
+    QSignalSpy directDetailSpy(&directApi, &client::IChargingApi::stationDetailCompleted);
+
+    (void)directApi.startCharging(QStringLiteral("PILE-A-01"));
+    QTRY_COMPARE(directStartSpy.count(), 1);
+    auto startResult =
+        qvariant_cast<client::OrderResult>(directStartSpy.takeFirst().at(0));
+    QCOMPARE(startResult.response.code, protocol::ErrorCode::InvalidSession);
+
+    (void)directApi.loginUser(QStringLiteral("13800000001"));
+    QTRY_COMPARE(directLoginSpy.count(), 1);
+    const QString directRequestId =
+        directApi.startCharging(QStringLiteral("PILE-A-01"));
+    QTRY_COMPARE(directStartSpy.count(), 1);
+    startResult = qvariant_cast<client::OrderResult>(directStartSpy.takeFirst().at(0));
+    QVERIFY(startResult.ok());
+    QCOMPARE(startResult.response.requestId, directRequestId);
+    QVERIFY(startResult.payload->order.mode == protocol::OrderMode::Direct);
+    QVERIFY(startResult.payload->order.status == protocol::OrderStatus::Charging);
+    QVERIFY(startResult.payload->order.startedAt.has_value());
+    QCOMPARE(startResult.payload->order.unitPriceCentsPerKwh, 135);
+
+    (void)directApi.getStation(1);
+    QTRY_COMPARE(directDetailSpy.count(), 1);
+    const auto directDetail = qvariant_cast<client::StationDetailResult>(
+        directDetailSpy.takeFirst().at(0));
+    QVERIFY(directDetail.payload->piles.first().status
+            == protocol::PileStatus::Charging);
+
+    (void)directApi.startCharging(QStringLiteral("PILE-B-02"));
+    QTRY_COMPARE(directStartSpy.count(), 1);
+    startResult = qvariant_cast<client::OrderResult>(directStartSpy.takeFirst().at(0));
+    QCOMPARE(startResult.response.code, protocol::ErrorCode::CurrentOrderExists);
+
+    client::MockChargingApi reservationApi;
+    QSignalSpy reservationLoginSpy(&reservationApi,
+                                   &client::IChargingApi::loginCompleted);
+    QSignalSpy reserveSpy(&reservationApi, &client::IChargingApi::reservationCompleted);
+    QSignalSpy reservationStartSpy(&reservationApi,
+                                   &client::IChargingApi::chargingStartCompleted);
+    (void)reservationApi.loginUser(QStringLiteral("13800000001"));
+    QTRY_COMPARE(reservationLoginSpy.count(), 1);
+    (void)reservationApi.reserve(QStringLiteral("PILE-A-01"));
+    QTRY_COMPARE(reserveSpy.count(), 1);
+    const auto reserveResult =
+        qvariant_cast<client::OrderResult>(reserveSpy.takeFirst().at(0));
+    const qint64 reservationOrderId = reserveResult.payload->order.orderId;
+
+    (void)reservationApi.startCharging(QStringLiteral("PILE-B-02"),
+                                       reservationOrderId);
+    QTRY_COMPARE(reservationStartSpy.count(), 1);
+    startResult = qvariant_cast<client::OrderResult>(
+        reservationStartSpy.takeFirst().at(0));
+    QCOMPARE(startResult.response.code, protocol::ErrorCode::IllegalOrderState);
+
+    (void)reservationApi.startCharging(QStringLiteral("PILE-A-01"),
+                                       reservationOrderId);
+    QTRY_COMPARE(reservationStartSpy.count(), 1);
+    startResult = qvariant_cast<client::OrderResult>(
+        reservationStartSpy.takeFirst().at(0));
+    QVERIFY(startResult.ok());
+    QCOMPARE(startResult.payload->order.orderId, reservationOrderId);
+    QVERIFY(startResult.payload->order.mode == protocol::OrderMode::Reservation);
+    QVERIFY(startResult.payload->order.status == protocol::OrderStatus::Charging);
+}
+
+void MockChargingApiTests::chargingProgressAndStopUseAuthoritativeSettlement()
+{
+    client::MockChargingApi api;
+    QSignalSpy loginSpy(&api, &client::IChargingApi::loginCompleted);
+    QSignalSpy startSpy(&api, &client::IChargingApi::chargingStartCompleted);
+    QSignalSpy progressSpy(&api, &client::IChargingApi::chargingProgressCompleted);
+    QSignalSpy stopSpy(&api, &client::IChargingApi::chargingStopCompleted);
+    QSignalSpy profileSpy(&api, &client::IChargingApi::profileCompleted);
+    QSignalSpy detailSpy(&api, &client::IChargingApi::stationDetailCompleted);
+
+    (void)api.loginUser(QStringLiteral("13800000001"));
+    QTRY_COMPARE(loginSpy.count(), 1);
+    (void)api.startCharging(QStringLiteral("PILE-A-01"));
+    QTRY_COMPARE(startSpy.count(), 1);
+    const auto startResult =
+        qvariant_cast<client::OrderResult>(startSpy.takeFirst().at(0));
+    const qint64 orderId = startResult.payload->order.orderId;
+
+    (void)api.getChargingProgress(orderId);
+    QTRY_COMPARE(progressSpy.count(), 1);
+    auto progressResult = qvariant_cast<client::ChargingProgressResult>(
+        progressSpy.takeFirst().at(0));
+    QVERIFY(progressResult.ok());
+    QCOMPARE(progressResult.payload->order.durationSeconds, 60);
+    QVERIFY(progressResult.payload->order.energyWh > 0);
+    QVERIFY(!progressResult.payload->measuredAt.isEmpty());
+    const qint64 firstEnergyWh = progressResult.payload->order.energyWh;
+
+    (void)api.getChargingProgress(orderId);
+    QTRY_COMPARE(progressSpy.count(), 1);
+    progressResult = qvariant_cast<client::ChargingProgressResult>(
+        progressSpy.takeFirst().at(0));
+    QCOMPARE(progressResult.payload->order.durationSeconds, 120);
+    QVERIFY(progressResult.payload->order.energyWh >= firstEnergyWh);
+
+    (void)api.stopCharging(orderId);
+    QTRY_COMPARE(stopSpy.count(), 1);
+    auto stopResult = qvariant_cast<client::ChargingStopResult>(
+        stopSpy.takeFirst().at(0));
+    QVERIFY(stopResult.ok());
+    QVERIFY(stopResult.payload->paid);
+    QVERIFY(stopResult.payload->order.status == protocol::OrderStatus::Completed);
+    QVERIFY(stopResult.payload->order.endedAt.has_value());
+    QVERIFY(stopResult.payload->order.paidAt.has_value());
+    QVERIFY(!stopResult.payload->shortfallCents.has_value());
+    QCOMPARE(stopResult.payload->balanceCents,
+             20000 - stopResult.payload->order.amountCents);
+
+    (void)api.getProfile();
+    QTRY_COMPARE(profileSpy.count(), 1);
+    const auto profileResult =
+        qvariant_cast<client::UserResult>(profileSpy.takeFirst().at(0));
+    QCOMPARE(profileResult.payload->user.balanceCents,
+             stopResult.payload->balanceCents);
+    (void)api.getStation(1);
+    QTRY_COMPARE(detailSpy.count(), 1);
+    const auto detailResult = qvariant_cast<client::StationDetailResult>(
+        detailSpy.takeFirst().at(0));
+    QVERIFY(detailResult.payload->piles.first().status
+            == protocol::PileStatus::Idle);
+
+    (void)api.stopCharging(orderId);
+    QTRY_COMPARE(stopSpy.count(), 1);
+    stopResult = qvariant_cast<client::ChargingStopResult>(
+        stopSpy.takeFirst().at(0));
+    QCOMPARE(stopResult.response.code, protocol::ErrorCode::IllegalOrderState);
+
+    client::MockChargingApi insufficientApi;
+    QSignalSpy insufficientLoginSpy(&insufficientApi,
+                                    &client::IChargingApi::loginCompleted);
+    QSignalSpy insufficientStartSpy(&insufficientApi,
+                                    &client::IChargingApi::chargingStartCompleted);
+    QSignalSpy insufficientProgressSpy(
+        &insufficientApi, &client::IChargingApi::chargingProgressCompleted);
+    QSignalSpy insufficientStopSpy(&insufficientApi,
+                                   &client::IChargingApi::chargingStopCompleted);
+    (void)insufficientApi.loginUser(QStringLiteral("13912345678"));
+    QTRY_COMPARE(insufficientLoginSpy.count(), 1);
+    (void)insufficientApi.startCharging(QStringLiteral("PILE-B-02"));
+    QTRY_COMPARE(insufficientStartSpy.count(), 1);
+    const auto insufficientStart = qvariant_cast<client::OrderResult>(
+        insufficientStartSpy.takeFirst().at(0));
+    (void)insufficientApi.getChargingProgress(
+        insufficientStart.payload->order.orderId);
+    QTRY_COMPARE(insufficientProgressSpy.count(), 1);
+    (void)insufficientApi.stopCharging(insufficientStart.payload->order.orderId);
+    QTRY_COMPARE(insufficientStopSpy.count(), 1);
+    const auto insufficientStop = qvariant_cast<client::ChargingStopResult>(
+        insufficientStopSpy.takeFirst().at(0));
+    QVERIFY(insufficientStop.ok());
+    QVERIFY(!insufficientStop.payload->paid);
+    QVERIFY(insufficientStop.payload->order.status
+            == protocol::OrderStatus::PendingPayment);
+    QCOMPARE(insufficientStop.payload->balanceCents, 0);
+    QCOMPARE(insufficientStop.payload->shortfallCents,
+             std::optional<qint64>{insufficientStop.payload->order.amountCents});
+}
+
+void MockChargingApiTests::pendingPaymentCanBePaidOnlyAfterRecharge()
+{
+    client::MockChargingApi api;
+    QSignalSpy loginSpy(&api, &client::IChargingApi::loginCompleted);
+    QSignalSpy startSpy(&api, &client::IChargingApi::chargingStartCompleted);
+    QSignalSpy progressSpy(&api, &client::IChargingApi::chargingProgressCompleted);
+    QSignalSpy stopSpy(&api, &client::IChargingApi::chargingStopCompleted);
+    QSignalSpy paySpy(&api, &client::IChargingApi::paymentCompleted);
+    QSignalSpy rechargeSpy(&api, &client::IChargingApi::rechargeCompleted);
+
+    (void)api.loginUser(QStringLiteral("13912345678"));
+    QTRY_COMPARE(loginSpy.count(), 1);
+    (void)api.startCharging(QStringLiteral("PILE-A-01"));
+    QTRY_COMPARE(startSpy.count(), 1);
+    const auto start = qvariant_cast<client::OrderResult>(startSpy.takeFirst().at(0));
+    const qint64 orderId = start.payload->order.orderId;
+    (void)api.getChargingProgress(orderId);
+    QTRY_COMPARE(progressSpy.count(), 1);
+    (void)api.stopCharging(orderId);
+    QTRY_COMPARE(stopSpy.count(), 1);
+    const auto stop = qvariant_cast<client::ChargingStopResult>(
+        stopSpy.takeFirst().at(0));
+    QVERIFY(stop.payload->order.status == protocol::OrderStatus::PendingPayment);
+
+    (void)api.payOrder(orderId);
+    QTRY_COMPARE(paySpy.count(), 1);
+    auto payment = qvariant_cast<client::PaymentResult>(paySpy.takeFirst().at(0));
+    QCOMPARE(payment.response.code, protocol::ErrorCode::InsufficientBalance);
+    QVERIFY(!payment.payload.has_value());
+
+    (void)api.recharge(stop.payload->order.amountCents);
+    QTRY_COMPARE(rechargeSpy.count(), 1);
+    (void)api.payOrder(orderId);
+    QTRY_COMPARE(paySpy.count(), 1);
+    payment = qvariant_cast<client::PaymentResult>(paySpy.takeFirst().at(0));
+    QVERIFY(payment.ok());
+    QCOMPARE(payment.payload->order.amountCents, stop.payload->order.amountCents);
+    QCOMPARE(payment.payload->balanceCents, 0);
+    QVERIFY(payment.payload->order.status == protocol::OrderStatus::Completed);
+    QVERIFY(payment.payload->order.paidAt.has_value());
+
+    (void)api.payOrder(orderId);
+    QTRY_COMPARE(paySpy.count(), 1);
+    payment = qvariant_cast<client::PaymentResult>(paySpy.takeFirst().at(0));
+    QCOMPARE(payment.response.code, protocol::ErrorCode::IllegalOrderState);
 }
 
 void MockChargingApiTests::cancellationReleasesPileAndRejectsIllegalState()
