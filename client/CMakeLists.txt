@@ -8,7 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC OFF)
 
-find_package(Qt6 6.2 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 6.2 REQUIRED COMPONENTS Network Widgets)
 
 include(CTest)
 
@@ -23,6 +23,8 @@ add_library(charging_client_api STATIC
     src/api/i_charging_api.h
     src/api/mock_charging_api.cpp
     src/api/mock_charging_api.h
+    src/api/tcp_charging_api.cpp
+    src/api/tcp_charging_api.h
 )
 
 target_include_directories(charging_client_api
@@ -34,6 +36,7 @@ target_link_libraries(charging_client_api
     PUBLIC
         charging_protocol
         Qt6::Core
+        Qt6::Network
 )
 
 add_library(charging_client_ui STATIC
@@ -128,6 +131,19 @@ if(BUILD_TESTING)
     )
 
     add_test(NAME charging_client_mock_api_tests COMMAND charging_client_mock_api_tests)
+
+    add_executable(charging_client_tcp_api_tests
+        tests/tcp_charging_api_tests.cpp
+    )
+
+    target_link_libraries(charging_client_tcp_api_tests
+        PRIVATE
+            charging_client_api
+            Qt6::Network
+            Qt6::Test
+    )
+
+    add_test(NAME charging_client_tcp_api_tests COMMAND charging_client_tcp_api_tests)
 
     add_executable(charging_client_avatar_storage_tests
         tests/avatar_storage_tests.cpp

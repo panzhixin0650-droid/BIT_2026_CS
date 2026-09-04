@@ -35,6 +35,8 @@ tests/           用户端单元测试
 - 纯 C++ 构造的 Qt Widgets 应用窗口和手机号登录页；
 - typed `IChargingApi` 登录、退出、个人资料和钱包充值边界；
 - 持有开发期登录态的 `MockChargingApi`；
+- 复用共享 V1 长度帧、信封和 DTO 的 `TcpChargingApi`，支持 token、请求匹配、
+  5 秒默认超时以及断线失败收敛；
 - 手机号格式校验、提交 loading、中文错误提示；
 - 已有用户登录和新手机号自动注册后的页面切换；
 - 位于窗口底部的“充电、订单、扫一扫、客服助理、我的”5 个主入口；
@@ -48,7 +50,10 @@ tests/           用户端单元测试
 - 充电进度刷新、结束充电二次确认、自动结算和余额不足后的补支付闭环；
 - API、Mock、界面与共享协议测试。
 
-当前可执行程序默认装配 `MockChargingApi`，用于在 TCP 客户端接入前独立开发页面。Mock 数据仅保存在当前进程内，退出程序后新注册用户不会保留；它不会连接数据库，也不代表真实服务端已经完成调用。后续接入 `TcpChargingApi` 时，页面和 Controller 继续只依赖 `IChargingApi`。
+当前可执行程序默认装配 `MockChargingApi`，用于离线开发页面；传入 `--api tcp`
+即可切换到真实服务端。Mock 数据仅保存在当前进程内，退出程序后新注册用户不会
+保留；它不会连接数据库。两种实现均通过 `IChargingApi` 向页面返回相同的 typed
+结果，页面和 Controller 不直接处理 TCP 信封或 token。
 
 构建和测试：
 
@@ -58,11 +63,38 @@ cmake --build build/client
 ctest --test-dir build/client --output-on-failure
 ```
 
-运行：
+## 运行模式与联调入口
+
+日常页面开发默认保持 Mock 模式，不连接服务端或数据库：
 
 ```bash
 ./build/client/user-client
 ```
+
+上面的命令等同于显式传入 `--api mock`。Mock 数据只存在于当前客户端进程，适合
+其他成员继续独立开发和调试界面。
+
+需要进行真实 TCP 联调时，从仓库根目录先启动已经初始化好 Demo 数据库的服务端：
+
+```bash
+./build/server/server-app --database build/database/demo.db
+```
+
+再在另一个终端显式选择 TCP 模式启动用户端：
+
+```bash
+./build/client/user-client --api tcp --host 127.0.0.1 --port 45678
+```
+
+`--api tcp` 是联调测试入口；该模式只请求真实服务端，不会在接口失败时回退到
+Mock。数据库初始化步骤见 [`database/README.md`](../database/README.md)，服务端
+启动参数见 [`server/README.md`](../server/README.md)。
+
+默认请求超时为 5000 毫秒，可用 `--timeout-ms <毫秒>` 调整。连接失败、断线和
+超时统一返回 `50301 SERVICE_UNAVAILABLE`；断线和 `40101 INVALID_SESSION` 会
+清除客户端 token，用户需重新登录。当前服务端实际开放到哪些 TCP 消息，以
+[`server/服务端网络接口.md`](../server/服务端网络接口.md) 为准；尚未开放的订单消息
+会返回服务端的业务失败，不会回退到 Mock。
 
 启动后输入 11 位数字手机号：
 
