@@ -39,14 +39,21 @@ target_link_libraries(charging_client_api
 add_library(charging_client_ui STATIC
     src/local/avatar_storage.cpp
     src/local/avatar_storage.h
+    src/local/i_map_service.cpp
+    src/local/i_map_service.h
     src/local/input_method_setup.cpp
     src/local/input_method_setup.h
+    src/local/map_types.h
+    src/local/mock_map_service.cpp
+    src/local/mock_map_service.h
     src/ui/charging_stop_dialog.cpp
     src/ui/charging_stop_dialog.h
     src/ui/login_controller.cpp
     src/ui/login_controller.h
     src/ui/login_page.cpp
     src/ui/login_page.h
+    src/ui/map_controller.cpp
+    src/ui/map_controller.h
     src/ui/main_window.cpp
     src/ui/main_window.h
     src/ui/order_controller.cpp
@@ -158,4 +165,16 @@ if(BUILD_TESTING)
         NAME charging_client_input_method_tests
         COMMAND charging_client_input_method_tests
     )
+
+    add_executable(charging_client_map_tests
+        tests/mock_map_service_tests.cpp
+    )
+
+    target_link_libraries(charging_client_map_tests
+        PRIVATE
+            charging_client_ui
+            Qt6::Test
+    )
+
+    add_test(NAME charging_client_map_tests COMMAND charging_client_map_tests)
 endif()

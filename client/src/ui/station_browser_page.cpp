@@ -3,6 +3,7 @@
 #include "ui/charging_stop_dialog.h"
 
 #include <QCheckBox>
+#include <QComboBox>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QKeyEvent>
@@ -257,13 +258,36 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     locationFont.setBold(true);
     locationTitle->setFont(locationFont);
     demoLocationCheck_ = new QCheckBox(
-        QStringLiteral("使用演示位置计算距离"), queryCard);
+        QStringLiteral("使用当前选定位置计算距离"), queryCard);
     demoLocationCheck_->setObjectName(QStringLiteral("demoLocationCheck"));
     demoLocationCheck_->setChecked(true);
     locationSummaryLabel_ = new QLabel(queryCard);
     locationSummaryLabel_->setObjectName(QStringLiteral("stationLocationSummary"));
     locationSummaryLabel_->setWordWrap(true);
     locationSummaryLabel_->setStyleSheet(QStringLiteral("color: #667085;"));
+    locationPresetCombo_ = new QComboBox(queryCard);
+    locationPresetCombo_->setObjectName(QStringLiteral("locationPresetCombo"));
+    locationPresetCombo_->addItem(QStringLiteral("演示当前位置"),
+                                  QStringLiteral("演示位置"));
+    locationPresetCombo_->addItem(QStringLiteral("和平区"),
+                                  QStringLiteral("沈阳市和平区"));
+    locationPresetCombo_->addItem(QStringLiteral("浑南区"),
+                                  QStringLiteral("沈阳市浑南区"));
+    locationPresetCombo_->addItem(QStringLiteral("手动输入地址"), QString{});
+    locationAddressInput_ = new QLineEdit(queryCard);
+    locationAddressInput_->setObjectName(QStringLiteral("locationAddressInput"));
+    locationAddressInput_->setPlaceholderText(
+        QStringLiteral("输入地址，例如“沈阳市和平区青年大街”"));
+    locationAddressInput_->setText(QStringLiteral("演示位置"));
+    resolveLocationButton_ = new QPushButton(QStringLiteral("确定位置"), queryCard);
+    resolveLocationButton_->setObjectName(QStringLiteral("resolveLocationButton"));
+    auto *locationInputRow = new QHBoxLayout();
+    locationInputRow->addWidget(locationAddressInput_, 1);
+    locationInputRow->addWidget(resolveLocationButton_);
+    locationMessageLabel_ = new QLabel(queryCard);
+    locationMessageLabel_->setObjectName(QStringLiteral("locationMessage"));
+    locationMessageLabel_->setWordWrap(true);
+    locationMessageLabel_->hide();
 
     auto *filterTitle = new QLabel(QStringLiteral("查找充电站"), queryCard);
     filterTitle->setObjectName(QStringLiteral("stationFilterTitle"));
@@ -296,6 +320,9 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     queryLayout->addWidget(locationTitle);
     queryLayout->addWidget(locationSummaryLabel_);
     queryLayout->addWidget(demoLocationCheck_);
+    queryLayout->addWidget(locationPresetCombo_);
+    queryLayout->addLayout(locationInputRow);
+    queryLayout->addWidget(locationMessageLabel_);
     queryLayout->addSpacing(4);
     queryLayout->addWidget(filterTitle);
     queryLayout->addLayout(filterLayout);
@@ -355,6 +382,8 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     detailPriceLabel_ = new QLabel(detailContent_);
     detailPriceLabel_->setObjectName(QStringLiteral("stationDetailPrice"));
     detailPriceLabel_->setStyleSheet(QStringLiteral("color: #137333; font-weight: 600;"));
+    detailNavigationButton_ = new QPushButton(QStringLiteral("导航"), detailContent_);
+    detailNavigationButton_->setObjectName(QStringLiteral("stationDetailNavigationButton"));
     auto *pileTitle = new QLabel(QStringLiteral("充电桩"), detailContent_);
     QFont pileTitleFont = pileTitle->font();
     pileTitleFont.setBold(true);
@@ -364,6 +393,7 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     detailLayout->addWidget(detailNameLabel_);
     detailLayout->addWidget(detailMetaLabel_);
     detailLayout->addWidget(detailPriceLabel_);
+    detailLayout->addWidget(detailNavigationButton_, 0, Qt::AlignLeft);
     detailLayout->addWidget(pileTitle);
     detailLayout->addLayout(pileListLayout_);
     detailLayout->addStretch();
@@ -372,8 +402,62 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     detailPageLayout->addWidget(detailMessageLabel_);
     detailPageLayout->addWidget(detailScrollArea, 1);
 
+    navigationPage_ = new QWidget(pages_);
+    navigationPage_->setObjectName(QStringLiteral("stationNavigationPage"));
+    auto *navigationLayout = new QVBoxLayout(navigationPage_);
+    navigationLayout->setContentsMargins(20, 20, 20, 16);
+    navigationLayout->setSpacing(12);
+    auto *navigationBackButton =
+        new QPushButton(QStringLiteral("‹ 返回充电站"), navigationPage_);
+    navigationBackButton->setObjectName(QStringLiteral("navigationBackButton"));
+    navigationBackButton->setFlat(true);
+    auto *navigationTitle = new QLabel(QStringLiteral("路线导航"), navigationPage_);
+    QFont navigationTitleFont = navigationTitle->font();
+    navigationTitleFont.setPointSize(18);
+    navigationTitleFont.setBold(true);
+    navigationTitle->setFont(navigationTitleFont);
+    routeStartInput_ = new QLineEdit(navigationPage_);
+    routeStartInput_->setObjectName(QStringLiteral("routeStartInput"));
+    routeStartInput_->setPlaceholderText(QStringLiteral("输入路线起点"));
+    routeDestinationLabel_ = new QLabel(navigationPage_);
+    routeDestinationLabel_->setObjectName(QStringLiteral("routeDestination"));
+    routeDestinationLabel_->setWordWrap(true);
+    routeModeCombo_ = new QComboBox(navigationPage_);
+    routeModeCombo_->setObjectName(QStringLiteral("routeModeCombo"));
+    routeModeCombo_->addItem(QStringLiteral("驾车"),
+                             static_cast<int>(RouteMode::Driving));
+    routeModeCombo_->addItem(QStringLiteral("步行"),
+                             static_cast<int>(RouteMode::Walking));
+    routePlanButton_ = new QPushButton(QStringLiteral("开始导航"), navigationPage_);
+    routePlanButton_->setObjectName(QStringLiteral("routePlanButton"));
+    auto *routeOptions = new QHBoxLayout();
+    routeOptions->addWidget(routeModeCombo_, 1);
+    routeOptions->addWidget(routePlanButton_);
+    routeMessageLabel_ = new QLabel(navigationPage_);
+    routeMessageLabel_->setObjectName(QStringLiteral("routeMessage"));
+    routeMessageLabel_->setWordWrap(true);
+    routeMessageLabel_->hide();
+    routeDisplayLabel_ = new QLabel(
+        QStringLiteral("选择出行方式后点击“开始导航”"), navigationPage_);
+    routeDisplayLabel_->setObjectName(QStringLiteral("routeDisplay"));
+    routeDisplayLabel_->setAlignment(Qt::AlignCenter);
+    routeDisplayLabel_->setWordWrap(true);
+    routeDisplayLabel_->setMinimumHeight(220);
+    routeDisplayLabel_->setStyleSheet(QStringLiteral(
+        "background: #f2f4f7; border: 1px solid #d0d5dd; border-radius: 12px; "
+        "color: #475467; padding: 16px;"));
+    navigationLayout->addWidget(navigationBackButton, 0, Qt::AlignLeft);
+    navigationLayout->addWidget(navigationTitle);
+    navigationLayout->addWidget(new QLabel(QStringLiteral("起点"), navigationPage_));
+    navigationLayout->addWidget(routeStartInput_);
+    navigationLayout->addWidget(routeDestinationLabel_);
+    navigationLayout->addLayout(routeOptions);
+    navigationLayout->addWidget(routeMessageLabel_);
+    navigationLayout->addWidget(routeDisplayLabel_, 1);
+
     pages_->addWidget(listPage_);
     pages_->addWidget(detailPage_);
+    pages_->addWidget(navigationPage_);
     pages_->setCurrentWidget(listPage_);
 
     connect(refreshButton_, &QPushButton::clicked, this, &StationBrowserPage::refreshRequested);
@@ -381,7 +465,36 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     connect(keywordInput_, &QLineEdit::returnPressed, this, &StationBrowserPage::refreshRequested);
     connect(demoLocationCheck_, &QCheckBox::toggled,
             this, &StationBrowserPage::updateLocationSummary);
+    connect(locationPresetCombo_, &QComboBox::currentIndexChanged,
+            this, [this](int index) {
+                const QString address = locationPresetCombo_->itemData(index).toString();
+                if (!address.isEmpty()) {
+                    locationAddressInput_->setText(address);
+                } else {
+                    locationAddressInput_->clear();
+                    locationAddressInput_->setFocus();
+                }
+            });
+    connect(resolveLocationButton_, &QPushButton::clicked, this, [this]() {
+        emit locationResolutionRequested(locationAddressInput_->text());
+    });
+    connect(locationAddressInput_, &QLineEdit::returnPressed, this, [this]() {
+        emit locationResolutionRequested(locationAddressInput_->text());
+    });
     connect(backButton_, &QPushButton::clicked, this, &StationBrowserPage::detailBackRequested);
+    connect(detailNavigationButton_, &QPushButton::clicked, this, [this]() {
+        navigationReturnPage_ = detailPage_;
+        emit navigationRequested(navigationStation_);
+    });
+    connect(navigationBackButton, &QPushButton::clicked, this, [this]() {
+        pages_->setCurrentWidget(navigationReturnPage_ != nullptr
+                                     ? navigationReturnPage_
+                                     : listPage_);
+    });
+    connect(routePlanButton_, &QPushButton::clicked, this, [this]() {
+        const auto mode = static_cast<RouteMode>(routeModeCombo_->currentData().toInt());
+        emit routeRequested(routeStartInput_->text(), mode);
+    });
     connect(cancelOrderButton_, &QPushButton::clicked, this, [this]() {
         emit cancellationRequested(cancelOrderButton_->property("orderId").toLongLong());
     });
@@ -404,12 +517,17 @@ StationQuery StationBrowserPage::stationQuery() const
 {
     StationQuery query;
     if (demoLocationCheck_->isChecked()) {
-        query.longitude = 123.42;
-        query.latitude = 41.70;
+        query.longitude = currentLocation_.longitude;
+        query.latitude = currentLocation_.latitude;
     }
     query.region = regionInput_->text().trimmed();
     query.keyword = keywordInput_->text().trimmed();
     return query;
+}
+
+MapLocation StationBrowserPage::currentLocation() const
+{
+    return currentLocation_;
 }
 
 void StationBrowserPage::setGreeting(const QString &nickname, bool isNewUser)
@@ -511,6 +629,17 @@ void StationBrowserPage::showStations(const QList<protocol::StationDto> &station
             QStringLiteral("stationDetailHint_%1").arg(station.stationId));
         detailHint->setAlignment(Qt::AlignRight);
         detailHint->setStyleSheet(QStringLiteral("color: #1677ff;"));
+        auto *navigationButton = new QPushButton(QStringLiteral("导航"), card);
+        navigationButton->setObjectName(
+            QStringLiteral("stationNavigationButton_%1").arg(station.stationId));
+        connect(navigationButton, &QPushButton::clicked, this, [this, station]() {
+            navigationReturnPage_ = listPage_;
+            emit navigationRequested(station);
+        });
+        auto *bottomRow = new QHBoxLayout();
+        bottomRow->addWidget(navigationButton);
+        bottomRow->addStretch();
+        bottomRow->addWidget(detailHint);
         for (QLabel *label : {name, address, availability, prediction, detailHint}) {
             label->setAttribute(Qt::WA_TransparentForMouseEvents);
         }
@@ -518,7 +647,7 @@ void StationBrowserPage::showStations(const QList<protocol::StationDto> &station
         layout->addWidget(address);
         layout->addWidget(availability);
         layout->addWidget(prediction);
-        layout->addWidget(detailHint);
+        layout->addLayout(bottomRow);
         stationListLayout_->addWidget(card);
     }
     stationListLayout_->addStretch();
@@ -601,6 +730,7 @@ void StationBrowserPage::showDetailLoading()
 void StationBrowserPage::showStationDetail(const StationDetailPayload &detail)
 {
     clearPileCards();
+    navigationStation_ = detail.station;
     detailMessageLabel_->hide();
     detailNameLabel_->setText(detail.station.name);
     detailMetaLabel_->setText(
@@ -665,6 +795,64 @@ void StationBrowserPage::showDetailMessage(const QString &message, bool error)
     detailMessageLabel_->setVisible(!message.isEmpty());
 }
 
+void StationBrowserPage::setLocationBusy(bool busy)
+{
+    locationPresetCombo_->setDisabled(busy);
+    locationAddressInput_->setDisabled(busy);
+    resolveLocationButton_->setDisabled(busy);
+}
+
+void StationBrowserPage::setResolvedLocation(const MapLocation &location)
+{
+    currentLocation_ = location;
+    demoLocationCheck_->setChecked(true);
+    updateLocationSummary();
+}
+
+void StationBrowserPage::showLocationMessage(const QString &message, bool error)
+{
+    locationMessageLabel_->setText(message);
+    locationMessageLabel_->setStyleSheet(error ? QStringLiteral("color: #c62828;")
+                                                : QStringLiteral("color: #137333;"));
+    locationMessageLabel_->setVisible(!message.isEmpty());
+}
+
+void StationBrowserPage::showNavigation(const protocol::StationDto &station,
+                                        const MapLocation &start)
+{
+    navigationStation_ = station;
+    routeStartInput_->setText(start.address);
+    routeDestinationLabel_->setText(
+        QStringLiteral("终点\n%1\n%2\n%3, %4")
+            .arg(station.name, station.address)
+            .arg(station.longitude, 0, 'f', 4)
+            .arg(station.latitude, 0, 'f', 4));
+    routeDisplayLabel_->setText(QStringLiteral("选择出行方式后点击“开始导航”"));
+    routeMessageLabel_->hide();
+    pages_->setCurrentWidget(navigationPage_);
+}
+
+void StationBrowserPage::setRouteBusy(bool busy)
+{
+    routeStartInput_->setDisabled(busy);
+    routeModeCombo_->setDisabled(busy);
+    routePlanButton_->setDisabled(busy);
+}
+
+void StationBrowserPage::showRouteMessage(const QString &message, bool error)
+{
+    routeMessageLabel_->setText(message);
+    routeMessageLabel_->setStyleSheet(error ? QStringLiteral("color: #c62828;")
+                                             : QStringLiteral("color: #137333;"));
+    routeMessageLabel_->setVisible(!message.isEmpty());
+}
+
+void StationBrowserPage::showRouteResult(const RouteResult &result)
+{
+    showRouteMessage(result.message);
+    routeDisplayLabel_->setText(result.summary);
+}
+
 void StationBrowserPage::reset()
 {
     setListLoading(false);
@@ -674,6 +862,10 @@ void StationBrowserPage::reset()
     actionMessageLabel_->hide();
     currentOrderCard_->hide();
     detailMessageLabel_->hide();
+    locationMessageLabel_->hide();
+    routeMessageLabel_->hide();
+    setLocationBusy(false);
+    setRouteBusy(false);
     pages_->setCurrentWidget(listPage_);
 }
 
@@ -698,8 +890,11 @@ void StationBrowserPage::updateLocationSummary()
 {
     if (demoLocationCheck_->isChecked()) {
         locationSummaryLabel_->setText(
-            QStringLiteral("演示位置 · 123.4200, 41.7000\n"
-                           "地图地址搜索、自动定位和地图选点将在地图适配器接入后提供。"));
+            QStringLiteral("%1 · %2, %3\n"
+                           "当前位置仅用于本次查询，不会保存到数据库。")
+                .arg(currentLocation_.address)
+                .arg(currentLocation_.longitude, 0, 'f', 4)
+                .arg(currentLocation_.latitude, 0, 'f', 4));
         return;
     }
 

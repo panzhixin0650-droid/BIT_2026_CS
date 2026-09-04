@@ -12,9 +12,11 @@ class QTabWidget;
 namespace charging::client {
 
 class IChargingApi;
+class IMapService;
 class AvatarStorage;
 class LoginController;
 class LoginPage;
+class MapController;
 class OrderController;
 class OrderPage;
 class ProfileController;
@@ -27,9 +29,13 @@ class StationBrowserPage;
 class MainWindow final : public QMainWindow {
 public:
     explicit MainWindow(IChargingApi &api, QWidget *parent = nullptr);
+    MainWindow(IChargingApi &api,
+               IMapService &mapService,
+               QWidget *parent = nullptr);
     ~MainWindow() override;
 
 private:
+    void initialize(IChargingApi &api, IMapService &mapService);
     void showAuthenticatedHome(const protocol::UserDto &user, bool isNewUser);
     void showLoginPage(const QString &message = {});
 
@@ -41,11 +47,13 @@ private:
     ScanPage *scanPage_ = nullptr;
     ProfilePage *profilePage_ = nullptr;
     LoginController *loginController_ = nullptr;
+    MapController *mapController_ = nullptr;
     ProfileController *profileController_ = nullptr;
     StationBrowserController *stationBrowserController_ = nullptr;
     OrderController *orderController_ = nullptr;
     ScanController *scanController_ = nullptr;
     std::unique_ptr<AvatarStorage> avatarStorage_;
+    std::unique_ptr<IMapService> ownedMapService_;
 };
 
 }  // namespace charging::client

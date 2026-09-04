@@ -2,8 +2,11 @@
 
 #include "api/i_charging_api.h"
 #include "local/avatar_storage.h"
+#include "local/i_map_service.h"
+#include "local/mock_map_service.h"
 #include "ui/login_controller.h"
 #include "ui/login_page.h"
+#include "ui/map_controller.h"
 #include "ui/order_controller.h"
 #include "ui/order_page.h"
 #include "ui/profile_controller.h"
@@ -23,6 +26,20 @@ namespace charging::client {
 
 MainWindow::MainWindow(IChargingApi &api, QWidget *parent)
     : QMainWindow(parent)
+    , ownedMapService_(std::make_unique<MockMapService>())
+{
+    initialize(api, *ownedMapService_);
+}
+
+MainWindow::MainWindow(IChargingApi &api,
+                       IMapService &mapService,
+                       QWidget *parent)
+    : QMainWindow(parent)
+{
+    initialize(api, mapService);
+}
+
+void MainWindow::initialize(IChargingApi &api, IMapService &mapService)
 {
     setObjectName(QStringLiteral("mainWindow"));
     setWindowTitle(QStringLiteral("新能源汽车充电服务"));
@@ -76,6 +93,7 @@ MainWindow::MainWindow(IChargingApi &api, QWidget *parent)
         new ProfileController(*profilePage_, api, *avatarStorage_, this);
     stationBrowserController_ =
         new StationBrowserController(*homePage_, api, this);
+    mapController_ = new MapController(*homePage_, mapService, this);
     orderController_ = new OrderController(*orderPage_, api, this);
     scanController_ = new ScanController(*scanPage_, api, this);
     connect(loginController_,
@@ -108,6 +126,8 @@ MainWindow::MainWindow(IChargingApi &api, QWidget *parent)
             &StationBrowserController::authenticationRequired,
             this,
             &MainWindow::showLoginPage);
+    connect(mapController_, &MapController::locationChanged,
+            stationBrowserController_, &StationBrowserController::refreshStations);
     connect(stationBrowserController_,
             &StationBrowserController::currentOrderRequiresAttention,
             this, [this](protocol::OrderStatus status) {
@@ -169,6 +189,7 @@ void MainWindow::showLoginPage(const QString &message)
     homePage_->reset();
     orderPage_->reset();
     scanPage_->reset();
+    mapController_->reset();
     pages_->setCurrentWidget(loginPage_);
 }
 
