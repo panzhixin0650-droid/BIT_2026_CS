@@ -409,7 +409,9 @@ StationDetailDto   = {station: StationDto, piles: PileDto[]}
 StationCreateInput = {
   name: string[1..64], region: string[1..64], address: string[1..200],
   longitude: number[-180..180], latitude: number[-90..90],
-  priceCentsPerKwh: integer > 0, pileCount: integer[0..100]
+  priceCentsPerKwh: integer > 0,
+  piles: [{pileCode: string[1..64], pileType: FAST|SLOW,
+           ratedPowerKw: number > 0 and <= 1000}]
 }
 ```
 
@@ -434,7 +436,7 @@ StationCreateInput = {
 
 约定：
 
-- `createStation` 自动生成唯一桩编号；桩类型和功率可以用简单默认值，生成规则不是跨模块契约；响应必须返回实际结果；
+- `createStation` 的 `piles` 明细由管理员端在提交前填写，服务端生成站点 ID、桩 ID、创建时间和初始 `IDLE` 状态；站点与全部初始电桩必须同一事务提交，响应必须返回实际结果。`piles` 为空表示创建空站点；
 - `createPile` 的 `pileId` 由服务端生成，初始状态为 `IDLE`，站点桩数通过实时聚合变化，不在站点表维护计数；
 - `deletePile` 不删除历史：存在任何订单、处于 `RESERVED/CHARGING/FAULT` 时返回 `40903`；
 - `setPileStatus` 不创建命令表或审计表；`OFFLINE -> IDLE` 表示上线，`IDLE -> OFFLINE` 表示下线，`IDLE/OFFLINE -> FAULT` 表示故障；普通管理操作不能将 `FAULT` 恢复；

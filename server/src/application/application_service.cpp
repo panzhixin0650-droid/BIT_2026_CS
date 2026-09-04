@@ -11,6 +11,7 @@
 #include <QJsonArray>
 #include <QJsonValue>
 #include <QRegularExpression>
+#include <QSet>
 #include <QTimeZone>
 
 #include <algorithm>
@@ -586,7 +587,6 @@ ServiceResult ApplicationService::createAdminStation(const QJsonObject &input)
                                       QStringLiteral("INTERNAL_ERROR"));
     }
     StationDto station;
-    qint64 pileCount = 0;
     qint64 price = 0;
     const QJsonValue longitudeValue = input.value(QStringLiteral("longitude"));
     const QJsonValue latitudeValue = input.value(QStringLiteral("latitude"));
@@ -598,7 +598,7 @@ ServiceResult ApplicationService::createAdminStation(const QJsonObject &input)
         || station.address.isEmpty() || station.address.size() > 200
         || !longitudeValue.isDouble() || !latitudeValue.isDouble()
         || !readInteger(input, QStringLiteral("priceCentsPerKwh"), &price)
-        || !readInteger(input, QStringLiteral("pileCount"), &pileCount)) {
+        || !input.value(QStringLiteral("piles")).isArray()) {
         return invalidRequest();
     }
     station.longitude = longitudeValue.toDouble();
@@ -606,23 +606,62 @@ ServiceResult ApplicationService::createAdminStation(const QJsonObject &input)
     if (!std::isfinite(station.longitude) || !std::isfinite(station.latitude)
         || station.longitude < -180.0 || station.longitude > 180.0
         || station.latitude < -90.0 || station.latitude > 90.0
-        || price <= 0 || pileCount < 0 || pileCount > 100) {
+        || price <= 0) {
         return invalidRequest();
+    }
+    const QJsonArray pileItems = input.value(QStringLiteral("piles")).toArray();
+    if (pileItems.size() > 100) return invalidRequest();
+    QList<PileDto> piles;
+    QSet<QString> pileCodes;
+    for (const QJsonValue &value : pileItems) {
+        if (!value.isObject()) return invalidRequest();
+        const QJsonObject pileInput = value.toObject();
+        QString pileCode;
+        QString pileType;
+        const QJsonValue powerValue = pileInput.value(QStringLiteral("ratedPowerKw"));
+        if (!readString(pileInput, QStringLiteral("pileCode"), &pileCode)
+            || !readString(pileInput, QStringLiteral("pileType"), &pileType)
+            || !powerValue.isDouble()) {
+            return invalidRequest();
+        }
+        pileCode = pileCode.trimmed();
+        const QString normalizedCode = pileCode.toCaseFolded();
+        const double power = powerValue.toDouble();
+        if (pileCode.isEmpty() || pileCode.size() > 64 || pileCodes.contains(normalizedCode)
+            || !std::isfinite(power) || power <= 0.0 || power > 1000.0
+            || (pileType != QStringLiteral("FAST") && pileType != QStringLiteral("SLOW"))) {
+            return invalidRequest();
+        }
+        pileCodes.insert(normalizedCode);
+        PileDto pile;
+        pile.pileCode = pileCode;
+        pile.pileType = pileType == QStringLiteral("FAST") ? PileType::Fast : PileType::Slow;
+        pile.ratedPowerKw = power;
+        pile.status = PileStatus::Idle;
+        piles.append(pile);
+    }
+    const QList<PileDto> existingPiles = repository_->listPiles();
+    if (!repository_->lastOperationSucceeded()) return internalError();
+    if (std::any_of(existingPiles.cbegin(), existingPiles.cend(), [&pileCodes](const PileDto &pile) {
+            return pileCodes.contains(pile.pileCode.toCaseFolded());
+        })) {
+        return ServiceResult::failure(ErrorCode::InvalidRequest,
+                                      QStringLiteral("PILE_CODE_EXISTS"));
     }
     station.priceCentsPerKwh = price;
     station.status = StationStatus::Active;
-    station = repository_->createStation(station, pileCount);
+    station = repository_->createStation(station, piles);
     if (!repository_->lastOperationSucceeded() || station.stationId <= 0) {
         return internalError();
     }
-    const QList<PileDto> piles =
+    const QList<PileDto> createdPiles =
         repository_->listPilesByStationId(station.stationId);
     if (!repository_->lastOperationSucceeded()) {
         return internalError();
     }
     return ServiceResult::success({
         {QStringLiteral("station"), toJson(station)},
-        {QStringLiteral("piles"), pilesToJson(piles)},
+        {QStringLiteral("piles"), pilesToJson(createdPiles)},
     });
 }
 

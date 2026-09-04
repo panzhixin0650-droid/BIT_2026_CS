@@ -201,7 +201,10 @@ void RepositoryTests::writesPersistAcrossReopen()
         station.longitude = 123.45;
         station.latitude = 41.72;
         station.priceCentsPerKwh = 130;
-        station = repository.createStation(station, 2);
+        station = repository.createStation(station, {
+            PileDto{0, 0, QStringLiteral("PILE-PERSIST-01"), PileType::Fast, 60.0},
+            PileDto{0, 0, QStringLiteral("PILE-PERSIST-02"), PileType::Slow, 7.0},
+        });
         QVERIFY(repository.lastOperationSucceeded());
         QVERIFY(station.stationId > 0);
         stationId = station.stationId;
@@ -245,7 +248,10 @@ void RepositoryTests::deletesOnlyStationsWithoutOrders()
         station.longitude = 123.45;
         station.latitude = 41.72;
         station.priceCentsPerKwh = 130;
-        station = repository.createStation(station, 2);
+        station = repository.createStation(station, {
+            PileDto{0, 0, QStringLiteral("PILE-DELETE-01"), PileType::Fast, 60.0},
+            PileDto{0, 0, QStringLiteral("PILE-DELETE-02"), PileType::Slow, 7.0},
+        });
         QVERIFY(station.stationId > 0);
         stationId = station.stationId;
 
@@ -312,7 +318,10 @@ void RepositoryTests::stationCreationRollsBackCompletely()
     station.longitude = 123.45;
     station.latitude = 41.72;
     station.priceCentsPerKwh = 130;
-    station = repository.createStation(station, 2);
+    station = repository.createStation(station, {
+        PileDto{0, 0, QStringLiteral("PILE-ROLLBACK-01"), PileType::Fast, 80.0},
+        PileDto{0, 0, QStringLiteral("PILE-004-02"), PileType::Slow, 11.0},
+    });
     QCOMPARE(station.stationId, qint64{0});
     QVERIFY(!repository.lastOperationSucceeded());
 
@@ -324,7 +333,7 @@ void RepositoryTests::stationCreationRollsBackCompletely()
     }));
     const QList<PileDto> piles = repository.listPiles();
     QVERIFY(!contains(piles, [](const PileDto &pile) {
-        return pile.pileCode == QStringLiteral("PILE-004-01");
+        return pile.pileCode == QStringLiteral("PILE-ROLLBACK-01");
     }));
 }
 

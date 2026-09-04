@@ -7,6 +7,7 @@
 #include <QSqlQuery>
 #include <QVariant>
 
+#include <cmath>
 #include <utility>
 
 namespace charging::server {
@@ -668,14 +669,15 @@ std::optional<StationDto> Repository::findStationById(qint64 stationId) const
     return station;
 }
 
-StationDto Repository::createStation(StationDto station, qint64 pileCount)
+StationDto Repository::createStation(StationDto station,
+                                     const QList<PileDto> &piles)
 {
     beginOperation();
     const QString operation = QStringLiteral("createStation");
     if (!requireOpen(operation)) {
         return {};
     }
-    if (pileCount < 0 || pileCount > 100) {
+    if (piles.size() > 100) {
         failOperation(operation, QStringLiteral("invalid pile count"));
         return {};
     }
@@ -726,19 +728,18 @@ StationDto Repository::createStation(StationDto station, qint64 pileCount)
         failOperation(operation, pileInsert.lastError().text());
         return {};
     }
-    for (qint64 index = 0; index < pileCount; ++index) {
-        const PileType pileType = index % 2 == 0
-            ? PileType::Fast
-            : PileType::Slow;
+    for (const PileDto &pile : piles) {
+        if (pile.pileCode.trimmed().isEmpty() || pile.pileCode.size() > 64
+            || !std::isfinite(pile.ratedPowerKw) || pile.ratedPowerKw <= 0.0
+            || pile.ratedPowerKw > 1000.0) {
+            database_.rollback();
+            failOperation(operation, QStringLiteral("invalid pile"));
+            return {};
+        }
         pileInsert.bindValue(QStringLiteral(":station_id"), stationId);
-        pileInsert.bindValue(
-            QStringLiteral(":pile_code"),
-            QStringLiteral("PILE-%1-%2")
-                .arg(stationId, 3, 10, QLatin1Char('0'))
-                .arg(index + 1, 2, 10, QLatin1Char('0')));
-        pileInsert.bindValue(QStringLiteral(":pile_type"), toString(pileType));
-        pileInsert.bindValue(QStringLiteral(":power"),
-                             pileType == PileType::Fast ? 60.0 : 7.0);
+        pileInsert.bindValue(QStringLiteral(":pile_code"), pile.pileCode.trimmed());
+        pileInsert.bindValue(QStringLiteral(":pile_type"), toString(pile.pileType));
+        pileInsert.bindValue(QStringLiteral(":power"), pile.ratedPowerKw);
         if (!pileInsert.exec()) {
             database_.rollback();
             failOperation(operation, pileInsert.lastError().text());
@@ -754,9 +755,9 @@ StationDto Repository::createStation(StationDto station, qint64 pileCount)
 
     station.stationId = stationId;
     station.status = StationStatus::Active;
-    station.totalPileCount = pileCount;
-    station.availablePileCount = pileCount;
-    station.onlineRatePercent = pileCount == 0 ? 0.0 : 100.0;
+    station.totalPileCount = piles.size();
+    station.availablePileCount = piles.size();
+    station.onlineRatePercent = piles.isEmpty() ? 0.0 : 100.0;
     station.distanceKm.reset();
     station.predictedCongestion.reset();
     station.recommended = false;
