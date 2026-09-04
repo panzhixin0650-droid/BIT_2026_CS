@@ -6,7 +6,6 @@
 
 #include <memory>
 
-class QLabel;
 class QStackedWidget;
 class QTabWidget;
 
@@ -16,8 +15,12 @@ class IChargingApi;
 class AvatarStorage;
 class LoginController;
 class LoginPage;
+class OrderController;
+class OrderPage;
 class ProfileController;
 class ProfilePage;
+class StationBrowserController;
+class StationBrowserPage;
 
 class MainWindow final : public QMainWindow {
 public:
@@ -31,12 +34,13 @@ private:
     QStackedWidget *pages_ = nullptr;
     LoginPage *loginPage_ = nullptr;
     QTabWidget *mainTabs_ = nullptr;
-    QWidget *homePage_ = nullptr;
-    QLabel *welcomeLabel_ = nullptr;
-    QLabel *loginNoticeLabel_ = nullptr;
+    StationBrowserPage *homePage_ = nullptr;
+    OrderPage *orderPage_ = nullptr;
     ProfilePage *profilePage_ = nullptr;
     LoginController *loginController_ = nullptr;
     ProfileController *profileController_ = nullptr;
+    StationBrowserController *stationBrowserController_ = nullptr;
+    OrderController *orderController_ = nullptr;
     std::unique_ptr<AvatarStorage> avatarStorage_;
 };
 

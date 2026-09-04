@@ -137,6 +137,8 @@ ProfilePage::ProfilePage(QWidget *parent)
     auto *nicknameTitle = new QLabel(QStringLiteral("修改昵称"), profileCard);
     nicknameInput_ = new QLineEdit(profileCard);
     nicknameInput_->setObjectName(QStringLiteral("nicknameInput"));
+    nicknameInput_->setAttribute(Qt::WA_InputMethodEnabled, true);
+    nicknameInput_->setInputMethodHints(Qt::ImhNone);
     nicknameInput_->setMaxLength(32);
     saveNicknameButton_ = new QPushButton(QStringLiteral("保存"), profileCard);
     saveNicknameButton_->setObjectName(QStringLiteral("saveNicknameButton"));
