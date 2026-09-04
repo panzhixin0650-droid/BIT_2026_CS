@@ -22,6 +22,7 @@ public:
                   IMapService &mapService,
                   QObject *parent = nullptr);
     void reset();
+    void openNavigation(const protocol::StationDto &station);
 
 signals:
     void locationChanged();
@@ -30,7 +31,6 @@ private:
     enum class GeocodePurpose { None, LocationSelection, RouteStart };
 
     void resolveLocation(const QString &address);
-    void openNavigation(const protocol::StationDto &station);
     void requestRoute(const QString &startAddress, RouteMode mode);
     void handleGeocode(const GeocodeResult &result);
     void handleRoute(const RouteResult &result);

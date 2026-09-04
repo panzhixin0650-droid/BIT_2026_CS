@@ -19,10 +19,13 @@ public:
                              QObject *parent = nullptr);
 
     void refreshStations();
+    void navigateToStation(qint64 stationId);
+    void synchronizeChargingStop(const ChargingStopPayload &result);
 
 signals:
     void authenticationRequired(const QString &message);
     void currentOrderRequiresAttention(protocol::OrderStatus status);
+    void navigationReady(const protocol::StationDto &station);
 
 private:
     enum class CurrentOrderPurpose { None, Refresh, BeforeReservation };
@@ -46,6 +49,7 @@ private:
     IChargingApi &api_;
     QString pendingListRequestId_;
     QString pendingDetailRequestId_;
+    QString pendingNavigationRequestId_;
     QString pendingCurrentOrderRequestId_;
     QString pendingReservationRequestId_;
     QString pendingCancellationRequestId_;

@@ -13,6 +13,7 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSignalBlocker>
+#include <QSizePolicy>
 #include <QStackedWidget>
 #include <QVBoxLayout>
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
@@ -231,6 +232,12 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     currentOrderProgressLabel_->setStyleSheet(QStringLiteral("color: #667085;"));
     cancelOrderButton_ = new QPushButton(QStringLiteral("取消预约"), currentOrderCard_);
     cancelOrderButton_->setObjectName(QStringLiteral("cancelReservationButton"));
+    currentOrderNavigationButton_ =
+        new QPushButton(QStringLiteral("导航"), currentOrderCard_);
+    currentOrderNavigationButton_->setObjectName(
+        QStringLiteral("currentOrderNavigationButton"));
+    currentOrderNavigationButton_->setToolTip(
+        QStringLiteral("导航到订单所属充电站"));
     reservationScanButton_ =
         new QPushButton(QStringLiteral("前往扫码充电"), currentOrderCard_);
     reservationScanButton_->setObjectName(
@@ -241,6 +248,7 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     stopButton_->setObjectName(QStringLiteral("chargingStopButton"));
     auto *currentOrderActions = new QHBoxLayout();
     currentOrderActions->addStretch();
+    currentOrderActions->addWidget(currentOrderNavigationButton_);
     currentOrderActions->addWidget(cancelOrderButton_);
     currentOrderActions->addWidget(reservationScanButton_);
     currentOrderActions->addWidget(progressButton_);
@@ -416,35 +424,78 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     navigationPage_ = new QWidget(pages_);
     navigationPage_->setObjectName(QStringLiteral("stationNavigationPage"));
     auto *navigationLayout = new QVBoxLayout(navigationPage_);
-    navigationLayout->setContentsMargins(20, 20, 20, 16);
-    navigationLayout->setSpacing(12);
+    navigationLayout->setContentsMargins(16, 12, 16, 12);
+    navigationLayout->setSpacing(8);
     auto *navigationBackButton =
-        new QPushButton(QStringLiteral("‹ 返回充电站"), navigationPage_);
+        new QPushButton(QStringLiteral("‹ 返回"), navigationPage_);
     navigationBackButton->setObjectName(QStringLiteral("navigationBackButton"));
+    navigationBackButton->setAccessibleName(QStringLiteral("返回充电站"));
     navigationBackButton->setFlat(true);
+    navigationBackButton->setFixedWidth(72);
     auto *navigationTitle = new QLabel(QStringLiteral("路线导航"), navigationPage_);
+    navigationTitle->setObjectName(QStringLiteral("navigationHeading"));
+    navigationTitle->setAlignment(Qt::AlignCenter);
     QFont navigationTitleFont = navigationTitle->font();
-    navigationTitleFont.setPointSize(18);
+    navigationTitleFont.setPointSize(22);
     navigationTitleFont.setBold(true);
     navigationTitle->setFont(navigationTitleFont);
-    routeStartInput_ = new QLineEdit(navigationPage_);
+
+    auto *navigationHeader = new QHBoxLayout();
+    navigationHeader->setSpacing(8);
+    navigationHeader->setContentsMargins(0, 0, 0, 2);
+    navigationHeader->addWidget(navigationBackButton, 0, Qt::AlignVCenter);
+    navigationHeader->addWidget(navigationTitle, 1, Qt::AlignVCenter);
+    auto *navigationHeaderBalance = new QWidget(navigationPage_);
+    navigationHeaderBalance->setFixedWidth(72);
+    navigationHeader->addWidget(navigationHeaderBalance);
+
+    auto *routeControlsCard = createCard(navigationPage_);
+    routeControlsCard->setObjectName(QStringLiteral("routeControlsCard"));
+    auto *routeControlsLayout = new QVBoxLayout(routeControlsCard);
+    routeControlsLayout->setContentsMargins(12, 10, 12, 10);
+    routeControlsLayout->setSpacing(8);
+
+    auto *startLabel = new QLabel(QStringLiteral("起点"), routeControlsCard);
+    startLabel->setMinimumWidth(34);
+    routeStartInput_ = new QLineEdit(routeControlsCard);
     routeStartInput_->setObjectName(QStringLiteral("routeStartInput"));
     routeStartInput_->setPlaceholderText(
         QStringLiteral("输入包含城市名称的路线起点"));
-    routeDestinationLabel_ = new QLabel(navigationPage_);
+    auto *routeStartRow = new QHBoxLayout();
+    routeStartRow->setSpacing(8);
+    routeStartRow->addWidget(startLabel);
+    routeStartRow->addWidget(routeStartInput_, 1);
+
+    auto *destinationLabel = new QLabel(QStringLiteral("终点"), routeControlsCard);
+    destinationLabel->setMinimumWidth(34);
+    routeDestinationLabel_ = new QLabel(routeControlsCard);
     routeDestinationLabel_->setObjectName(QStringLiteral("routeDestination"));
     routeDestinationLabel_->setWordWrap(true);
-    routeModeCombo_ = new QComboBox(navigationPage_);
+    routeDestinationLabel_->setStyleSheet(QStringLiteral("color: #475467;"));
+    auto *routeDestinationRow = new QHBoxLayout();
+    routeDestinationRow->setSpacing(8);
+    routeDestinationRow->addWidget(destinationLabel, 0, Qt::AlignTop);
+    routeDestinationRow->addWidget(routeDestinationLabel_, 1);
+
+    auto *modeLabel = new QLabel(QStringLiteral("方式"), routeControlsCard);
+    modeLabel->setMinimumWidth(34);
+    routeModeCombo_ = new QComboBox(routeControlsCard);
     routeModeCombo_->setObjectName(QStringLiteral("routeModeCombo"));
     routeModeCombo_->addItem(QStringLiteral("驾车"),
                              static_cast<int>(RouteMode::Driving));
     routeModeCombo_->addItem(QStringLiteral("步行"),
                              static_cast<int>(RouteMode::Walking));
-    routePlanButton_ = new QPushButton(QStringLiteral("开始导航"), navigationPage_);
+    routePlanButton_ = new QPushButton(QStringLiteral("开始导航"), routeControlsCard);
     routePlanButton_->setObjectName(QStringLiteral("routePlanButton"));
     auto *routeOptions = new QHBoxLayout();
+    routeOptions->setSpacing(8);
+    routeOptions->addWidget(modeLabel);
     routeOptions->addWidget(routeModeCombo_, 1);
     routeOptions->addWidget(routePlanButton_);
+    routeControlsLayout->addLayout(routeStartRow);
+    routeControlsLayout->addLayout(routeDestinationRow);
+    routeControlsLayout->addLayout(routeOptions);
+
     routeMessageLabel_ = new QLabel(navigationPage_);
     routeMessageLabel_->setObjectName(QStringLiteral("routeMessage"));
     routeMessageLabel_->setWordWrap(true);
@@ -454,19 +505,20 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     routeDisplayLabel_->setObjectName(QStringLiteral("routeDisplay"));
     routeDisplayLabel_->setAlignment(Qt::AlignCenter);
     routeDisplayLabel_->setWordWrap(true);
-    routeDisplayLabel_->setMinimumHeight(220);
+    routeDisplayLabel_->setMinimumHeight(360);
+    routeDisplayLabel_->setSizePolicy(QSizePolicy::Expanding,
+                                      QSizePolicy::Expanding);
     routeDisplayLabel_->setStyleSheet(QStringLiteral(
         "background: #f2f4f7; border: 1px solid #d0d5dd; border-radius: 12px; "
         "color: #475467; padding: 16px;"));
     routeDisplayStack_ = new QStackedWidget(navigationPage_);
     routeDisplayStack_->setObjectName(QStringLiteral("routeDisplayStack"));
+    routeDisplayStack_->setMinimumHeight(360);
+    routeDisplayStack_->setSizePolicy(QSizePolicy::Expanding,
+                                      QSizePolicy::Expanding);
     routeDisplayStack_->addWidget(routeDisplayLabel_);
-    navigationLayout->addWidget(navigationBackButton, 0, Qt::AlignLeft);
-    navigationLayout->addWidget(navigationTitle);
-    navigationLayout->addWidget(new QLabel(QStringLiteral("起点"), navigationPage_));
-    navigationLayout->addWidget(routeStartInput_);
-    navigationLayout->addWidget(routeDestinationLabel_);
-    navigationLayout->addLayout(routeOptions);
+    navigationLayout->addLayout(navigationHeader);
+    navigationLayout->addWidget(routeControlsCard);
     navigationLayout->addWidget(routeMessageLabel_);
     navigationLayout->addWidget(routeDisplayStack_, 1);
 
@@ -526,6 +578,10 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     });
     connect(cancelOrderButton_, &QPushButton::clicked, this, [this]() {
         emit cancellationRequested(cancelOrderButton_->property("orderId").toLongLong());
+    });
+    connect(currentOrderNavigationButton_, &QPushButton::clicked, this, [this]() {
+        emit currentOrderNavigationRequested(
+            currentOrderNavigationButton_->property("stationId").toLongLong());
     });
     connect(reservationScanButton_, &QPushButton::clicked, this, [this]() {
         emit reservationScanRequested(
@@ -587,6 +643,7 @@ void StationBrowserPage::setReservationBusy(bool busy)
 {
     reservationBusy_ = busy;
     cancelOrderButton_->setDisabled(busy);
+    currentOrderNavigationButton_->setDisabled(busy);
     reservationScanButton_->setDisabled(busy);
     progressButton_->setDisabled(busy);
     stopButton_->setDisabled(busy);
@@ -712,10 +769,14 @@ void StationBrowserPage::showCurrentOrder(
                  order->pileCode,
                  orderStatusText(order->status)));
     cancelOrderButton_->setProperty("orderId", order->orderId);
+    currentOrderNavigationButton_->setProperty("stationId", order->stationId);
     reservationScanButton_->setProperty("pileCode", order->pileCode);
     progressButton_->setProperty("orderId", order->orderId);
     stopButton_->setProperty("orderId", order->orderId);
     cancelOrderButton_->setVisible(order->status == protocol::OrderStatus::Reserved);
+    currentOrderNavigationButton_->setVisible(
+        order->status == protocol::OrderStatus::Reserved
+        || order->status == protocol::OrderStatus::Charging);
     reservationScanButton_->setVisible(
         order->status == protocol::OrderStatus::Reserved);
     progressButton_->setVisible(order->status == protocol::OrderStatus::Charging);
@@ -735,6 +796,7 @@ void StationBrowserPage::showCurrentOrder(
         currentOrderProgressLabel_->show();
     }
     cancelOrderButton_->setDisabled(reservationBusy_);
+    currentOrderNavigationButton_->setDisabled(reservationBusy_);
     reservationScanButton_->setDisabled(reservationBusy_);
     progressButton_->setDisabled(reservationBusy_);
     stopButton_->setDisabled(reservationBusy_);
@@ -743,6 +805,7 @@ void StationBrowserPage::showCurrentOrder(
 
 void StationBrowserPage::showListPage()
 {
+    navigationReturnPage_ = listPage_;
     pages_->setCurrentWidget(listPage_);
 }
 
@@ -852,10 +915,7 @@ void StationBrowserPage::showNavigation(const protocol::StationDto &station,
     navigationStation_ = station;
     routeStartInput_->setText(start.address);
     routeDestinationLabel_->setText(
-        QStringLiteral("终点\n%1\n%2\n%3, %4")
-            .arg(station.name, station.address)
-            .arg(station.longitude, 0, 'f', 4)
-            .arg(station.latitude, 0, 'f', 4));
+        QStringLiteral("%1 · %2").arg(station.name, station.address));
     routeDisplayLabel_->setText(QStringLiteral("选择出行方式后点击“开始导航”"));
     routeDisplayStack_->setCurrentWidget(routeDisplayLabel_);
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
@@ -897,6 +957,9 @@ void StationBrowserPage::showRouteResult(const RouteResult &result)
     if (routeWebView_ == nullptr) {
         routeWebView_ = new QWebEngineView(routeDisplayStack_);
         routeWebView_->setObjectName(QStringLiteral("routeWebView"));
+        routeWebView_->setMinimumHeight(360);
+        routeWebView_->setSizePolicy(QSizePolicy::Expanding,
+                                     QSizePolicy::Expanding);
         routeDisplayStack_->addWidget(routeWebView_);
         connect(routeWebView_, &QWebEngineView::loadFinished, this,
                 [this](bool success) {

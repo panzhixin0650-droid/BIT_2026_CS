@@ -15,6 +15,8 @@ StationBrowserController::StationBrowserController(StationBrowserPage &page,
             this, &StationBrowserController::refreshStations);
     connect(&page_, &StationBrowserPage::stationSelected,
             this, &StationBrowserController::requestStation);
+    connect(&page_, &StationBrowserPage::currentOrderNavigationRequested,
+            this, &StationBrowserController::navigateToStation);
     connect(&page_, &StationBrowserPage::reservationRequested,
             this, &StationBrowserController::requestReservation);
     connect(&page_, &StationBrowserPage::cancellationRequested,
@@ -56,6 +58,17 @@ void StationBrowserController::requestStation(qint64 stationId)
     selectedStationId_ = stationId;
     page_.showDetailLoading();
     pendingDetailRequestId_ = api_.getStation(stationId);
+}
+
+void StationBrowserController::navigateToStation(qint64 stationId)
+{
+    if (stationId <= 0 || !pendingNavigationRequestId_.isEmpty()
+        || !pendingDetailRequestId_.isEmpty()) {
+        return;
+    }
+    page_.setReservationBusy(true);
+    page_.showListMessage(QStringLiteral("正在准备导航…"));
+    pendingNavigationRequestId_ = api_.getStation(stationId);
 }
 
 void StationBrowserController::requestReservation(const QString &pileCode)
@@ -140,9 +153,31 @@ void StationBrowserController::handleStationList(const StationListResult &result
 
 void StationBrowserController::handleStationDetail(const StationDetailResult &result)
 {
-    if (result.response.requestId != pendingDetailRequestId_
+    const bool navigationResponse =
+        result.response.requestId == pendingNavigationRequestId_;
+    const bool detailResponse = result.response.requestId == pendingDetailRequestId_;
+    if ((!navigationResponse && !detailResponse)
         || result.response.type
             != QString::fromLatin1(protocol::MessageType::StationDetail)) {
+        return;
+    }
+    if (navigationResponse) {
+        pendingNavigationRequestId_.clear();
+        page_.setReservationBusy(false);
+        if (handleAuthenticationFailure(result.response.code)) {
+            return;
+        }
+        if (!result.ok() || !result.payload.has_value()) {
+            page_.showListMessage(
+                result.response.message.isEmpty()
+                    ? QStringLiteral("获取导航站点失败，请稍后重试")
+                    : result.response.message,
+                true);
+            return;
+        }
+        page_.showListPage();
+        page_.showListMessage({});
+        emit navigationReady(result.payload->station);
         return;
     }
     pendingDetailRequestId_.clear();
@@ -317,14 +352,20 @@ void StationBrowserController::handleStop(const ChargingStopResult &result)
         return;
     }
 
-    if (result.payload->paid) {
+    synchronizeChargingStop(*result.payload);
+}
+
+void StationBrowserController::synchronizeChargingStop(
+    const ChargingStopPayload &result)
+{
+    if (result.paid) {
         page_.showListMessage(
-            QStringLiteral("充电已结束并自动结算，实付 %1")
-                .arg(result.payload->order.amountCents / 100.0, 0, 'f', 2));
+            QStringLiteral("充电已结束并自动结算，实付 ¥%1")
+                .arg(result.order.amountCents / 100.0, 0, 'f', 2));
     } else {
         page_.showListMessage(
             QStringLiteral("充电已结束，余额不足，还需支付 ¥%1")
-                .arg(result.payload->shortfallCents.value_or(0) / 100.0, 0, 'f', 2),
+                .arg(result.shortfallCents.value_or(0) / 100.0, 0, 'f', 2),
             true);
     }
     refreshStations();
@@ -337,6 +378,7 @@ bool StationBrowserController::handleAuthenticationFailure(int code)
     }
     pendingListRequestId_.clear();
     pendingDetailRequestId_.clear();
+    pendingNavigationRequestId_.clear();
     pendingCurrentOrderRequestId_.clear();
     pendingReservationRequestId_.clear();
     pendingCancellationRequestId_.clear();

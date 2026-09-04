@@ -18,8 +18,9 @@ ScanPage::ScanPage(QWidget *parent)
     layout->setSpacing(14);
 
     auto *heading = new QLabel(QStringLiteral("扫一扫"), this);
+    heading->setObjectName(QStringLiteral("scanHeading"));
     QFont headingFont = heading->font();
-    headingFont.setPointSize(20);
+    headingFont.setPointSize(24);
     headingFont.setBold(true);
     heading->setFont(headingFont);
     auto *description = new QLabel(

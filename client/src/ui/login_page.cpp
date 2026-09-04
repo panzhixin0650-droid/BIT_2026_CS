@@ -6,6 +6,7 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QRegularExpressionValidator>
+#include <QSizePolicy>
 #include <QVBoxLayout>
 
 namespace charging::client {
@@ -36,6 +37,14 @@ LoginPage::LoginPage(QWidget *parent)
     titleFont.setBold(true);
     title->setFont(titleFont);
 
+    auto *brandBadge = new QLabel(QStringLiteral("EV CHARGE · DEMO"), card);
+    brandBadge->setObjectName(QStringLiteral("loginBrandBadge"));
+    brandBadge->setAlignment(Qt::AlignCenter);
+    brandBadge->setStyleSheet(QStringLiteral(
+        "padding: 5px 10px; color: #155eef; background: #eaf2ff; "
+        "border-radius: 10px; font-size: 12px; font-weight: 600;"));
+    brandBadge->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+
     auto *subtitle = new QLabel(QStringLiteral("手机号登录，新用户将自动注册"), card);
     subtitle->setObjectName(QStringLiteral("loginSubtitle"));
     subtitle->setStyleSheet(QStringLiteral("color: #667085;"));
@@ -65,6 +74,7 @@ LoginPage::LoginPage(QWidget *parent)
         "border-radius: 8px; font-weight: 600; } "
         "QPushButton:disabled { background: #9abff3; }"));
 
+    cardLayout->addWidget(brandBadge, 0, Qt::AlignLeft);
     cardLayout->addWidget(title);
     cardLayout->addWidget(subtitle);
     cardLayout->addSpacing(8);

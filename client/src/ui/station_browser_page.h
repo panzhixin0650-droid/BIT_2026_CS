@@ -53,6 +53,7 @@ signals:
     void locationResolutionRequested(const QString &address);
     void stationSelected(qint64 stationId);
     void navigationRequested(const charging::protocol::StationDto &station);
+    void currentOrderNavigationRequested(qint64 stationId);
     void routeRequested(const QString &startAddress,
                         charging::client::RouteMode mode);
     void reservationRequested(const QString &pileCode);
@@ -79,6 +80,7 @@ private:
     QLabel *currentOrderSummaryLabel_ = nullptr;
     QLabel *currentOrderProgressLabel_ = nullptr;
     QPushButton *cancelOrderButton_ = nullptr;
+    QPushButton *currentOrderNavigationButton_ = nullptr;
     QPushButton *reservationScanButton_ = nullptr;
     QPushButton *progressButton_ = nullptr;
     QPushButton *stopButton_ = nullptr;

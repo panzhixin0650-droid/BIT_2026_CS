@@ -20,6 +20,8 @@ OrderController::OrderController(OrderPage &page, IChargingApi &api, QObject *pa
             this, &OrderController::requestPayment);
     connect(&page_, &OrderPage::rechargeRequested,
             this, &OrderController::rechargeRequested);
+    connect(&page_, &OrderPage::navigationRequested,
+            this, &OrderController::requestNavigation);
     connect(&api_, &IChargingApi::orderListCompleted,
             this, &OrderController::handleOrderList);
     connect(&api_, &IChargingApi::cancellationCompleted,
@@ -30,6 +32,8 @@ OrderController::OrderController(OrderPage &page, IChargingApi &api, QObject *pa
             this, &OrderController::handleProgress);
     connect(&api_, &IChargingApi::paymentCompleted,
             this, &OrderController::handlePayment);
+    connect(&api_, &IChargingApi::stationDetailCompleted,
+            this, &OrderController::handleStationDetail);
 }
 
 void OrderController::refreshOrders()
@@ -38,11 +42,27 @@ void OrderController::refreshOrders()
         || !pendingCancellationRequestId_.isEmpty()
         || !pendingStopRequestId_.isEmpty()
         || !pendingProgressRequestId_.isEmpty()
-        || !pendingPaymentRequestId_.isEmpty()) {
+        || !pendingPaymentRequestId_.isEmpty()
+        || !pendingNavigationRequestId_.isEmpty()) {
         return;
     }
     page_.setLoading(true);
     pendingListRequestId_ = api_.listOrders();
+}
+
+void OrderController::requestNavigation(qint64 stationId)
+{
+    if (stationId <= 0 || !pendingListRequestId_.isEmpty()
+        || !pendingCancellationRequestId_.isEmpty()
+        || !pendingStopRequestId_.isEmpty()
+        || !pendingProgressRequestId_.isEmpty()
+        || !pendingPaymentRequestId_.isEmpty()
+        || !pendingNavigationRequestId_.isEmpty()) {
+        return;
+    }
+    page_.setActionBusy(true);
+    page_.showDetailMessage(QStringLiteral("正在准备导航…"));
+    pendingNavigationRequestId_ = api_.getStation(stationId);
 }
 
 void OrderController::requestProgress(qint64 orderId)
@@ -177,6 +197,7 @@ void OrderController::handleStop(const ChargingStopResult &result)
         ? QStringLiteral("充电已结束并自动结算，实付 ¥%1")
               .arg(result.payload->order.amountCents / 100.0, 0, 'f', 2)
         : QStringLiteral("充电已结束，余额不足，请进入订单详情充值后结算");
+    emit chargingStopped(*result.payload);
     refreshOrders();
 }
 
@@ -230,6 +251,30 @@ void OrderController::handlePayment(const PaymentResult &result)
                               .arg(result.payload->order.amountCents / 100.0, 0, 'f', 2)
                               .arg(result.payload->balanceCents / 100.0, 0, 'f', 2);
     refreshOrders();
+}
+
+void OrderController::handleStationDetail(const StationDetailResult &result)
+{
+    if (result.response.requestId != pendingNavigationRequestId_
+        || result.response.type
+            != QString::fromLatin1(protocol::MessageType::StationDetail)) {
+        return;
+    }
+    pendingNavigationRequestId_.clear();
+    page_.setActionBusy(false);
+    if (result.response.code == protocol::ErrorCode::InvalidSession) {
+        emit authenticationRequired(QStringLiteral("登录状态已失效，请重新登录"));
+        return;
+    }
+    if (!result.ok() || !result.payload.has_value()) {
+        page_.showDetailMessage(
+            result.response.message.isEmpty()
+                ? QStringLiteral("获取导航站点失败，请稍后重试")
+                : result.response.message,
+            true);
+        return;
+    }
+    emit navigationReady(result.payload->station);
 }
 
 }  // namespace charging::client

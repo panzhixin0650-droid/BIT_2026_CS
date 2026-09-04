@@ -32,6 +32,7 @@ signals:
     void refreshRequested();
     void cancellationRequested(qint64 orderId);
     void reservationScanRequested(const QString &pileCode);
+    void navigationRequested(qint64 stationId);
     void stopRequested(qint64 orderId);
     void progressRequested(qint64 orderId);
     void paymentRequested(qint64 orderId);
@@ -53,6 +54,7 @@ private:
     QLabel *detailBodyLabel_ = nullptr;
     QLabel *detailMessageLabel_ = nullptr;
     QPushButton *cancelButton_ = nullptr;
+    QPushButton *navigationButton_ = nullptr;
     QPushButton *reservationScanButton_ = nullptr;
     QPushButton *stopButton_ = nullptr;
     QPushButton *progressButton_ = nullptr;
