@@ -28,10 +28,15 @@ public:
     [[nodiscard]] ServiceResult listStations(const QString &region = {},
                                              const QString &keyword = {}) const;
     [[nodiscard]] ServiceResult createStation(const QJsonObject &input) const;
+    [[nodiscard]] ServiceResult updateStation(const QJsonObject &input) const;
+    [[nodiscard]] ServiceResult setStationStatus(
+        qint64 stationId,
+        charging::protocol::StationStatus status) const;
     [[nodiscard]] ServiceResult deleteStation(qint64 stationId) const;
     [[nodiscard]] ServiceResult listPiles(
         std::optional<qint64> stationId = std::nullopt) const;
     [[nodiscard]] ServiceResult createPile(const QJsonObject &input) const;
+    [[nodiscard]] ServiceResult updatePile(const QJsonObject &input) const;
     [[nodiscard]] ServiceResult deletePile(qint64 pileId) const;
     [[nodiscard]] ServiceResult setPileStatus(
         qint64 pileId,

@@ -41,6 +41,17 @@ ServiceResult AdminFacade::createStation(const QJsonObject &input) const
     return service_->createAdminStation(input);
 }
 
+ServiceResult AdminFacade::updateStation(const QJsonObject &input) const
+{
+    return service_->updateAdminStation(input);
+}
+
+ServiceResult AdminFacade::setStationStatus(qint64 stationId,
+                                            charging::protocol::StationStatus status) const
+{
+    return service_->setAdminStationStatus(stationId, status);
+}
+
 ServiceResult AdminFacade::deleteStation(qint64 stationId) const
 {
     return service_->deleteAdminStation(stationId);
@@ -54,6 +65,11 @@ ServiceResult AdminFacade::listPiles(std::optional<qint64> stationId) const
 ServiceResult AdminFacade::createPile(const QJsonObject &input) const
 {
     return service_->createAdminPile(input);
+}
+
+ServiceResult AdminFacade::updatePile(const QJsonObject &input) const
+{
+    return service_->updateAdminPile(input);
 }
 
 ServiceResult AdminFacade::deletePile(qint64 pileId) const
