@@ -1,14 +1,21 @@
 #include "ui/order_page.h"
 
+#include "ui/charging_stop_dialog.h"
+
 #include <QDateTime>
 #include <QFrame>
 #include <QHBoxLayout>
+#include <QKeyEvent>
 #include <QLabel>
+#include <QMouseEvent>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QStackedWidget>
 #include <QStringList>
 #include <QVBoxLayout>
+
+#include <functional>
+#include <utility>
 
 namespace charging::client {
 
@@ -85,15 +92,66 @@ QString orderModeText(protocol::OrderMode mode)
                                                      : QStringLiteral("直接充电");
 }
 
-QFrame *createCard(QWidget *parent, bool highlighted = false)
+class ClickableOrderCard final : public QFrame {
+public:
+    explicit ClickableOrderCard(QWidget *parent = nullptr)
+        : QFrame(parent)
+    {
+        setCursor(Qt::PointingHandCursor);
+        setFocusPolicy(Qt::StrongFocus);
+    }
+
+    void setActivatedHandler(std::function<void()> handler)
+    {
+        activatedHandler_ = std::move(handler);
+    }
+
+protected:
+    void mouseReleaseEvent(QMouseEvent *event) override
+    {
+        if (event->button() == Qt::LeftButton && rect().contains(event->position().toPoint())) {
+            event->accept();
+            if (activatedHandler_) {
+                activatedHandler_();
+            }
+            return;
+        }
+        QFrame::mouseReleaseEvent(event);
+    }
+
+    void keyPressEvent(QKeyEvent *event) override
+    {
+        if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter
+            || event->key() == Qt::Key_Space) {
+            event->accept();
+            if (activatedHandler_) {
+                activatedHandler_();
+            }
+            return;
+        }
+        QFrame::keyPressEvent(event);
+    }
+
+private:
+    std::function<void()> activatedHandler_;
+};
+
+ClickableOrderCard *createCard(QWidget *parent, bool highlighted = false)
 {
-    auto *card = new QFrame(parent);
+    auto *card = new ClickableOrderCard(parent);
     card->setFrameShape(QFrame::StyledPanel);
     card->setStyleSheet(highlighted
-            ? QStringLiteral("QFrame { background: #f5f9ff; border: 2px solid #91caff; "
-                             "border-radius: 12px; } QLabel { border: none; }")
+            ? QStringLiteral("QFrame { background: #eef6ff; border: 2px solid #1677ff; "
+                             "border-radius: 12px; } "
+                             "QFrame:hover, QFrame:focus { background: #f2f4f7; "
+                             "border: 2px solid #667085; } "
+                             "QLabel { border: none; background: transparent; }")
             : QStringLiteral("QFrame { background: white; border: 1px solid #e4e7ec; "
-                             "border-radius: 12px; } QLabel { border: none; }"));
+                             "border-radius: 12px; } "
+                             "QFrame:hover, QFrame:focus { background: #f2f4f7; "
+                             "border: 2px solid #667085; } "
+                             "QLabel { border: none; background: transparent; }"));
+    card->setProperty("currentOrderHighlighted", highlighted);
     return card;
 }
 
@@ -178,13 +236,33 @@ OrderPage::OrderPage(QWidget *parent)
     detailMessageLabel_->hide();
     cancelButton_ = new QPushButton(QStringLiteral("取消预约"), detailPage_);
     cancelButton_->setObjectName(QStringLiteral("orderDetailCancelButton"));
+    reservationScanButton_ =
+        new QPushButton(QStringLiteral("前往扫码充电"), detailPage_);
+    reservationScanButton_->setObjectName(
+        QStringLiteral("orderDetailReservationScanButton"));
+    stopButton_ = new QPushButton(QStringLiteral("结束充电"), detailPage_);
+    stopButton_->setObjectName(QStringLiteral("orderDetailStopButton"));
+    progressButton_ = new QPushButton(QStringLiteral("刷新充电进度"), detailPage_);
+    progressButton_->setObjectName(QStringLiteral("orderDetailProgressButton"));
+    payButton_ = new QPushButton(QStringLiteral("立即结算"), detailPage_);
+    payButton_->setObjectName(QStringLiteral("orderDetailPayButton"));
+    rechargeButton_ = new QPushButton(QStringLiteral("前往充值"), detailPage_);
+    rechargeButton_->setObjectName(QStringLiteral("orderDetailRechargeButton"));
+    auto *actionRow = new QHBoxLayout();
+    actionRow->addStretch();
+    actionRow->addWidget(rechargeButton_);
+    actionRow->addWidget(cancelButton_);
+    actionRow->addWidget(reservationScanButton_);
+    actionRow->addWidget(progressButton_);
+    actionRow->addWidget(stopButton_);
+    actionRow->addWidget(payButton_);
 
     detailLayout->addWidget(backButton, 0, Qt::AlignLeft);
     detailLayout->addWidget(detailOrderNumberLabel_);
     detailLayout->addWidget(detailStatusLabel_);
     detailLayout->addWidget(detailBodyLabel_);
     detailLayout->addWidget(detailMessageLabel_);
-    detailLayout->addWidget(cancelButton_, 0, Qt::AlignRight);
+    detailLayout->addLayout(actionRow);
     detailLayout->addStretch();
 
     pages_->addWidget(listPage_);
@@ -195,6 +273,26 @@ OrderPage::OrderPage(QWidget *parent)
     connect(backButton, &QPushButton::clicked, this, &OrderPage::showListPage);
     connect(cancelButton_, &QPushButton::clicked, this, [this]() {
         emit cancellationRequested(cancelButton_->property("orderId").toLongLong());
+    });
+    connect(reservationScanButton_, &QPushButton::clicked, this, [this]() {
+        showListPage();
+        emit reservationScanRequested(
+            reservationScanButton_->property("pileCode").toString());
+    });
+    connect(stopButton_, &QPushButton::clicked, this, [this]() {
+        if (confirmChargingStop(this)) {
+            emit stopRequested(stopButton_->property("orderId").toLongLong());
+        }
+    });
+    connect(progressButton_, &QPushButton::clicked, this, [this]() {
+        emit progressRequested(progressButton_->property("orderId").toLongLong());
+    });
+    connect(payButton_, &QPushButton::clicked, this, [this]() {
+        emit paymentRequested(payButton_->property("orderId").toLongLong());
+    });
+    connect(rechargeButton_, &QPushButton::clicked, this, [this]() {
+        showListPage();
+        emit rechargeRequested();
     });
 }
 
@@ -211,6 +309,11 @@ void OrderPage::setActionBusy(bool busy)
 {
     actionBusy_ = busy;
     cancelButton_->setDisabled(busy);
+    reservationScanButton_->setDisabled(busy);
+    stopButton_->setDisabled(busy);
+    progressButton_->setDisabled(busy);
+    payButton_->setDisabled(busy);
+    rechargeButton_->setDisabled(busy);
 }
 
 void OrderPage::showOrders(const QList<protocol::OrderDto> &orders)
@@ -222,6 +325,10 @@ void OrderPage::showOrders(const QList<protocol::OrderDto> &orders)
         ordersById_.insert(order.orderId, order);
         auto *card = createCard(orderListContent_, isCurrentStatus(order.status));
         card->setObjectName(QStringLiteral("orderCard_%1").arg(order.orderId));
+        card->setAccessibleName(QStringLiteral("查看订单%1详情").arg(order.orderNo));
+        card->setActivatedHandler([this, orderId = order.orderId]() {
+            showOrderDetail(orderId);
+        });
         auto *layout = new QVBoxLayout(card);
         layout->setContentsMargins(14, 14, 14, 14);
         layout->setSpacing(6);
@@ -245,14 +352,16 @@ void OrderPage::showOrders(const QList<protocol::OrderDto> &orders)
             order.amountCents > 0 ? QStringLiteral("金额：%1").arg(formatMoney(order.amountCents))
                                   : QStringLiteral("金额：待产生"),
             card);
-        auto *detailButton = new QPushButton(QStringLiteral("查看详情"), card);
-        detailButton->setObjectName(
-            QStringLiteral("orderDetailButton_%1").arg(order.orderId));
-        connect(detailButton, &QPushButton::clicked, this, [this, orderId = order.orderId]() {
-            showOrderDetail(orderId);
-        });
+        auto *detailHint = new QLabel(QStringLiteral("点击卡片查看详情  ›"), card);
+        detailHint->setObjectName(
+            QStringLiteral("orderDetailHint_%1").arg(order.orderId));
+        detailHint->setAlignment(Qt::AlignRight);
+        detailHint->setStyleSheet(QStringLiteral("color: #1677ff;"));
+        for (QLabel *label : {station, status, summary, amount, detailHint}) {
+            label->setAttribute(Qt::WA_TransparentForMouseEvents);
+        }
         bottomRow->addWidget(amount, 1);
-        bottomRow->addWidget(detailButton);
+        bottomRow->addWidget(detailHint);
         layout->addLayout(titleRow);
         layout->addWidget(summary);
         layout->addLayout(bottomRow);
@@ -285,6 +394,12 @@ void OrderPage::showDetailMessage(const QString &message, bool error)
     detailMessageLabel_->setStyleSheet(error ? QStringLiteral("color: #c62828;")
                                              : QStringLiteral("color: #667085;"));
     detailMessageLabel_->setVisible(!message.isEmpty());
+}
+
+void OrderPage::updateOrderDetail(const protocol::OrderDto &order)
+{
+    ordersById_.insert(order.orderId, order);
+    showOrderDetail(order.orderId);
 }
 
 void OrderPage::showListPage()
@@ -355,6 +470,23 @@ void OrderPage::showOrderDetail(qint64 orderId)
     cancelButton_->setProperty("orderId", order.orderId);
     cancelButton_->setVisible(order.status == protocol::OrderStatus::Reserved);
     cancelButton_->setDisabled(actionBusy_);
+    reservationScanButton_->setProperty("pileCode", order.pileCode);
+    reservationScanButton_->setVisible(
+        order.status == protocol::OrderStatus::Reserved);
+    reservationScanButton_->setDisabled(actionBusy_);
+    stopButton_->setProperty("orderId", order.orderId);
+    stopButton_->setVisible(order.status == protocol::OrderStatus::Charging);
+    stopButton_->setDisabled(actionBusy_);
+    progressButton_->setProperty("orderId", order.orderId);
+    progressButton_->setVisible(order.status == protocol::OrderStatus::Charging);
+    progressButton_->setDisabled(actionBusy_);
+    payButton_->setProperty("orderId", order.orderId);
+    const bool pendingPayment =
+        order.status == protocol::OrderStatus::PendingPayment;
+    payButton_->setVisible(pendingPayment);
+    rechargeButton_->setVisible(pendingPayment);
+    payButton_->setDisabled(actionBusy_);
+    rechargeButton_->setDisabled(actionBusy_);
     detailMessageLabel_->hide();
     pages_->setCurrentWidget(detailPage_);
 }

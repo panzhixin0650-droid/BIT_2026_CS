@@ -25,6 +25,12 @@ public:
     [[nodiscard]] QString listOrders() override;
     [[nodiscard]] QString reserve(const QString &pileCode) override;
     [[nodiscard]] QString cancel(qint64 orderId) override;
+    [[nodiscard]] QString startCharging(
+        const QString &pileCode,
+        std::optional<qint64> reservationOrderId = std::nullopt) override;
+    [[nodiscard]] QString getChargingProgress(qint64 orderId) override;
+    [[nodiscard]] QString stopCharging(qint64 orderId) override;
+    [[nodiscard]] QString payOrder(qint64 orderId) override;
 
 private:
     [[nodiscard]] QString nextRequestId();
@@ -36,10 +42,13 @@ private:
     [[nodiscard]] protocol::StationDto station(qint64 stationId) const;
     [[nodiscard]] QList<protocol::PileDto> piles(qint64 stationId) const;
     [[nodiscard]] std::optional<protocol::OrderDto> currentOrder(qint64 userId) const;
+    [[nodiscard]] protocol::OrderDto orderWithProgress(
+        const protocol::OrderDto &order) const;
 
     QHash<QString, protocol::UserDto> usersByPhone_;
     QHash<QString, protocol::PileDto> pilesByCode_;
     QHash<qint64, protocol::OrderDto> ordersById_;
+    QHash<qint64, qint64> simulatedDurationByOrder_;
     QString authenticatedPhone_;
     QString token_;
     qint64 nextUserId_ = 2;

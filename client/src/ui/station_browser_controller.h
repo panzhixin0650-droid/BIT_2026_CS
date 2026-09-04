@@ -22,6 +22,7 @@ public:
 
 signals:
     void authenticationRequired(const QString &message);
+    void currentOrderRequiresAttention(protocol::OrderStatus status);
 
 private:
     enum class CurrentOrderPurpose { None, Refresh, BeforeReservation };
@@ -29,12 +30,16 @@ private:
     void requestStation(qint64 stationId);
     void requestReservation(const QString &pileCode);
     void requestCancellation(qint64 orderId);
+    void requestProgress(qint64 orderId);
+    void requestStop(qint64 orderId);
     void refreshCurrentOrder();
     void handleStationList(const StationListResult &result);
     void handleStationDetail(const StationDetailResult &result);
     void handleCurrentOrder(const CurrentOrderResult &result);
     void handleReservation(const OrderResult &result);
     void handleCancellation(const OrderResult &result);
+    void handleProgress(const ChargingProgressResult &result);
+    void handleStop(const ChargingStopResult &result);
     [[nodiscard]] bool handleAuthenticationFailure(int code);
 
     StationBrowserPage &page_;
@@ -44,6 +49,8 @@ private:
     QString pendingCurrentOrderRequestId_;
     QString pendingReservationRequestId_;
     QString pendingCancellationRequestId_;
+    QString pendingProgressRequestId_;
+    QString pendingStopRequestId_;
     QString pendingReservationPileCode_;
     QString detailNoticeAfterRefresh_;
     qint64 selectedStationId_ = 0;

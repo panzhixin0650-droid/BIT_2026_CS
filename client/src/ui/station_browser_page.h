@@ -22,6 +22,7 @@ public:
 
     [[nodiscard]] StationQuery stationQuery() const;
     void setGreeting(const QString &nickname, bool isNewUser);
+    void setGreetingNickname(const QString &nickname);
     void setListLoading(bool loading);
     void setReservationBusy(bool busy);
     void showStations(const QList<protocol::StationDto> &stations);
@@ -40,6 +41,9 @@ signals:
     void stationSelected(qint64 stationId);
     void reservationRequested(const QString &pileCode);
     void cancellationRequested(qint64 orderId);
+    void reservationScanRequested(const QString &pileCode);
+    void progressRequested(qint64 orderId);
+    void stopRequested(qint64 orderId);
     void detailBackRequested();
 
 private:
@@ -55,7 +59,11 @@ private:
     QLabel *actionMessageLabel_ = nullptr;
     QWidget *currentOrderCard_ = nullptr;
     QLabel *currentOrderSummaryLabel_ = nullptr;
+    QLabel *currentOrderProgressLabel_ = nullptr;
     QPushButton *cancelOrderButton_ = nullptr;
+    QPushButton *reservationScanButton_ = nullptr;
+    QPushButton *progressButton_ = nullptr;
+    QPushButton *stopButton_ = nullptr;
     QCheckBox *demoLocationCheck_ = nullptr;
     QLabel *locationSummaryLabel_ = nullptr;
     QLineEdit *regionInput_ = nullptr;

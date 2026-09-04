@@ -444,7 +444,11 @@ QString MockChargingApi::getCurrentOrder()
                                    protocol::MessageType::OrderCurrent,
                                    protocol::ErrorCode::Ok,
                                    QStringLiteral("OK"));
-        result.payload = CurrentOrderPayload{currentOrder(user->userId)};
+        std::optional<protocol::OrderDto> order = currentOrder(user->userId);
+        if (order.has_value()) {
+            order = orderWithProgress(*order);
+        }
+        result.payload = CurrentOrderPayload{order};
         emit currentOrderCompleted(result);
     });
 
@@ -470,7 +474,7 @@ QString MockChargingApi::listOrders()
         QList<protocol::OrderDto> orders;
         for (const auto &order : ordersById_) {
             if (order.userId == user->userId) {
-                orders.append(order);
+                orders.append(orderWithProgress(order));
             }
         }
         std::sort(orders.begin(), orders.end(), [](const auto &left, const auto &right) {
@@ -636,6 +640,338 @@ QString MockChargingApi::cancel(qint64 orderId)
     return requestId;
 }
 
+QString MockChargingApi::startCharging(
+    const QString &pileCode,
+    std::optional<qint64> reservationOrderId)
+{
+    const QString requestId = nextRequestId();
+
+    QTimer::singleShot(0, this,
+        [this, requestId, pileCode, reservationOrderId]() {
+            OrderResult result;
+            const auto user = authenticatedUser();
+            if (!user.has_value()) {
+                result.response = response(requestId,
+                                           protocol::MessageType::OrderStart,
+                                           protocol::ErrorCode::InvalidSession,
+                                           QStringLiteral("请先登录"));
+                emit chargingStartCompleted(result);
+                return;
+            }
+
+            const QString normalizedPileCode = pileCode.trimmed();
+            if (normalizedPileCode.isEmpty() || normalizedPileCode.size() > 64) {
+                result.response = response(requestId,
+                                           protocol::MessageType::OrderStart,
+                                           protocol::ErrorCode::InvalidRequest,
+                                           QStringLiteral("充电桩编号无效"));
+                emit chargingStartCompleted(result);
+                return;
+            }
+            if (!pilesByCode_.contains(normalizedPileCode)) {
+                result.response = response(requestId,
+                                           protocol::MessageType::OrderStart,
+                                           protocol::ErrorCode::NotFound,
+                                           QStringLiteral("充电桩不存在"));
+                emit chargingStartCompleted(result);
+                return;
+            }
+
+            protocol::PileDto pile = pilesByCode_.value(normalizedPileCode);
+            protocol::OrderDto order;
+            const QString now = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+            if (reservationOrderId.has_value()) {
+                if (!ordersById_.contains(*reservationOrderId)) {
+                    result.response = response(requestId,
+                                               protocol::MessageType::OrderStart,
+                                               protocol::ErrorCode::NotFound,
+                                               QStringLiteral("预约订单不存在"));
+                    emit chargingStartCompleted(result);
+                    return;
+                }
+                order = ordersById_.value(*reservationOrderId);
+                if (order.userId != user->userId) {
+                    result.response = response(requestId,
+                                               protocol::MessageType::OrderStart,
+                                               protocol::ErrorCode::Forbidden,
+                                               QStringLiteral("不能操作其他用户的订单"));
+                    emit chargingStartCompleted(result);
+                    return;
+                }
+                if (order.status != protocol::OrderStatus::Reserved
+                    || order.pileCode != normalizedPileCode
+                    || pile.status != protocol::PileStatus::Reserved) {
+                    result.response = response(requestId,
+                                               protocol::MessageType::OrderStart,
+                                               protocol::ErrorCode::IllegalOrderState,
+                                               QStringLiteral("预约订单与充电桩不匹配"));
+                    emit chargingStartCompleted(result);
+                    return;
+                }
+            } else {
+                if (currentOrder(user->userId).has_value()) {
+                    result.response = response(requestId,
+                                               protocol::MessageType::OrderStart,
+                                               protocol::ErrorCode::CurrentOrderExists,
+                                               QStringLiteral("您已有进行中的订单，请先处理"));
+                    emit chargingStartCompleted(result);
+                    return;
+                }
+                if (pile.status != protocol::PileStatus::Idle) {
+                    result.response = response(requestId,
+                                               protocol::MessageType::OrderStart,
+                                               protocol::ErrorCode::PileNotAvailable,
+                                               QStringLiteral("该充电桩当前不可使用"));
+                    emit chargingStartCompleted(result);
+                    return;
+                }
+
+                const protocol::StationDto selectedStation = station(pile.stationId);
+                order.orderId = nextOrderId_++;
+                order.orderNo = QStringLiteral("MOCK-DIRECT-%1").arg(order.orderId);
+                order.createdAt = now;
+                order.userId = user->userId;
+                order.stationId = selectedStation.stationId;
+                order.stationName = selectedStation.name;
+                order.pileId = pile.pileId;
+                order.pileCode = pile.pileCode;
+                order.mode = protocol::OrderMode::Direct;
+                order.durationSeconds = 0;
+                order.energyWh = 0;
+                order.amountCents = 0;
+            }
+
+            const protocol::StationDto selectedStation = station(pile.stationId);
+            order.status = protocol::OrderStatus::Charging;
+            order.startedAt = now;
+            order.unitPriceCentsPerKwh = selectedStation.priceCentsPerKwh;
+            pile.status = protocol::PileStatus::Charging;
+            pilesByCode_.insert(pile.pileCode, pile);
+            ordersById_.insert(order.orderId, order);
+            simulatedDurationByOrder_.insert(order.orderId, 0);
+
+            result.response = response(requestId,
+                                       protocol::MessageType::OrderStart,
+                                       protocol::ErrorCode::Ok,
+                                       QStringLiteral("OK"));
+            result.payload = OrderPayload{order};
+            emit chargingStartCompleted(result);
+        });
+
+    return requestId;
+}
+
+QString MockChargingApi::getChargingProgress(qint64 orderId)
+{
+    const QString requestId = nextRequestId();
+
+    QTimer::singleShot(0, this, [this, requestId, orderId]() {
+        ChargingProgressResult result;
+        const auto user = authenticatedUser();
+        if (!user.has_value()) {
+            result.response = response(requestId,
+                                       protocol::MessageType::OrderProgress,
+                                       protocol::ErrorCode::InvalidSession,
+                                       QStringLiteral("请先登录"));
+            emit chargingProgressCompleted(result);
+            return;
+        }
+        if (!ordersById_.contains(orderId)) {
+            result.response = response(requestId,
+                                       protocol::MessageType::OrderProgress,
+                                       protocol::ErrorCode::NotFound,
+                                       QStringLiteral("订单不存在"));
+            emit chargingProgressCompleted(result);
+            return;
+        }
+        const protocol::OrderDto storedOrder = ordersById_.value(orderId);
+        if (storedOrder.userId != user->userId) {
+            result.response = response(requestId,
+                                       protocol::MessageType::OrderProgress,
+                                       protocol::ErrorCode::Forbidden,
+                                       QStringLiteral("不能查看其他用户的订单"));
+            emit chargingProgressCompleted(result);
+            return;
+        }
+        if (storedOrder.status != protocol::OrderStatus::Charging) {
+            result.response = response(requestId,
+                                       protocol::MessageType::OrderProgress,
+                                       protocol::ErrorCode::IllegalOrderState,
+                                       QStringLiteral("当前订单不在充电中"));
+            emit chargingProgressCompleted(result);
+            return;
+        }
+
+        simulatedDurationByOrder_[orderId] =
+            simulatedDurationByOrder_.value(orderId) + 60;
+        const protocol::OrderDto order = orderWithProgress(storedOrder);
+        result.response = response(requestId,
+                                   protocol::MessageType::OrderProgress,
+                                   protocol::ErrorCode::Ok,
+                                   QStringLiteral("OK"));
+        result.payload = ChargingProgressPayload{
+            order,
+            QDateTime::currentDateTimeUtc().toString(Qt::ISODate),
+        };
+        emit chargingProgressCompleted(result);
+    });
+
+    return requestId;
+}
+
+QString MockChargingApi::stopCharging(qint64 orderId)
+{
+    const QString requestId = nextRequestId();
+
+    QTimer::singleShot(0, this, [this, requestId, orderId]() {
+        ChargingStopResult result;
+        const auto user = authenticatedUser();
+        if (!user.has_value()) {
+            result.response = response(requestId,
+                                       protocol::MessageType::OrderStop,
+                                       protocol::ErrorCode::InvalidSession,
+                                       QStringLiteral("请先登录"));
+            emit chargingStopCompleted(result);
+            return;
+        }
+        if (!ordersById_.contains(orderId)) {
+            result.response = response(requestId,
+                                       protocol::MessageType::OrderStop,
+                                       protocol::ErrorCode::NotFound,
+                                       QStringLiteral("订单不存在"));
+            emit chargingStopCompleted(result);
+            return;
+        }
+        protocol::OrderDto order = ordersById_.value(orderId);
+        if (order.userId != user->userId) {
+            result.response = response(requestId,
+                                       protocol::MessageType::OrderStop,
+                                       protocol::ErrorCode::Forbidden,
+                                       QStringLiteral("不能操作其他用户的订单"));
+            emit chargingStopCompleted(result);
+            return;
+        }
+        if (order.status != protocol::OrderStatus::Charging) {
+            result.response = response(requestId,
+                                       protocol::MessageType::OrderStop,
+                                       protocol::ErrorCode::IllegalOrderState,
+                                       QStringLiteral("当前订单不在充电中"));
+            emit chargingStopCompleted(result);
+            return;
+        }
+
+        order = orderWithProgress(order);
+        const QString now = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+        order.endedAt = now;
+        protocol::PileDto pile = pilesByCode_.value(order.pileCode);
+        pile.status = protocol::PileStatus::Idle;
+        pilesByCode_.insert(pile.pileCode, pile);
+
+        protocol::UserDto updatedUser = *user;
+        const bool paid = updatedUser.balanceCents >= order.amountCents;
+        std::optional<qint64> shortfallCents;
+        if (paid) {
+            updatedUser.balanceCents -= order.amountCents;
+            order.status = protocol::OrderStatus::Completed;
+            order.paidAt = now;
+        } else {
+            order.status = protocol::OrderStatus::PendingPayment;
+            shortfallCents = order.amountCents - updatedUser.balanceCents;
+        }
+        usersByPhone_.insert(updatedUser.phone, updatedUser);
+        ordersById_.insert(order.orderId, order);
+        simulatedDurationByOrder_.remove(order.orderId);
+
+        result.response = response(requestId,
+                                   protocol::MessageType::OrderStop,
+                                   protocol::ErrorCode::Ok,
+                                   QStringLiteral("OK"));
+        result.payload = ChargingStopPayload{
+            order,
+            paid,
+            updatedUser.balanceCents,
+            shortfallCents,
+        };
+        emit chargingStopCompleted(result);
+    });
+
+    return requestId;
+}
+
+QString MockChargingApi::payOrder(qint64 orderId)
+{
+    const QString requestId = nextRequestId();
+
+    QTimer::singleShot(0, this, [this, requestId, orderId]() {
+        PaymentResult result;
+        const auto user = authenticatedUser();
+        if (!user.has_value()) {
+            result.response = response(requestId,
+                                       protocol::MessageType::OrderPay,
+                                       protocol::ErrorCode::InvalidSession,
+                                       QStringLiteral("请先登录"));
+            emit paymentCompleted(result);
+            return;
+        }
+        if (!ordersById_.contains(orderId)) {
+            result.response = response(requestId,
+                                       protocol::MessageType::OrderPay,
+                                       protocol::ErrorCode::NotFound,
+                                       QStringLiteral("订单不存在"));
+            emit paymentCompleted(result);
+            return;
+        }
+
+        protocol::OrderDto order = ordersById_.value(orderId);
+        if (order.userId != user->userId) {
+            result.response = response(requestId,
+                                       protocol::MessageType::OrderPay,
+                                       protocol::ErrorCode::Forbidden,
+                                       QStringLiteral("不能支付其他用户的订单"));
+            emit paymentCompleted(result);
+            return;
+        }
+        if (order.status != protocol::OrderStatus::PendingPayment) {
+            result.response = response(requestId,
+                                       protocol::MessageType::OrderPay,
+                                       protocol::ErrorCode::IllegalOrderState,
+                                       QStringLiteral("当前订单无需支付"));
+            emit paymentCompleted(result);
+            return;
+        }
+        if (user->balanceCents < order.amountCents) {
+            const qint64 shortfall = order.amountCents - user->balanceCents;
+            result.response = response(
+                requestId,
+                protocol::MessageType::OrderPay,
+                protocol::ErrorCode::InsufficientBalance,
+                QStringLiteral("余额不足，还需充值 ¥%1")
+                    .arg(shortfall / 100.0, 0, 'f', 2));
+            emit paymentCompleted(result);
+            return;
+        }
+
+        protocol::UserDto updatedUser = *user;
+        updatedUser.balanceCents -= order.amountCents;
+        order.status = protocol::OrderStatus::Completed;
+        order.paidAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+        usersByPhone_.insert(updatedUser.phone, updatedUser);
+        ordersById_.insert(order.orderId, order);
+
+        result.response = response(requestId,
+                                   protocol::MessageType::OrderPay,
+                                   protocol::ErrorCode::Ok,
+                                   QStringLiteral("OK"));
+        result.payload = PaymentPayload{
+            order,
+            updatedUser.balanceCents,
+        };
+        emit paymentCompleted(result);
+    });
+
+    return requestId;
+}
+
 QString MockChargingApi::nextRequestId()
 {
     return QStringLiteral("mock-%1").arg(++requestSequence_);
@@ -723,6 +1059,36 @@ std::optional<protocol::OrderDto> MockChargingApi::currentOrder(qint64 userId) c
         }
     }
     return std::nullopt;
+}
+
+protocol::OrderDto MockChargingApi::orderWithProgress(
+    const protocol::OrderDto &source) const
+{
+    protocol::OrderDto order = source;
+    if (order.status != protocol::OrderStatus::Charging
+        || !order.startedAt.has_value()
+        || !order.unitPriceCentsPerKwh.has_value()
+        || !pilesByCode_.contains(order.pileCode)) {
+        return order;
+    }
+
+    const QDateTime startedAt = QDateTime::fromString(*order.startedAt, Qt::ISODate);
+    if (!startedAt.isValid()) {
+        return order;
+    }
+    const qint64 elapsedSeconds = std::max({
+        order.durationSeconds,
+        simulatedDurationByOrder_.value(order.orderId),
+        startedAt.secsTo(QDateTime::currentDateTimeUtc()),
+    });
+    const protocol::PileDto pile = pilesByCode_.value(order.pileCode);
+    const qint64 measuredEnergyWh = static_cast<qint64>(
+        pile.ratedPowerKw * 1000.0 * elapsedSeconds / 3600.0);
+    order.durationSeconds = elapsedSeconds;
+    order.energyWh = std::max(order.energyWh, measuredEnergyWh);
+    order.amountCents =
+        (order.energyWh * *order.unitPriceCentsPerKwh + 500) / 1000;
+    return order;
 }
 
 }  // namespace charging::client

@@ -26,6 +26,7 @@ public:
 signals:
     void loggedOut();
     void authenticationRequired(const QString &message);
+    void profileChanged(const charging::protocol::UserDto &user);
 
 private:
     enum class PendingAction { None, Refresh, UpdateNickname, Recharge, Logout };

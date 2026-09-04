@@ -41,6 +41,8 @@ add_library(charging_client_ui STATIC
     src/local/avatar_storage.h
     src/local/input_method_setup.cpp
     src/local/input_method_setup.h
+    src/ui/charging_stop_dialog.cpp
+    src/ui/charging_stop_dialog.h
     src/ui/login_controller.cpp
     src/ui/login_controller.h
     src/ui/login_page.cpp
@@ -55,6 +57,10 @@ add_library(charging_client_ui STATIC
     src/ui/profile_controller.h
     src/ui/profile_page.cpp
     src/ui/profile_page.h
+    src/ui/scan_controller.cpp
+    src/ui/scan_controller.h
+    src/ui/scan_page.cpp
+    src/ui/scan_page.h
     src/ui/station_browser_controller.cpp
     src/ui/station_browser_controller.h
     src/ui/station_browser_page.cpp

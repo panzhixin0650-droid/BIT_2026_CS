@@ -150,6 +150,7 @@ void ProfileController::handleProfileCompleted(const UserResult &result)
                             .arg(result.payload->user.phone);
     page_.setAvatarPath(avatarStorage_.avatarPath(currentAvatarKey_));
     page_.showMessage(QStringLiteral("资料已刷新"));
+    emit profileChanged(result.payload->user);
 }
 
 void ProfileController::handleProfileUpdateCompleted(const UserResult &result)
@@ -168,6 +169,7 @@ void ProfileController::handleProfileUpdateCompleted(const UserResult &result)
 
     page_.setUser(result.payload->user);
     page_.showMessage(QStringLiteral("昵称已更新"));
+    emit profileChanged(result.payload->user);
 }
 
 void ProfileController::handleRechargeCompleted(const RechargeResult &result)

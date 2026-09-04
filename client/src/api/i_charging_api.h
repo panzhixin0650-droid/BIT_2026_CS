@@ -25,6 +25,12 @@ public:
     [[nodiscard]] virtual QString listOrders() = 0;
     [[nodiscard]] virtual QString reserve(const QString &pileCode) = 0;
     [[nodiscard]] virtual QString cancel(qint64 orderId) = 0;
+    [[nodiscard]] virtual QString startCharging(
+        const QString &pileCode,
+        std::optional<qint64> reservationOrderId = std::nullopt) = 0;
+    [[nodiscard]] virtual QString getChargingProgress(qint64 orderId) = 0;
+    [[nodiscard]] virtual QString stopCharging(qint64 orderId) = 0;
+    [[nodiscard]] virtual QString payOrder(qint64 orderId) = 0;
 
 signals:
     void loginCompleted(const charging::client::LoginResult &result);
@@ -38,6 +44,11 @@ signals:
     void orderListCompleted(const charging::client::OrderListResult &result);
     void reservationCompleted(const charging::client::OrderResult &result);
     void cancellationCompleted(const charging::client::OrderResult &result);
+    void chargingStartCompleted(const charging::client::OrderResult &result);
+    void chargingProgressCompleted(
+        const charging::client::ChargingProgressResult &result);
+    void chargingStopCompleted(const charging::client::ChargingStopResult &result);
+    void paymentCompleted(const charging::client::PaymentResult &result);
 };
 
 }  // namespace charging::client
