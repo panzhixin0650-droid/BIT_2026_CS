@@ -94,11 +94,13 @@ sudo apt install -y \
 | 谁需要 | 安装命令 | 何时需要 |
 | --- | --- | --- |
 | 服务端/管理端负责人 | `sudo apt install -y libqt6charts6-dev` | 实现说明书的 QChart 营收折线前必装；不是全员必装 |
-| 客户端负责人 | `sudo apt install -y qt6-webengine-dev` | Mock 地图阶段可延后；若最终演示内嵌腾讯导航则必装 |
+| 客户端负责人 | `sudo apt install -y qt6-webengine-dev qt6-webengine-dev-tools libqt6webenginecore6-bin` | Mock 地图阶段可延后；若最终演示内嵌腾讯导航则必装 |
 | 使用虚拟机的成员 | `sudo apt install -y open-vm-tools-desktop` | 改善 VMware 分辨率、剪贴板和鼠标体验 |
 | 中文字体缺失的成员 | `sudo apt install -y fonts-noto-cjk` | Qt 或浏览器不能正确显示中文时 |
 
-当前地图默认使用 Mock，`qt6-webengine-dev` 体积较大，不是全员前置依赖。Web 页面读取静态 JSON，不需要安装 Qt，也不需要 Node.js/npm。
+地图运行模式默认使用 Mock；启用可选的内嵌腾讯导航构建后，客户端负责人需要安装
+上表中的三个 WebEngine 包。其他模块负责人仍不需要安装这些包。
+Web 页面读取静态 JSON，不需要安装 Qt，也不需要 Node.js/npm。
 
 ### 4.4 当前不要安装为项目依赖
 
@@ -128,7 +130,7 @@ Qt 客户端和服务端开发者按以下步骤配置：
 | 模块 | 当前 Qt CMake components | 可以不安装什么 |
 | --- | --- | --- |
 | `shared/protocol/` | Core | Widgets、Sql、Charts、WebEngine |
-| `client/` | Core、Gui、Widgets、Network | Sql、Charts；Mock 地图阶段不需要 WebEngineWidgets |
+| `client/` | Core、Gui、Widgets、Network；可选 WebEngineWidgets | Sql、Charts；运行时默认选择 Mock 地图 |
 | `server/` | Core、Gui、Widgets、Network、Sql | WebEngineWidgets；实现管理图表时再增加 Charts |
 | Qt 测试 | Test | 只在对应模块写 Qt Test 时链接 |
 | `database/` | 无独立 Qt target | 迁移编写只需 `sqlite3`；Repository 属于服务端 |

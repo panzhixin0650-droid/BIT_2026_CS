@@ -48,6 +48,8 @@ tests/           用户端单元测试
 - “订单”页的历史列表、进行中状态高亮、完整详情和预约取消入口；
 - “扫一扫”页的开发环境二维码内容输入，以及直接充电/预约转充电流程；
 - 充电进度刷新、结束充电二次确认、自动结算和余额不足后的补支付闭环；
+- 客户端本地 `IMapService`、Mock 地址解析、位置选择，以及可选的腾讯地图
+  WebEngine 驾车/步行导航页面；
 - API、Mock、界面与共享协议测试。
 
 当前可执行程序默认装配 `MockChargingApi`，用于离线开发页面；传入 `--api tcp`
@@ -65,14 +67,27 @@ ctest --test-dir build/client --output-on-failure
 
 ## 运行模式与联调入口
 
+> **默认模式：** 不填写任何运行参数时，充电业务使用 `MockChargingApi`，地图使用
+> `MockMapService`。`--api` 和 `--map` 是相互独立的选项，可以只切换其中一个。
+
+| 目的 | Command line arguments |
+| --- | --- |
+| 日常离线开发（默认） | 留空，或 `--api mock --map mock` |
+| 仅联调 TCP，地图仍用 Mock | `--api tcp --host 127.0.0.1 --port 45678 --map mock` |
+| 仅联调腾讯地图，业务仍用 Mock | `--api mock --map tencent` |
+| 同时联调 TCP 和腾讯地图 | `--api tcp --host 127.0.0.1 --port 45678 --map tencent` |
+
 日常页面开发默认保持 Mock 模式，不连接服务端或数据库：
 
 ```bash
 ./build/client/user-client
 ```
 
-上面的命令等同于显式传入 `--api mock`。Mock 数据只存在于当前客户端进程，适合
-其他成员继续独立开发和调试界面。
+上面的命令等同于显式传入 `--api mock --map mock`。Mock 数据只存在于当前客户端
+进程，适合其他成员继续独立开发和调试界面。
+
+Qt Creator 中打开 `Projects → Run`，将 `Command line arguments` 留空即可使用
+默认的业务 Mock 和地图 Mock；也可以填写 `--api mock --map mock` 明确指定。
 
 需要进行真实 TCP 联调时，从仓库根目录先启动已经初始化好 Demo 数据库的服务端：
 
@@ -90,11 +105,73 @@ ctest --test-dir build/client --output-on-failure
 Mock。数据库初始化步骤见 [`database/README.md`](../database/README.md)，服务端
 启动参数见 [`server/README.md`](../server/README.md)。
 
+Qt Creator 中联调 TCP 时，先在终端启动上述服务端，再打开 `Projects → Run`，将
+`Command line arguments` 设置为：
+
+```text
+--api tcp --host 127.0.0.1 --port 45678 --map mock
+```
+
+切回 Mock 时清空参数，或改回 `--api mock --map mock`。这些选项只改变客户端运行时
+装配，不修改源码、数据库或 Git 文件。
+
 默认请求超时为 5000 毫秒，可用 `--timeout-ms <毫秒>` 调整。连接失败、断线和
 超时统一返回 `50301 SERVICE_UNAVAILABLE`；断线和 `40101 INVALID_SESSION` 会
 清除客户端 token，用户需重新登录。当前服务端实际开放到哪些 TCP 消息，以
 [`server/服务端网络接口.md`](../server/服务端网络接口.md) 为准；尚未开放的订单消息
 会返回服务端的业务失败，不会回退到 Mock。
+
+### 地图模式与腾讯地图依赖
+
+地图默认使用 Mock，普通客户端构建不强制 Qt WebEngine。需要构建可选的腾讯地图
+适配器和内嵌路线页面时，客户端开发者需要安装完整的 Qt WebEngine 开发及运行工具：
+
+> **额外安装项（启用真实腾讯地图前必须完成）：** 以下三个 WebEngine 包不是基础
+> Mock 开发依赖，但构建 `--map tencent` 支持时缺一不可。
+
+```bash
+sudo apt update
+sudo apt install -y \
+  qt6-webengine-dev qt6-webengine-dev-tools libqt6webenginecore6-bin
+```
+
+安装后使用下面的开关重新运行 CMake 配置；如果 Qt Creator 已打开，在项目的 CMake
+配置中加入 `CHARGING_CLIENT_ENABLE_WEBENGINE:BOOL=ON` 并重新配置，使 Kit 能发现
+`Qt6::WebEngineWidgets`：
+
+```bash
+cmake -S client -B build/client -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+  -DCHARGING_CLIENT_ENABLE_WEBENGINE=ON
+cmake --build build/client
+```
+
+日常开发保持充电业务和地图均为 Mock：
+
+```bash
+./build/client/user-client --api mock --map mock
+```
+
+在已经启用 WebEngine 的构建中，需要单独联调腾讯地址解析和内嵌导航时，可以继续
+使用 Mock 充电业务，只切换地图适配器：
+
+```bash
+export TENCENT_MAP_KEY='你的本地腾讯地图Key'
+./build/client/user-client --api mock --map tencent
+```
+
+`TENCENT_MAP_KEY` 是腾讯位置服务控制台创建的开发 Key。Qt Creator 中打开
+`Projects → Run → Run Environment` 并新增一行：变量名填写
+`TENCENT_MAP_KEY`，Value 只填写 Key 本身，不要带引号，也不要重复填写
+`TENCENT_MAP_KEY=`；Command line arguments 设为 `--api mock --map tencent`。
+该 Key 需要在腾讯位置服务控制台同时启用 WebService API 和 JavaScript API GL：
+地址解析与步行路线由 WebService 提供，步行折线由 JavaScript API GL 在内嵌页面中
+绘制。当前客户端 Demo 不保存用于服务端签名的 SK；如果 Key 强制签名校验，应改用
+未开启签名校验且限制好权限/配额的开发 Key，不能把 SK 嵌入客户端。切回 Mock 时
+删除本地 Key 环境变量并将参数改回
+`--api mock --map mock` 或全部清空。真实模式不会在失败时偷偷返回 Mock 坐标；缺少
+Key 时程序会明确拒绝启动，地址解析失败会显示腾讯的非敏感状态码，页面加载失败也
+会显示中文错误。腾讯地图 Key 禁止写入源码、仓库配置、接口 fixture 或 Git 管理的
+Qt Creator 文件。
 
 启动后输入 11 位数字手机号：
 
@@ -118,10 +195,14 @@ Fcitx/Fcitx5、当前 Qt 6 安装缺少 Fcitx 插件但提供 IBus 插件，程�
 
 - 首页采用单一纵向滚动区域；欢迎信息、当前订单、位置查询和充电站列表一起滚动，
   有进行中订单时不会再把充电站列表压缩成很小的嵌套滚动区域；
-- 默认使用契约示例中的演示坐标 `123.4200, 41.7000` 计算距离；取消勾选后
-  执行无坐标查询，此时页面显示“距离待定位”；
-- 地图地址搜索、设备定位和地图选点后续由客户端地图适配器提供，最终仍只向
-  `station.list` 传递本次经纬度，不在客户端持久化位置；
+- 默认使用演示坐标 `123.4200, 41.7000` 计算距离；也可以从和平区、浑南区
+  快捷位置中选择，或手动输入包含城市名称的完整地址并点击“确定位置”。用户开始
+  手动编辑地址后，快捷位置会自动切换到“手动输入地址”，不再保留冲突的旧选项；
+- 当前 `MockMapService` 只解析演示位置及包含“和平”或“浑南”的地址，不把其他
+  任意地址伪装成真实坐标。成功后统一得到经纬度并重新调用 `station.list`；
+  不支持或解析失败时保留上一次有效位置，页面不会不可用；
+- 取消“使用当前选定位置计算距离”后执行无坐标查询，此时页面显示“距离待定位”；
+- 位置只用于当前客户端会话和本次站点请求，不写数据库，也不进入 TCP 用户资料；
 - “站名或地址关键词”支持模糊查询，例如输入“和平”可以找到和平演示充电站；
 - 区域是可选的精确筛选，需输入完整名称，例如“和平区”；它不是位置输入框；
 - 列表展示空闲桩数、站点当前价格、距离和未来一小时拥堵预测；
@@ -138,6 +219,12 @@ Fcitx/Fcitx5、当前 Qt 6 安装缺少 Fcitx 插件但提供 IBus 插件，程�
   钱包扣款：余额足够时直接完成，余额不足时订单进入待支付；
 - 当前 Mock 与数据库演示种子保持一致，只返回启用的浑南站和和平站。后续切换
   `TcpChargingApi` 后，由服务端执行筛选、距离排序、实时聚合与推荐。
+- 充电站卡片和详情页均提供“导航”；起点默认使用当前选定位置且允许修改，出行方式
+  按 V1 契约只提供驾车和步行。未修改的默认起点直接复用首页已有坐标，不再解析
+  “演示位置”这类展示文字；导航页临时修改的真实地址会重新解析，但不会覆盖首页的
+  当前选定位置。Mock 显示静态路线摘要；使用 `--map tencent` 时，驾车加载腾讯
+  路线页面，步行调用腾讯步行路线 WebService 并在 `QWebEngineView` 中绘制返回的
+  路线折线。公共交通尚未列入 V1 `RouteMode`，因此当前不增加契约外的出行方式。
 
 “扫一扫”页面使用方法：
 

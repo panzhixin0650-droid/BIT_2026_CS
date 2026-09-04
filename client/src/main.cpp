@@ -1,6 +1,9 @@
 #include "api/mock_charging_api.h"
 #include "api/tcp_charging_api.h"
 #include "local/input_method_setup.h"
+#include "local/i_map_service.h"
+#include "local/mock_map_service.h"
+#include "local/tencent_map_service.h"
 #include "ui/main_window.h"
 
 #include <QApplication>
@@ -37,11 +40,24 @@ int main(int argc, char *argv[])
         QStringLiteral("45678"));
     const QCommandLineOption timeoutOption(
         QStringLiteral("timeout-ms"),
-        QStringLiteral("TCP request timeout in milliseconds (default: 5000)."),
+        QStringLiteral("Network request timeout in milliseconds (default: 5000)."),
         QStringLiteral("milliseconds"),
         QStringLiteral("5000"));
-    parser.addOptions({apiOption, hostOption, portOption, timeoutOption});
+    const QCommandLineOption mapOption(
+        QStringLiteral("map"),
+        QStringLiteral("Map adapter: mock or tencent (default: mock)."),
+        QStringLiteral("adapter"),
+        QStringLiteral("mock"));
+    parser.addOptions({apiOption, hostOption, portOption, timeoutOption, mapOption});
     parser.process(application);
+
+    bool timeoutOk = false;
+    const int timeoutMs = parser.value(timeoutOption).toInt(&timeoutOk);
+    if (!timeoutOk || timeoutMs < 1) {
+        qCritical().noquote()
+            << QStringLiteral("Invalid network request timeout.");
+        return 2;
+    }
 
     std::unique_ptr<charging::client::IChargingApi> api;
     const QString adapter = parser.value(apiOption).trimmed().toLower();
@@ -49,12 +65,9 @@ int main(int argc, char *argv[])
         api = std::make_unique<charging::client::MockChargingApi>();
     } else if (adapter == QStringLiteral("tcp")) {
         bool portOk = false;
-        bool timeoutOk = false;
         const int port = parser.value(portOption).toInt(&portOk);
-        const int timeoutMs = parser.value(timeoutOption).toInt(&timeoutOk);
         const QString host = parser.value(hostOption).trimmed();
-        if (!portOk || port < 1 || port > 65535 || !timeoutOk
-            || timeoutMs < 1 || host.isEmpty()) {
+        if (!portOk || port < 1 || port > 65535 || host.isEmpty()) {
             qCritical().noquote()
                 << QStringLiteral("Invalid TCP host, port, or timeout.");
             return 2;
@@ -70,7 +83,36 @@ int main(int argc, char *argv[])
         return 2;
     }
 
-    charging::client::MainWindow window(*api);
+    std::unique_ptr<charging::client::IMapService> mapService;
+    const QString mapAdapter = parser.value(mapOption).trimmed().toLower();
+    if (mapAdapter == QStringLiteral("mock")) {
+        mapService = std::make_unique<charging::client::MockMapService>();
+    } else if (mapAdapter == QStringLiteral("tencent")) {
+#ifndef CHARGING_CLIENT_HAS_WEBENGINE
+        qCritical().noquote()
+            << QStringLiteral("Tencent map support is not built. Reconfigure with "
+                              "-DCHARGING_CLIENT_ENABLE_WEBENGINE=ON.");
+        return 2;
+#else
+        const QString apiKey =
+            qEnvironmentVariable("TENCENT_MAP_KEY").trimmed();
+        if (apiKey.isEmpty()) {
+            qCritical().noquote()
+                << QStringLiteral("TENCENT_MAP_KEY is required for --map tencent.");
+            return 2;
+        }
+        mapService = std::make_unique<charging::client::TencentMapService>(
+            apiKey, timeoutMs);
+        qInfo().noquote() << QStringLiteral("Map mode: Tencent");
+#endif
+    } else {
+        qCritical().noquote()
+            << QStringLiteral("Unknown map adapter: %1 (expected mock or tencent)")
+                   .arg(mapAdapter);
+        return 2;
+    }
+
+    charging::client::MainWindow window(*api, *mapService);
     window.show();
 
     return application.exec();
