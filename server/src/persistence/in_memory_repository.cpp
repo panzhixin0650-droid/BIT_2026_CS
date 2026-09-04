@@ -2,6 +2,7 @@
 
 #include <QDateTime>
 #include <QCryptographicHash>
+#include <QSet>
 
 #include <algorithm>
 #include <limits>
@@ -236,8 +237,29 @@ std::optional<StationDto> InMemoryRepository::findStationById(qint64 stationId) 
         : std::optional<StationDto>(withPileCounts(*found));
 }
 
-StationDto InMemoryRepository::createStation(StationDto station, qint64 pileCount)
+StationDto InMemoryRepository::createStation(StationDto station,
+                                             const QList<PileDto> &piles)
 {
+    if (piles.size() > 100) {
+        return {};
+    }
+    QSet<QString> pileCodes;
+    for (const PileDto &pile : piles) {
+        if (pile.pileType != PileType::Fast && pile.pileType != PileType::Slow) {
+            return {};
+        }
+        const QString normalizedCode = pile.pileCode.trimmed().toCaseFolded();
+        if (normalizedCode.isEmpty() || pile.pileCode.size() > 64
+            || pile.ratedPowerKw <= 0.0 || pile.ratedPowerKw > 1000.0
+            || pileCodes.contains(normalizedCode)
+            || std::any_of(piles_.cbegin(), piles_.cend(), [&normalizedCode](const PileDto &stored) {
+                   return stored.pileCode.toCaseFolded() == normalizedCode;
+               })) {
+            return {};
+        }
+        pileCodes.insert(normalizedCode);
+    }
+
     station.stationId = nextStationId_++;
     station.status = StationStatus::Active;
     station.distanceKm.reset();
@@ -245,16 +267,13 @@ StationDto InMemoryRepository::createStation(StationDto station, qint64 pileCoun
     station.recommended = false;
     stations_.append(station);
 
-    for (qint64 index = 0; index < pileCount; ++index) {
-        PileDto pile;
+    for (PileDto pile : piles) {
         pile.pileId = nextPileId_++;
         pile.stationId = station.stationId;
-        pile.pileCode = QStringLiteral("PILE-%1-%2")
-                            .arg(station.stationId, 3, 10, QLatin1Char('0'))
-                            .arg(index + 1, 2, 10, QLatin1Char('0'));
-        pile.pileType = index % 2 == 0 ? PileType::Fast : PileType::Slow;
-        pile.ratedPowerKw = pile.pileType == PileType::Fast ? 60.0 : 7.0;
+        pile.pileCode = pile.pileCode.trimmed();
         pile.status = PileStatus::Idle;
+        pile.chargeCount = 0;
+        pile.totalChargeSeconds = 0;
         piles_.append(pile);
     }
     return withPileCounts(station);

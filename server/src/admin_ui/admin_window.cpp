@@ -7,6 +7,7 @@
 #include "charging/protocol/protocol_constants.h"
 
 #include <QComboBox>
+#include <QDateTime>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDateEdit>
@@ -452,7 +453,14 @@ QWidget *AdminWindow::buildStationsPage()
     stationsTable_->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     stationsTable_->header()->setSectionResizeMode(2, QHeaderView::Stretch);
     stationsTable_->header()->setSectionResizeMode(8, QHeaderView::Fixed);
-    stationsTable_->setColumnWidth(8, 128);
+    stationsTable_->setColumnWidth(8, 148);
+    stationsTable_->setIndentation(24);
+    connect(stationsTable_, &QTreeWidget::itemDoubleClicked, this,
+            [this](QTreeWidgetItem *clicked, int) {
+                if (clicked == nullptr || clicked->parent() == nullptr) return;
+                navigateToPile(clicked->data(0, Qt::UserRole + 1).toLongLong(),
+                               clicked->data(0, Qt::UserRole).toLongLong());
+            });
     layout->addWidget(stationsTable_, 1);
     return page;
 }
@@ -492,7 +500,8 @@ QWidget *AdminWindow::buildPilesPage()
     controls->addStretch();
     auto *createButton = new QPushButton(QStringLiteral("＋ 新增电桩"), page);
     createButton->setProperty("primary", true);
-    connect(createButton, &QPushButton::clicked, this, &AdminWindow::showCreatePileDialog);
+    connect(createButton, &QPushButton::clicked, this,
+            [this] { showCreatePileDialog(); });
     controls->addWidget(createButton);
     layout->addLayout(controls);
     pilesTable_ = new QTableWidget(page);
@@ -702,6 +711,13 @@ void AdminWindow::refreshStations()
         stationItem->setText(6, stationStatusText(status));
         stationItem->setText(7, QString::number(stationId));
         stationItem->setForeground(6, status == QStringLiteral("ACTIVE") ? QColor(QStringLiteral("#15803d")) : QColor(QStringLiteral("#667085")));
+        QFont stationFont = stationItem->font(0);
+        stationFont.setPointSize(10);
+        stationFont.setWeight(QFont::DemiBold);
+        for (int column = 0; column < stationsTable_->columnCount(); ++column) {
+            stationItem->setFont(column, stationFont);
+            stationItem->setSizeHint(column, QSize(-1, 46));
+        }
 
         const ServiceResult pileResult = facade_->listPiles(stationId);
         if (pileResult.ok()) {
@@ -710,18 +726,21 @@ void AdminWindow::refreshStations()
                 auto *child = new QTreeWidgetItem(stationItem);
                 child->setData(0, Qt::UserRole, stationId);
                 child->setData(0, Qt::UserRole + 1, pile.value(QStringLiteral("pileId")).toInteger());
-                child->setText(0, QStringLiteral("电桩 · %1").arg(pile.value(QStringLiteral("pileCode")).toString()));
+                child->setText(0, pile.value(QStringLiteral("pileCode")).toString());
                 child->setText(1, pile.value(QStringLiteral("pileType")).toString() == QStringLiteral("FAST") ? QStringLiteral("快充") : QStringLiteral("慢充"));
-                child->setText(2, QStringLiteral("额定功率 %1 kW").arg(pile.value(QStringLiteral("ratedPowerKw")).toDouble(), 0, 'f', 1));
-                child->setText(3, QStringLiteral("累计 %1 次").arg(pile.value(QStringLiteral("chargeCount")).toInteger()));
-                child->setText(4, QStringLiteral("%1 小时").arg(pile.value(QStringLiteral("totalChargeSeconds")).toInteger() / 3600.0, 0, 'f', 1));
+                child->setText(2, QStringLiteral("%1 kW").arg(pile.value(QStringLiteral("ratedPowerKw")).toDouble(), 0, 'f', 1));
                 child->setText(6, pileStatusText(pile.value(QStringLiteral("status")).toString()));
-                child->setText(7, QString::number(pile.value(QStringLiteral("pileId")).toInteger()));
-                const qint64 pileId = pile.value(QStringLiteral("pileId")).toInteger();
-                auto *pileDetail = new QPushButton(QStringLiteral("详情"), stationsTable_);
-                pileDetail->setMaximumWidth(56);
-                connect(pileDetail, &QPushButton::clicked, this, [this, pileId] { showPileDetails(pileId); });
-                stationsTable_->setItemWidget(child, 8, pileDetail);
+                QFont childFont = child->font(0);
+                childFont.setPointSize(9);
+                for (int column = 0; column < stationsTable_->columnCount(); ++column) {
+                    child->setFont(column, childFont);
+                    child->setBackground(column, QColor(QStringLiteral("#f7f9fc")));
+                    child->setForeground(column, QColor(QStringLiteral("#536176")));
+                    child->setSizeHint(column, QSize(-1, 36));
+                }
+                child->setForeground(6, pile.value(QStringLiteral("status")).toString() == QStringLiteral("FAULT")
+                                                ? QColor(QStringLiteral("#c33838"))
+                                                : QColor(QStringLiteral("#536176")));
             }
         }
         auto *actions = new QWidget(stationsTable_);
@@ -734,6 +753,11 @@ void AdminWindow::refreshStations()
         more->setMaximumWidth(56);
         connect(detail, &QPushButton::clicked, this, [this, stationId] { showStationDetails(stationId); });
         auto *menu = new QMenu(more);
+        auto *createPileAction = menu->addAction(QStringLiteral("新增充电桩"));
+        createPileAction->setEnabled(status == QStringLiteral("ACTIVE"));
+        connect(createPileAction, &QAction::triggered, this,
+                [this, stationId] { showCreatePileDialog(stationId); });
+        menu->addSeparator();
         auto *deleteAction = menu->addAction(QStringLiteral("删除站点"));
         connect(deleteAction, &QAction::triggered, this, [this, stationItem] {
             stationsTable_->setCurrentItem(stationItem);
@@ -742,6 +766,10 @@ void AdminWindow::refreshStations()
         more->setMenu(menu);
         actionLayout->addWidget(detail);
         actionLayout->addWidget(more);
+        const int detailWidth = detail->fontMetrics().horizontalAdvance(detail->text()) + 24;
+        const int moreWidth = more->fontMetrics().horizontalAdvance(more->text()) + 38;
+        detail->setFixedWidth(qMax(56, detailWidth));
+        more->setFixedWidth(qMax(68, moreWidth));
         stationsTable_->setItemWidget(stationItem, 8, actions);
         stationItem->setExpanded(expandedIds.contains(stationId)
                                  || expandStationAfterRefresh_ == stationId);
@@ -822,6 +850,42 @@ void AdminWindow::refreshPiles()
         actionLayout->addWidget(detail);
         actionLayout->addWidget(more);
         pilesTable_->setCellWidget(row, 8, actions);
+
+        if (focusPileAfterRefresh_ == pileId) {
+            pilesTable_->selectRow(row);
+            pilesTable_->scrollToItem(pilesTable_->item(row, 1),
+                                      QAbstractItemView::PositionAtCenter);
+            focusPileAfterRefresh_ = 0;
+        }
+    }
+}
+
+void AdminWindow::navigateToPile(qint64 pileId, qint64 stationId)
+{
+    if (pileId <= 0 || stationId <= 0 || pileStation_ == nullptr
+        || pileStatus_ == nullptr || pileSearch_ == nullptr) {
+        return;
+    }
+
+    pileSearch_->clear();
+    appliedPileSearch_.clear();
+    {
+        const QSignalBlocker stationBlocker(pileStation_);
+        const QSignalBlocker statusBlocker(pileStatus_);
+        const int stationIndex = pileStation_->findData(stationId);
+        pileStation_->setCurrentIndex(stationIndex >= 0 ? stationIndex : 0);
+        pileStatus_->setCurrentIndex(0);
+    }
+    focusPileAfterRefresh_ = pileId;
+    if (navigation_->currentRow() == 2) {
+        refreshPiles();
+    } else {
+        navigation_->setCurrentRow(2);
+    }
+    if (focusPileAfterRefresh_ != 0) {
+        focusPileAfterRefresh_ = 0;
+        QMessageBox::information(this, QStringLiteral("电桩未找到"),
+                                 QStringLiteral("目标电桩可能已被删除，请刷新后重试。"));
     }
 }
 
@@ -920,8 +984,9 @@ void AdminWindow::showCreateStationDialog()
 {
     QDialog dialog(this);
     dialog.setWindowTitle(QStringLiteral("新增充电站"));
-    dialog.setMinimumWidth(460);
-    auto *layout = new QFormLayout(&dialog);
+    dialog.resize(760, 620);
+    auto *dialogLayout = new QVBoxLayout(&dialog);
+    auto *layout = new QFormLayout;
     auto *name = new QLineEdit(&dialog);
     auto *region = new QComboBox(&dialog);
     region->addItems({QStringLiteral("浑南区"), QStringLiteral("和平区"),
@@ -948,16 +1013,88 @@ void AdminWindow::showCreateStationDialog()
     layout->addRow(QStringLiteral("纬度"), latitude);
     layout->addRow(QStringLiteral("单价（分/kWh）"), price);
     layout->addRow(QStringLiteral("初始电桩数"), pileCount);
+    dialogLayout->addLayout(layout);
+
+    auto *pileLabel = new QLabel(QStringLiteral("初始电桩"), &dialog);
+    pileLabel->setProperty("role", "sectionTitle");
+    dialogLayout->addWidget(pileLabel);
+    auto *pileTable = new QTableWidget(&dialog);
+    pileTable->setColumnCount(3);
+    pileTable->setHorizontalHeaderLabels({QStringLiteral("电桩编号"),
+                                          QStringLiteral("类型"),
+                                          QStringLiteral("额定功率（kW）")});
+    pileTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    pileTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    pileTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+    pileTable->verticalHeader()->setVisible(false);
+    pileTable->setAlternatingRowColors(true);
+    dialogLayout->addWidget(pileTable, 1);
+
+    const auto addDefaultPileRow = [pileTable](int row) {
+        pileTable->insertRow(row);
+        auto *code = new QLineEdit(pileTable);
+        code->setText(QStringLiteral("PILE-%1-%2")
+                          .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyMMddHHmmss")))
+                          .arg(row + 1, 2, 10, QLatin1Char('0')));
+        auto *type = new QComboBox(pileTable);
+        type->addItem(QStringLiteral("快充"), QStringLiteral("FAST"));
+        type->addItem(QStringLiteral("慢充"), QStringLiteral("SLOW"));
+        type->setCurrentIndex(row % 2);
+        auto *power = new QDoubleSpinBox(pileTable);
+        power->setRange(0.1, 1000.0);
+        power->setDecimals(1);
+        power->setValue(type->currentData().toString() == QStringLiteral("FAST") ? 60.0 : 7.0);
+        power->setProperty("manuallyEdited", false);
+        connect(power, qOverload<double>(&QDoubleSpinBox::valueChanged), power,
+                [power](double) { power->setProperty("manuallyEdited", true); });
+        connect(type, &QComboBox::currentIndexChanged, power,
+                [type, power] {
+                    if (!power->property("manuallyEdited").toBool()) {
+                        QSignalBlocker blocker(power);
+                        power->setValue(type->currentData().toString() == QStringLiteral("FAST") ? 60.0 : 7.0);
+                    }
+                });
+        pileTable->setCellWidget(row, 0, code);
+        pileTable->setCellWidget(row, 1, type);
+        pileTable->setCellWidget(row, 2, power);
+        pileTable->setRowHeight(row, 38);
+    };
+    connect(pileCount, qOverload<int>(&QSpinBox::valueChanged), &dialog,
+            [pileTable, addDefaultPileRow](int count) {
+                while (pileTable->rowCount() < count) addDefaultPileRow(pileTable->rowCount());
+                while (pileTable->rowCount() > count) pileTable->removeRow(pileTable->rowCount() - 1);
+            });
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    layout->addRow(buttons);
+    dialogLayout->addWidget(buttons);
     if (dialog.exec() != QDialog::Accepted) return;
+    QJsonArray piles;
+    QSet<QString> codes;
+    for (int row = 0; row < pileTable->rowCount(); ++row) {
+        auto *code = qobject_cast<QLineEdit *>(pileTable->cellWidget(row, 0));
+        auto *type = qobject_cast<QComboBox *>(pileTable->cellWidget(row, 1));
+        auto *power = qobject_cast<QDoubleSpinBox *>(pileTable->cellWidget(row, 2));
+        const QString pileCode = code == nullptr ? QString{} : code->text().trimmed();
+        const QString normalized = pileCode.toCaseFolded();
+        if (pileCode.isEmpty() || codes.contains(normalized)) {
+            QMessageBox::warning(this, QStringLiteral("无法创建"),
+                                 pileCode.isEmpty() ? QStringLiteral("请填写每个电桩的编号。")
+                                                    : QStringLiteral("电桩编号不能重复。"));
+            return;
+        }
+        codes.insert(normalized);
+        piles.append(QJsonObject{
+            {QStringLiteral("pileCode"), pileCode},
+            {QStringLiteral("pileType"), type->currentData().toString()},
+            {QStringLiteral("ratedPowerKw"), power->value()},
+        });
+    }
     const ServiceResult result = facade_->createStation({
         {QStringLiteral("name"), name->text().trimmed()}, {QStringLiteral("region"), region->currentText()},
         {QStringLiteral("address"), address->text().trimmed()}, {QStringLiteral("longitude"), longitude->value()},
         {QStringLiteral("latitude"), latitude->value()}, {QStringLiteral("priceCentsPerKwh"), price->value()},
-        {QStringLiteral("pileCount"), pileCount->value()},
+        {QStringLiteral("piles"), piles},
     });
     if (!result.ok()) return showServiceError(result.code, result.message);
     expandStationAfterRefresh_ = result.data.value(QStringLiteral("station")).toObject()
@@ -969,7 +1106,7 @@ void AdminWindow::showCreateStationDialog()
     refreshAll();
 }
 
-void AdminWindow::showCreatePileDialog()
+void AdminWindow::showCreatePileDialog(qint64 fixedStationId)
 {
     const ServiceResult stationResult = facade_->listStations({}, {});
     if (!stationResult.ok()) return showServiceError(stationResult.code, stationResult.message);
@@ -985,6 +1122,15 @@ void AdminWindow::showCreatePileDialog()
             station->addItem(item.value(QStringLiteral("name")).toString(),
                              item.value(QStringLiteral("stationId")).toInteger());
         }
+    }
+    if (fixedStationId > 0) {
+        const int index = station->findData(fixedStationId);
+        if (index < 0) {
+            QMessageBox::warning(this, QStringLiteral("无法创建"), QStringLiteral("该充电站不存在或已停用。"));
+            return;
+        }
+        station->setCurrentIndex(index);
+        station->setEnabled(false);
     }
     auto *code = new QLineEdit(&dialog);
     code->setPlaceholderText(QStringLiteral("例如 PILE-D-01"));

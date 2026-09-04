@@ -49,7 +49,7 @@ public:
     findStationById(qint64 stationId) const override;
     [[nodiscard]] charging::protocol::StationDto createStation(
         charging::protocol::StationDto station,
-        qint64 pileCount) override;
+        const QList<charging::protocol::PileDto> &piles) override;
     [[nodiscard]] DeleteStationResult deleteStation(qint64 stationId) override;
     [[nodiscard]] QList<charging::protocol::PileDto>
     listPilesByStationId(qint64 stationId) const override;

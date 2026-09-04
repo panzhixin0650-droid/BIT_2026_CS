@@ -46,7 +46,8 @@ private:
     void refreshUsers();
     void refreshOrders();
     void showCreateStationDialog();
-    void showCreatePileDialog();
+    void showCreatePileDialog(qint64 fixedStationId = 0);
+    void navigateToPile(qint64 pileId, qint64 stationId);
     void showStationDetails(qint64 stationId);
     void showPileDetails(qint64 pileId);
     void showUserDetails(qint64 userId);
@@ -105,6 +106,7 @@ private:
     QString appliedUserSearch_;
     QString appliedOrderSearch_;
     qint64 expandStationAfterRefresh_ = 0;
+    qint64 focusPileAfterRefresh_ = 0;
 };
 
 }  // namespace charging::server

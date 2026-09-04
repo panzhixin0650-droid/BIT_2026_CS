@@ -9,6 +9,7 @@
 
 #include "charging/protocol/protocol_constants.h"
 
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -239,10 +240,19 @@ void ServerTests::adminListsAndCreatesStationsWithPiles()
         {QStringLiteral("longitude"), 123.36},
         {QStringLiteral("latitude"), 41.80},
         {QStringLiteral("priceCentsPerKwh"), 130},
-        {QStringLiteral("pileCount"), 2},
+        {QStringLiteral("piles"), QJsonArray{
+            QJsonObject{{QStringLiteral("pileCode"), QStringLiteral("PILE-TX-01")},
+                        {QStringLiteral("pileType"), QStringLiteral("FAST")},
+                        {QStringLiteral("ratedPowerKw"), 80.0}},
+            QJsonObject{{QStringLiteral("pileCode"), QStringLiteral("PILE-TX-02")},
+                        {QStringLiteral("pileType"), QStringLiteral("SLOW")},
+                        {QStringLiteral("ratedPowerKw"), 11.0}},
+        }},
     });
     QCOMPARE(created.code, ErrorCode::Ok);
     QCOMPARE(created.data.value(QStringLiteral("piles")).toArray().size(), 2);
+    QCOMPARE(created.data.value(QStringLiteral("piles")).toArray().at(0).toObject()
+                 .value(QStringLiteral("ratedPowerKw")).toDouble(), 80.0);
     QCOMPARE(facade.listStations().data.value(QStringLiteral("items")).toArray().size(), 4);
     QCOMPARE(facade.listPiles().data.value(QStringLiteral("items")).toArray().size(), 8);
 }
@@ -259,7 +269,7 @@ void ServerTests::adminDeletesOnlyStationsWithoutOrders()
         {QStringLiteral("longitude"), 123.36},
         {QStringLiteral("latitude"), 41.80},
         {QStringLiteral("priceCentsPerKwh"), 130},
-        {QStringLiteral("pileCount"), 2},
+        {QStringLiteral("piles"), QJsonArray{}},
     });
     QCOMPARE(created.code, ErrorCode::Ok);
     const qint64 stationId = created.data.value(QStringLiteral("station"))
