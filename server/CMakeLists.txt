@@ -42,6 +42,8 @@ add_executable(server-app
     src/admin_ui/admin_facade.h
     src/admin_ui/admin_window.cpp
     src/admin_ui/admin_window.h
+    src/admin_ui/pile_status_chart.cpp
+    src/admin_ui/pile_status_chart.h
     src/admin_ui/revenue_chart.cpp
     src/admin_ui/revenue_chart.h
 )

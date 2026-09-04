@@ -3,6 +3,7 @@
 #include <QLinearGradient>
 #include <QPainter>
 #include <QPainterPath>
+#include <QToolTip>
 
 #include <algorithm>
 #include <utility>
@@ -14,6 +15,7 @@ RevenueChart::RevenueChart(QWidget *parent)
 {
     setMinimumHeight(250);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    setMouseTracking(true);
 }
 
 void RevenueChart::setPoints(QList<RevenuePoint> points)
@@ -86,6 +88,16 @@ void RevenueChart::paintEvent(QPaintEvent *event)
         painter.drawEllipse(point, 3.5, 3.5);
     }
 
+    if (hoveredIndex_ >= 0 && hoveredIndex_ < screenPoints.size()) {
+        const QPointF highlight = screenPoints.at(hoveredIndex_);
+        painter.setPen(QPen(QColor(47, 111, 237, 90), 1.0, Qt::DashLine));
+        painter.drawLine(QPointF(highlight.x(), plot.top()),
+                         QPointF(highlight.x(), plot.bottom()));
+        painter.setBrush(Qt::white);
+        painter.setPen(QPen(QColor(QStringLiteral("#2f6fed")), 2.5));
+        painter.drawEllipse(highlight, 5.5, 5.5);
+    }
+
     painter.setPen(QColor(QStringLiteral("#8793a7")));
     const int labelStep = std::max(1, static_cast<int>(points_.size() / 6));
     for (qsizetype index = 0; index < points_.size(); index += labelStep) {
@@ -97,6 +109,47 @@ void RevenueChart::paintEvent(QPaintEvent *event)
                      Qt::AlignRight, QString::number(maximum / 100.0, 'f', 0));
     painter.drawText(QRectF(0.0, plot.bottom() - 10.0, 48.0, 20.0),
                      Qt::AlignRight, QStringLiteral("0"));
+}
+
+void RevenueChart::mouseMoveEvent(QMouseEvent *event)
+{
+    if (points_.isEmpty()) {
+        QToolTip::hideText();
+        return;
+    }
+    const QRectF plot = QRectF(rect()).adjusted(54.0, 24.0, -24.0, -42.0);
+    const QPointF position = event->position();
+    if (!plot.contains(position)) {
+        if (hoveredIndex_ != -1) {
+            hoveredIndex_ = -1;
+            update();
+        }
+        QToolTip::hideText();
+        return;
+    }
+
+    const qreal normalized = points_.size() == 1
+        ? 0.0
+        : (position.x() - plot.left()) / plot.width() * (points_.size() - 1.0);
+    const int index = qBound(0, qRound(normalized), points_.size() - 1);
+    if (hoveredIndex_ != index) {
+        hoveredIndex_ = index;
+        update();
+    }
+    const RevenuePoint &point = points_.at(index);
+    QToolTip::showText(mapToGlobal(event->position().toPoint()),
+                       QStringLiteral("%1\n营收：¥%2")
+                           .arg(point.date)
+                           .arg(point.revenueCents / 100.0, 0, 'f', 2),
+                       this);
+}
+
+void RevenueChart::leaveEvent(QEvent *event)
+{
+    Q_UNUSED(event);
+    hoveredIndex_ = -1;
+    QToolTip::hideText();
+    update();
 }
 
 }  // namespace charging::server

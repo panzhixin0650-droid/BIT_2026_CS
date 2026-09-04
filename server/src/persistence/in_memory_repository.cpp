@@ -279,6 +279,30 @@ StationDto InMemoryRepository::createStation(StationDto station,
     return withPileCounts(station);
 }
 
+bool InMemoryRepository::updateStation(const StationDto &station)
+{
+    const auto found = std::find_if(stations_.begin(), stations_.end(),
+                                    [&station](const StationDto &stored) {
+                                        return stored.stationId == station.stationId;
+                                    });
+    if (found == stations_.end() || station.name.trimmed().isEmpty()
+        || station.name.size() > 64 || station.region.trimmed().isEmpty()
+        || station.region.size() > 64 || station.address.trimmed().isEmpty()
+        || station.address.size() > 200 || station.priceCentsPerKwh <= 0) {
+        return false;
+    }
+    const qint64 id = found->stationId;
+    *found = station;
+    found->stationId = id;
+    found->name = found->name.trimmed();
+    found->region = found->region.trimmed();
+    found->address = found->address.trimmed();
+    found->distanceKm.reset();
+    found->predictedCongestion.reset();
+    found->recommended = false;
+    return true;
+}
+
 DeleteStationResult InMemoryRepository::deleteStation(qint64 stationId)
 {
     const auto station = std::find_if(

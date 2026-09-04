@@ -686,6 +686,115 @@ ServiceResult ApplicationService::deleteAdminStation(qint64 stationId)
     return internalError();
 }
 
+ServiceResult ApplicationService::updateAdminStation(const QJsonObject &input)
+{
+    if (repository_ == nullptr) return internalError();
+    qint64 stationId = 0;
+    QString name;
+    QString region;
+    QString address;
+    qint64 price = 0;
+    const QJsonValue longitudeValue = input.value(QStringLiteral("longitude"));
+    const QJsonValue latitudeValue = input.value(QStringLiteral("latitude"));
+    QString statusText;
+    if (!readInteger(input, QStringLiteral("stationId"), &stationId)
+        || !readString(input, QStringLiteral("name"), &name)
+        || !readString(input, QStringLiteral("region"), &region)
+        || !readString(input, QStringLiteral("address"), &address)
+        || !readInteger(input, QStringLiteral("priceCentsPerKwh"), &price)
+        || !readString(input, QStringLiteral("status"), &statusText)
+        || !longitudeValue.isDouble() || !latitudeValue.isDouble()
+        || stationId <= 0 || name.trimmed().isEmpty() || name.size() > 64
+        || region.trimmed().isEmpty() || region.size() > 64
+        || address.trimmed().isEmpty() || address.size() > 200
+        || price <= 0 || !std::isfinite(longitudeValue.toDouble())
+        || !std::isfinite(latitudeValue.toDouble())
+        || longitudeValue.toDouble() < -180.0 || longitudeValue.toDouble() > 180.0
+        || latitudeValue.toDouble() < -90.0 || latitudeValue.toDouble() > 90.0) {
+        return invalidRequest();
+    }
+    StationStatus status;
+    if (statusText == QStringLiteral("ACTIVE")) status = StationStatus::Active;
+    else if (statusText == QStringLiteral("DISABLED")) status = StationStatus::Disabled;
+    else return invalidRequest();
+    StationDto station;
+    station.stationId = stationId;
+    station.name = name.trimmed();
+    station.region = region.trimmed();
+    station.address = address.trimmed();
+    station.longitude = longitudeValue.toDouble();
+    station.latitude = latitudeValue.toDouble();
+    station.priceCentsPerKwh = price;
+    station.status = status;
+    if (!repository_->updateStation(station)) {
+        if (!repository_->lastOperationSucceeded()) return internalError();
+        return ServiceResult::failure(ErrorCode::NotFound, QStringLiteral("NOT_FOUND"));
+    }
+    const auto updated = repository_->findStationById(stationId);
+    if (!repository_->lastOperationSucceeded() || !updated.has_value()) return internalError();
+    return ServiceResult::success({{QStringLiteral("station"), toJson(*updated)}});
+}
+
+ServiceResult ApplicationService::setAdminStationStatus(qint64 stationId,
+                                                        StationStatus status)
+{
+    if (repository_ == nullptr || stationId <= 0
+        || (status != StationStatus::Active && status != StationStatus::Disabled)) {
+        return invalidRequest();
+    }
+    const auto existing = repository_->findStationById(stationId);
+    if (!repository_->lastOperationSucceeded()) return internalError();
+    if (!existing.has_value()) return ServiceResult::failure(ErrorCode::NotFound, QStringLiteral("NOT_FOUND"));
+
+    // A station can only be taken offline when none of its piles is reserved
+    // or charging.  Once the check passes, idle online piles are taken offline
+    // together with the station; faulted and already-offline piles retain
+    // their state for later maintenance handling.  Enabling a station never
+    // force-starts piles, so operators can bring hardware online explicitly.
+    QList<PileDto> changedPiles;
+    if (status == StationStatus::Disabled) {
+        const QList<PileDto> stationPiles = repository_->listPilesByStationId(stationId);
+        if (!repository_->lastOperationSucceeded()) return internalError();
+        for (const PileDto &pile : stationPiles) {
+            if (pile.status == PileStatus::Reserved || pile.status == PileStatus::Charging) {
+                return ServiceResult::failure(ErrorCode::IllegalOrderState,
+                                              QStringLiteral("STATION_HAS_ACTIVE_PILES"));
+            }
+        }
+        for (PileDto pile : stationPiles) {
+            if (pile.status != PileStatus::Idle) continue;
+            pile.status = PileStatus::Offline;
+            if (!repository_->updatePile(pile)) {
+                // Best-effort rollback keeps a failed station operation from
+                // leaving a subset of its idle piles offline.
+                for (const PileDto &changed : changedPiles) {
+                    PileDto restored = changed;
+                    restored.status = PileStatus::Idle;
+                    repository_->updatePile(restored);
+                }
+                if (!repository_->lastOperationSucceeded()) return internalError();
+                return internalError();
+            }
+            changedPiles.append(pile);
+        }
+    }
+
+    StationDto station = *existing;
+    station.status = status;
+    if (!repository_->updateStation(station)) {
+        if (!repository_->lastOperationSucceeded()) return internalError();
+        for (const PileDto &changed : changedPiles) {
+            PileDto restored = changed;
+            restored.status = PileStatus::Idle;
+            repository_->updatePile(restored);
+        }
+        return ServiceResult::failure(ErrorCode::NotFound, QStringLiteral("NOT_FOUND"));
+    }
+    const auto updated = repository_->findStationById(stationId);
+    if (!repository_->lastOperationSucceeded() || !updated.has_value()) return internalError();
+    return ServiceResult::success({{QStringLiteral("station"), toJson(*updated)}});
+}
+
 ServiceResult ApplicationService::listAdminPiles(
     std::optional<qint64> stationId) const
 {
@@ -742,6 +851,61 @@ ServiceResult ApplicationService::createAdminPile(const QJsonObject &input)
     pile = repository_->createPile(pile);
     if (!repository_->lastOperationSucceeded() || pile.pileId <= 0) return internalError();
     return ServiceResult::success({{QStringLiteral("pile"), toJson(pile)}});
+}
+
+ServiceResult ApplicationService::updateAdminPile(const QJsonObject &input)
+{
+    if (repository_ == nullptr) return internalError();
+
+    qint64 pileId = 0;
+    QString pileCode;
+    QString pileType;
+    const QJsonValue powerValue = input.value(QStringLiteral("ratedPowerKw"));
+    if (!readInteger(input, QStringLiteral("pileId"), &pileId)
+        || !readString(input, QStringLiteral("pileCode"), &pileCode)
+        || !readString(input, QStringLiteral("pileType"), &pileType)
+        || !powerValue.isDouble() || pileId <= 0
+        || pileCode.trimmed().isEmpty() || pileCode.size() > 64
+        || !std::isfinite(powerValue.toDouble()) || powerValue.toDouble() <= 0.0
+        || powerValue.toDouble() > 1000.0
+        || (pileType != QStringLiteral("FAST") && pileType != QStringLiteral("SLOW"))) {
+        return invalidRequest();
+    }
+
+    QList<PileDto> piles = repository_->listPiles();
+    if (!repository_->lastOperationSucceeded()) return internalError();
+    auto found = std::find_if(piles.begin(), piles.end(), [pileId](const PileDto &pile) {
+        return pile.pileId == pileId;
+    });
+    if (found == piles.end()) {
+        return ServiceResult::failure(ErrorCode::NotFound, QStringLiteral("NOT_FOUND"));
+    }
+    // A pile participating in a reservation or an active charge cannot have
+    // its hardware metadata changed while the client is using it.
+    if (found->status == PileStatus::Reserved || found->status == PileStatus::Charging) {
+        return ServiceResult::failure(ErrorCode::IllegalOrderState,
+                                      QStringLiteral("ILLEGAL_ORDER_STATE"));
+    }
+
+    const QString normalizedCode = pileCode.trimmed().toCaseFolded();
+    const bool duplicate = std::any_of(piles.cbegin(), piles.cend(),
+                                       [pileId, &normalizedCode](const PileDto &pile) {
+        return pile.pileId != pileId
+            && pile.pileCode.toCaseFolded() == normalizedCode;
+    });
+    if (duplicate) {
+        return ServiceResult::failure(ErrorCode::InvalidRequest,
+                                      QStringLiteral("PILE_CODE_EXISTS"));
+    }
+
+    found->pileCode = pileCode.trimmed();
+    found->pileType = pileType == QStringLiteral("FAST") ? PileType::Fast : PileType::Slow;
+    found->ratedPowerKw = powerValue.toDouble();
+    if (!repository_->updatePile(*found)) {
+        if (!repository_->lastOperationSucceeded()) return internalError();
+        return ServiceResult::failure(ErrorCode::NotFound, QStringLiteral("NOT_FOUND"));
+    }
+    return ServiceResult::success({{QStringLiteral("pile"), toJson(*found)}});
 }
 
 ServiceResult ApplicationService::deleteAdminPile(qint64 pileId)

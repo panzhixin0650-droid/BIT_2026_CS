@@ -764,6 +764,45 @@ StationDto Repository::createStation(StationDto station,
     return station;
 }
 
+bool Repository::updateStation(const StationDto &station)
+{
+    beginOperation();
+    const QString operation = QStringLiteral("updateStation");
+    if (!requireOpen(operation) || station.stationId <= 0
+        || station.name.trimmed().isEmpty() || station.name.size() > 64
+        || station.region.trimmed().isEmpty() || station.region.size() > 64
+        || station.address.trimmed().isEmpty() || station.address.size() > 200
+        || !std::isfinite(station.longitude) || station.longitude < -180.0 || station.longitude > 180.0
+        || !std::isfinite(station.latitude) || station.latitude < -90.0 || station.latitude > 90.0
+        || station.priceCentsPerKwh <= 0
+        || (station.status != StationStatus::Active && station.status != StationStatus::Disabled)) {
+        failOperation(operation, QStringLiteral("invalid station"));
+        return false;
+    }
+    QSqlQuery query(database_);
+    if (!query.prepare(QStringLiteral(
+            "UPDATE charging_stations SET name = :name, region = :region, "
+            "address = :address, longitude = :longitude, latitude = :latitude, "
+            "price_cents_per_kwh = :price, status = :status "
+            "WHERE station_id = :station_id"))) {
+        failOperation(operation, query.lastError().text());
+        return false;
+    }
+    query.bindValue(QStringLiteral(":name"), station.name.trimmed());
+    query.bindValue(QStringLiteral(":region"), station.region.trimmed());
+    query.bindValue(QStringLiteral(":address"), station.address.trimmed());
+    query.bindValue(QStringLiteral(":longitude"), station.longitude);
+    query.bindValue(QStringLiteral(":latitude"), station.latitude);
+    query.bindValue(QStringLiteral(":price"), station.priceCentsPerKwh);
+    query.bindValue(QStringLiteral(":status"), toString(station.status));
+    query.bindValue(QStringLiteral(":station_id"), station.stationId);
+    if (!query.exec()) {
+        failOperation(operation, query.lastError().text());
+        return false;
+    }
+    return query.numRowsAffected() == 1;
+}
+
 DeleteStationResult Repository::deleteStation(qint64 stationId)
 {
     beginOperation();
@@ -976,10 +1015,14 @@ bool Repository::updatePile(const PileDto &pile)
 
     QSqlQuery query(database_);
     if (!query.prepare(QStringLiteral(
-            "UPDATE charging_piles SET status = :status WHERE pile_id = :pile_id"))) {
+            "UPDATE charging_piles SET pile_code = :pile_code, pile_type = :pile_type, "
+            "rated_power_kw = :power, status = :status WHERE pile_id = :pile_id"))) {
         failOperation(operation, query.lastError().text());
         return false;
     }
+    query.bindValue(QStringLiteral(":pile_code"), pile.pileCode.trimmed());
+    query.bindValue(QStringLiteral(":pile_type"), toString(pile.pileType));
+    query.bindValue(QStringLiteral(":power"), pile.ratedPowerKw);
     query.bindValue(QStringLiteral(":status"), toString(pile.status));
     query.bindValue(QStringLiteral(":pile_id"), pile.pileId);
     if (!query.exec()) {
