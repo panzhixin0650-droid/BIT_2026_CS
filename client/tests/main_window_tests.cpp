@@ -4,6 +4,7 @@
 
 #include <QAbstractButton>
 #include <QApplication>
+#include <QComboBox>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
@@ -27,6 +28,7 @@ private slots:
     void invalidPhoneStaysOnLoginPage();
     void authenticatedShellHasFiveBottomEntries();
     void chargingHomeListsFiltersAndOpensStationDetail();
+    void locationCanResolveAndOpenMockRoute();
     void reservationAppearsOnHomeAndCanBeCancelled();
     void ordersPageShowsHistoryDetailAndReservationChanges();
     void simulatedScanStartsChargingAndRefreshesHome();
@@ -236,6 +238,17 @@ void MainWindowTests::chargingHomeListsFiltersAndOpensStationDetail()
     QVERIFY(idleReserveButton->isEnabled());
     QVERIFY(!chargingReserveButton->isEnabled());
 
+    auto *detailNavigate = window.findChild<QPushButton *>(
+        QStringLiteral("stationDetailNavigationButton"));
+    QTest::mouseClick(detailNavigate, Qt::LeftButton);
+    auto *navigationPage =
+        window.findChild<QWidget *>(QStringLiteral("stationNavigationPage"));
+    QVERIFY(navigationPage->isVisible());
+    auto *navigationBack =
+        window.findChild<QPushButton *>(QStringLiteral("navigationBackButton"));
+    QTest::mouseClick(navigationBack, Qt::LeftButton);
+    QVERIFY(detailPage->isVisible());
+
     auto *backButton =
         window.findChild<QPushButton *>(QStringLiteral("stationDetailBackButton"));
     QTest::mouseClick(backButton, Qt::LeftButton);
@@ -270,6 +283,94 @@ void MainWindowTests::chargingHomeListsFiltersAndOpensStationDetail()
     QTest::mouseClick(refreshButton, Qt::LeftButton);
     QTRY_COMPARE(message->text(), QStringLiteral("没有找到符合条件的充电站"));
     QVERIFY(message->isVisible());
+}
+
+void MainWindowTests::locationCanResolveAndOpenMockRoute()
+{
+    MockChargingApi api;
+    MainWindow window(api);
+    window.show();
+    loginFixtureUser(window);
+
+    auto *preset =
+        window.findChild<QComboBox *>(QStringLiteral("locationPresetCombo"));
+    auto *address =
+        window.findChild<QLineEdit *>(QStringLiteral("locationAddressInput"));
+    auto *resolve =
+        window.findChild<QPushButton *>(QStringLiteral("resolveLocationButton"));
+    auto *summary =
+        window.findChild<QLabel *>(QStringLiteral("stationLocationSummary"));
+    auto *locationMessage =
+        window.findChild<QLabel *>(QStringLiteral("locationMessage"));
+    auto *locationHint =
+        window.findChild<QLabel *>(QStringLiteral("locationInputHint"));
+    QVERIFY(preset != nullptr);
+    QCOMPARE(preset->count(), 4);
+    QVERIFY(address->placeholderText().contains(QStringLiteral("城市")));
+    QVERIFY(locationHint->text().contains(QStringLiteral("城市名称")));
+
+    preset->setCurrentIndex(1);
+    QCOMPARE(address->text(), QStringLiteral("沈阳市和平区"));
+    address->setFocus();
+    QTest::keyClicks(address, "1");
+    QCOMPARE(preset->currentText(), QStringLiteral("手动输入地址"));
+    QCOMPARE(address->text(), QStringLiteral("沈阳市和平区1"));
+    preset->setCurrentIndex(2);
+    preset->setCurrentIndex(1);
+    QCOMPARE(address->text(), QStringLiteral("沈阳市和平区"));
+    QTest::mouseClick(resolve, Qt::LeftButton);
+    QTRY_COMPARE(locationMessage->text(),
+                 QStringLiteral("位置已更新，充电站距离已重新计算"));
+    QVERIFY(summary->text().contains(QStringLiteral("沈阳市和平区")));
+    QVERIFY(summary->text().contains(QStringLiteral("123.4000, 41.7900")));
+
+    address->setText(QStringLiteral("无法解析的位置"));
+    QTest::mouseClick(resolve, Qt::LeftButton);
+    QTRY_VERIFY(locationMessage->text().contains(QStringLiteral("未能解析")));
+    QVERIFY(summary->text().contains(QStringLiteral("沈阳市和平区")));
+
+    QTRY_VERIFY(window.findChild<QPushButton *>(
+                    QStringLiteral("stationNavigationButton_2")) != nullptr);
+    auto *navigate = window.findChild<QPushButton *>(
+        QStringLiteral("stationNavigationButton_2"));
+    QTest::mouseClick(navigate, Qt::LeftButton);
+    auto *navigationPage =
+        window.findChild<QWidget *>(QStringLiteral("stationNavigationPage"));
+    auto *routeStart =
+        window.findChild<QLineEdit *>(QStringLiteral("routeStartInput"));
+    auto *destination =
+        window.findChild<QLabel *>(QStringLiteral("routeDestination"));
+    auto *routeMode =
+        window.findChild<QComboBox *>(QStringLiteral("routeModeCombo"));
+    auto *routeButton =
+        window.findChild<QPushButton *>(QStringLiteral("routePlanButton"));
+    auto *routeDisplay =
+        window.findChild<QLabel *>(QStringLiteral("routeDisplay"));
+    auto *routeMessage =
+        window.findChild<QLabel *>(QStringLiteral("routeMessage"));
+    QVERIFY(navigationPage->isVisible());
+    QCOMPARE(routeStart->text(), QStringLiteral("沈阳市和平区"));
+    QVERIFY(destination->text().contains(QStringLiteral("和平演示充电站")));
+    QCOMPARE(routeMode->count(), 2);
+
+    routeMode->setCurrentIndex(1);
+    routeStart->setText(QStringLiteral("沈阳市浑南区"));
+    QTest::mouseClick(routeButton, Qt::LeftButton);
+    QTRY_VERIFY(routeDisplay->text().contains(QStringLiteral("步行路线")));
+    QVERIFY(routeDisplay->text().contains(QStringLiteral("沈阳市浑南区")));
+    QCOMPARE(routeMessage->text(), QStringLiteral("Mock 路线已生成"));
+
+    routeStart->setText(QStringLiteral("无法解析的位置"));
+    QTest::mouseClick(routeButton, Qt::LeftButton);
+    QTRY_VERIFY(routeMessage->text().contains(QStringLiteral("未能解析")));
+    QVERIFY(routeButton->isEnabled());
+
+    auto *navigationBack =
+        window.findChild<QPushButton *>(QStringLiteral("navigationBackButton"));
+    QTest::mouseClick(navigationBack, Qt::LeftButton);
+    auto *stationListPage =
+        window.findChild<QWidget *>(QStringLiteral("stationListPage"));
+    QVERIFY(stationListPage->isVisible());
 }
 
 void MainWindowTests::reservationAppearsOnHomeAndCanBeCancelled()
