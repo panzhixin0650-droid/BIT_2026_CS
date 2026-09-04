@@ -37,6 +37,8 @@ private slots:
     void adminListsAndCreatesStationsWithPiles();
     void adminDeletesOnlyStationsWithoutOrders();
     void adminManagesPileLifecycleSafely();
+    void adminEditsPileMetadataSafely();
+    void adminStationDisableEnforcesPileSafety();
     void adminCannotFreezeUserWithCurrentOrder();
 };
 
@@ -327,6 +329,88 @@ void ServerTests::adminManagesPileLifecycleSafely()
     QCOMPARE(facade.deletePile(removable.data.value(QStringLiteral("pile")).toObject()
                                    .value(QStringLiteral("pileId")).toInteger()).code,
              ErrorCode::Ok);
+}
+
+void ServerTests::adminEditsPileMetadataSafely()
+{
+    ServiceFixture fixture;
+    AdminFacade facade(&fixture.service);
+
+    QCOMPARE(facade.updatePile({
+        {QStringLiteral("pileId"), 1},
+        {QStringLiteral("pileCode"), QStringLiteral("PILE-A-01-EDITED")},
+        {QStringLiteral("pileType"), QStringLiteral("SLOW")},
+        {QStringLiteral("ratedPowerKw"), 11.0},
+    }).code, ErrorCode::Ok);
+
+    const QJsonArray piles = facade.listPiles().data.value(QStringLiteral("items")).toArray();
+    const auto edited = std::find_if(piles.cbegin(), piles.cend(), [](const QJsonValue &value) {
+        return value.toObject().value(QStringLiteral("pileId")).toInteger() == 1;
+    });
+    QVERIFY(edited != piles.cend());
+    QCOMPARE(edited->toObject().value(QStringLiteral("pileCode")).toString(),
+             QStringLiteral("PILE-A-01-EDITED"));
+    QCOMPARE(edited->toObject().value(QStringLiteral("pileType")).toString(),
+             QStringLiteral("SLOW"));
+    QCOMPARE(edited->toObject().value(QStringLiteral("ratedPowerKw")).toDouble(), 11.0);
+
+    QCOMPARE(facade.updatePile({
+        {QStringLiteral("pileId"), 3},
+        {QStringLiteral("pileCode"), QStringLiteral("PILE-A-01-EDITED")},
+        {QStringLiteral("pileType"), QStringLiteral("FAST")},
+        {QStringLiteral("ratedPowerKw"), 60.0},
+    }).code, ErrorCode::InvalidRequest);
+
+    QCOMPARE(facade.updatePile({
+        {QStringLiteral("pileId"), 1},
+        {QStringLiteral("pileCode"), QStringLiteral("PILE-A-01-EDITED")},
+        {QStringLiteral("pileType"), QStringLiteral("FAST")},
+        {QStringLiteral("ratedPowerKw"), 60.0},
+    }).code, ErrorCode::Ok);
+}
+
+void ServerTests::adminStationDisableEnforcesPileSafety()
+{
+    ServiceFixture fixture;
+    AdminFacade facade(&fixture.service);
+
+    // Station 1 owns a charging pile in the demo data, so disabling it must
+    // be rejected without changing either the station or its piles.
+    const ServiceResult busy = facade.setStationStatus(1, StationStatus::Disabled);
+    QCOMPARE(busy.code, ErrorCode::IllegalOrderState);
+    QCOMPARE(busy.message, QStringLiteral("STATION_HAS_ACTIVE_PILES"));
+    QCOMPARE(facade.listStations().data.value(QStringLiteral("items")).toArray()
+                 .at(0).toObject().value(QStringLiteral("status")).toString(),
+             QStringLiteral("ACTIVE"));
+
+    // Station 2 has one idle and one faulted pile.  Only the idle online pile
+    // is taken offline; the fault state is preserved for maintenance.
+    const ServiceResult disabled = facade.setStationStatus(2, StationStatus::Disabled);
+    QCOMPARE(disabled.code, ErrorCode::Ok);
+    QCOMPARE(disabled.data.value(QStringLiteral("station")).toObject()
+                 .value(QStringLiteral("status")).toString(),
+             QStringLiteral("DISABLED"));
+    const QJsonArray piles = facade.listPiles(2).data.value(QStringLiteral("items")).toArray();
+    QCOMPARE(piles.size(), 2);
+    for (const QJsonValue &value : piles) {
+        const QJsonObject pile = value.toObject();
+        if (pile.value(QStringLiteral("pileId")).toInteger() == 3) {
+            QCOMPARE(pile.value(QStringLiteral("status")).toString(), QStringLiteral("OFFLINE"));
+        } else if (pile.value(QStringLiteral("pileId")).toInteger() == 4) {
+            QCOMPARE(pile.value(QStringLiteral("status")).toString(), QStringLiteral("FAULT"));
+        }
+    }
+
+    // Enabling a station does not silently power hardware back on; operators
+    // must explicitly bring an offline pile online.
+    QCOMPARE(facade.setStationStatus(2, StationStatus::Active).code, ErrorCode::Ok);
+    const QJsonArray afterEnable = facade.listPiles(2).data.value(QStringLiteral("items")).toArray();
+    for (const QJsonValue &value : afterEnable) {
+        const QJsonObject pile = value.toObject();
+        if (pile.value(QStringLiteral("pileId")).toInteger() == 3) {
+            QCOMPARE(pile.value(QStringLiteral("status")).toString(), QStringLiteral("OFFLINE"));
+        }
+    }
 }
 
 void ServerTests::adminCannotFreezeUserWithCurrentOrder()

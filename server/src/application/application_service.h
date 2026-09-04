@@ -52,10 +52,15 @@ public:
     [[nodiscard]] ServiceResult listAdminStations(const QString &region,
                                                   const QString &keyword) const;
     [[nodiscard]] ServiceResult createAdminStation(const QJsonObject &input);
+    [[nodiscard]] ServiceResult updateAdminStation(const QJsonObject &input);
+    [[nodiscard]] ServiceResult setAdminStationStatus(
+        qint64 stationId,
+        charging::protocol::StationStatus status);
     [[nodiscard]] ServiceResult deleteAdminStation(qint64 stationId);
     [[nodiscard]] ServiceResult listAdminPiles(
         std::optional<qint64> stationId = std::nullopt) const;
     [[nodiscard]] ServiceResult createAdminPile(const QJsonObject &input);
+    [[nodiscard]] ServiceResult updateAdminPile(const QJsonObject &input);
     [[nodiscard]] ServiceResult deleteAdminPile(qint64 pileId);
     [[nodiscard]] ServiceResult setAdminPileStatus(
         qint64 pileId,

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QList>
+#include <QMouseEvent>
 #include <QString>
 #include <QWidget>
 
@@ -23,9 +24,12 @@ public:
 
 protected:
     void paintEvent(QPaintEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void leaveEvent(QEvent *event) override;
 
 private:
     QList<RevenuePoint> points_;
+    int hoveredIndex_ = -1;
 };
 
 }  // namespace charging::server

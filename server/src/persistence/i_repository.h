@@ -64,6 +64,8 @@ public:
     [[nodiscard]] virtual charging::protocol::StationDto createStation(
         charging::protocol::StationDto station,
         const QList<charging::protocol::PileDto> &piles) = 0;
+    [[nodiscard]] virtual bool updateStation(
+        const charging::protocol::StationDto &station) = 0;
     [[nodiscard]] virtual DeleteStationResult deleteStation(qint64 stationId) = 0;
     [[nodiscard]] virtual QList<charging::protocol::PileDto>
     listPilesByStationId(qint64 stationId) const = 0;
