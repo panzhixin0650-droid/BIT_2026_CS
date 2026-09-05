@@ -1,6 +1,94 @@
 #include "ui/client_theme.h"
 
+#include <QColor>
+#include <QPainter>
+#include <QPainterPath>
+#include <QPixmap>
+
 namespace charging::client {
+namespace {
+
+QPixmap navigationPixmap(NavigationIcon icon,
+                         const QColor &color,
+                         bool selected)
+{
+    constexpr int kCanvasSize = 64;
+    QPixmap pixmap(kCanvasSize, kCanvasSize);
+    pixmap.fill(Qt::transparent);
+
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+
+    QColor strokeColor = color;
+    if (icon == NavigationIcon::Scan && selected) {
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(color);
+        painter.drawEllipse(QRectF(2, 2, 60, 60));
+        strokeColor = QColor(QStringLiteral("#ffffff"));
+    }
+
+    QPen pen(strokeColor, 4.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+    painter.setPen(pen);
+    painter.setBrush(Qt::NoBrush);
+
+    switch (icon) {
+    case NavigationIcon::Charging: {
+        QPainterPath bolt;
+        bolt.moveTo(35, 5);
+        bolt.lineTo(16, 34);
+        bolt.lineTo(29, 34);
+        bolt.lineTo(24, 59);
+        bolt.lineTo(49, 27);
+        bolt.lineTo(35, 27);
+        bolt.closeSubpath();
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(strokeColor);
+        painter.drawPath(bolt);
+        break;
+    }
+    case NavigationIcon::Orders:
+        painter.drawRoundedRect(QRectF(14, 7, 36, 50), 5, 5);
+        painter.drawLine(QPointF(22, 20), QPointF(42, 20));
+        painter.drawLine(QPointF(22, 31), QPointF(42, 31));
+        painter.drawLine(QPointF(22, 42), QPointF(36, 42));
+        break;
+    case NavigationIcon::Scan:
+        painter.drawLine(QPointF(13, 25), QPointF(13, 13));
+        painter.drawLine(QPointF(13, 13), QPointF(25, 13));
+        painter.drawLine(QPointF(39, 13), QPointF(51, 13));
+        painter.drawLine(QPointF(51, 13), QPointF(51, 25));
+        painter.drawLine(QPointF(13, 39), QPointF(13, 51));
+        painter.drawLine(QPointF(13, 51), QPointF(25, 51));
+        painter.drawLine(QPointF(39, 51), QPointF(51, 51));
+        painter.drawLine(QPointF(51, 51), QPointF(51, 39));
+        painter.drawRect(QRectF(25, 25, 7, 7));
+        painter.drawRect(QRectF(36, 25, 4, 4));
+        painter.drawRect(QRectF(34, 36, 7, 7));
+        break;
+    case NavigationIcon::Support: {
+        QPainterPath bubble;
+        bubble.addRoundedRect(QRectF(9, 11, 46, 35), 10, 10);
+        bubble.moveTo(23, 46);
+        bubble.lineTo(18, 56);
+        bubble.lineTo(32, 46);
+        painter.drawPath(bubble);
+        painter.setBrush(strokeColor);
+        painter.setPen(Qt::NoPen);
+        painter.drawEllipse(QRectF(20, 26, 5, 5));
+        painter.drawEllipse(QRectF(30, 26, 5, 5));
+        painter.drawEllipse(QRectF(40, 26, 5, 5));
+        break;
+    }
+    case NavigationIcon::Profile:
+        painter.drawEllipse(QRectF(23, 8, 18, 18));
+        painter.drawArc(QRectF(13, 29, 38, 29), 20 * 16, 140 * 16);
+        break;
+    }
+
+    return pixmap;
+}
+
+}  // namespace
 
 QString clientThemeStyleSheet()
 {
@@ -206,6 +294,32 @@ QToolTip {
     border-radius: 5px;
 }
 )QSS");
+}
+
+QIcon clientNavigationIcon(NavigationIcon icon)
+{
+    QIcon result;
+    result.addPixmap(navigationPixmap(icon,
+                                      QColor(QStringLiteral("#667085")),
+                                      false),
+                     QIcon::Normal,
+                     QIcon::Off);
+    result.addPixmap(navigationPixmap(icon,
+                                      QColor(QStringLiteral("#155eef")),
+                                      false),
+                     QIcon::Active,
+                     QIcon::Off);
+    result.addPixmap(navigationPixmap(icon,
+                                      QColor(QStringLiteral("#1677ff")),
+                                      true),
+                     QIcon::Selected,
+                     QIcon::Off);
+    result.addPixmap(navigationPixmap(icon,
+                                      QColor(QStringLiteral("#98a2b3")),
+                                      false),
+                     QIcon::Disabled,
+                     QIcon::Off);
+    return result;
 }
 
 }  // namespace charging::client
