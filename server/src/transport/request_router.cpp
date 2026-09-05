@@ -42,6 +42,22 @@ charging::protocol::ResponseEnvelope RequestRouter::route(
         result = service_->listStations(request.token.value_or(QString{}), request.data);
     } else if (request.type == MessageType::StationDetail) {
         result = service_->getStation(request.token.value_or(QString{}), request.data);
+    } else if (request.type == MessageType::OrderCurrent) {
+        result = service_->getCurrentOrder(request.token.value_or(QString{}), request.data);
+    } else if (request.type == MessageType::OrderList) {
+        result = service_->listUserOrders(request.token.value_or(QString{}), request.data);
+    } else if (request.type == MessageType::OrderReserve) {
+        result = service_->reserveOrder(request.token.value_or(QString{}), request.data);
+    } else if (request.type == MessageType::OrderCancel) {
+        result = service_->cancelOrder(request.token.value_or(QString{}), request.data);
+    } else if (request.type == MessageType::OrderStart) {
+        result = service_->startOrder(request.token.value_or(QString{}), request.data);
+    } else if (request.type == MessageType::OrderProgress) {
+        result = service_->getOrderProgress(request.token.value_or(QString{}), request.data);
+    } else if (request.type == MessageType::OrderStop) {
+        result = service_->stopOrder(request.token.value_or(QString{}), request.data);
+    } else if (request.type == MessageType::OrderPay) {
+        result = service_->payOrder(request.token.value_or(QString{}), request.data);
     } else {
         // The remaining routes are added in later, focused changes. Keeping
         // the fallback here makes unsupported messages fail predictably.

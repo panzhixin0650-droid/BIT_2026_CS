@@ -19,6 +19,8 @@ add_subdirectory(
 add_executable(server-app
     src/main.cpp
     src/application/application_service.cpp
+    src/application/order_service.cpp
+    src/application/order_billing.h
     src/application/application_service.h
     src/application/service_result.h
     src/application/session_store.cpp
@@ -71,6 +73,8 @@ if(BUILD_TESTING)
     add_executable(charging_server_tests
         tests/server_tests.cpp
         src/application/application_service.cpp
+        src/application/order_service.cpp
+        src/application/order_billing.h
         src/application/application_service.h
         src/application/service_result.h
         src/application/session_store.cpp
@@ -132,4 +136,34 @@ if(BUILD_TESTING)
     )
 
     add_test(NAME charging_repository_tests COMMAND charging_repository_tests)
+
+    # Exercise the actual client adapter against TcpGateway and SQLite, in
+    # addition to the same business cases against the in-memory substitute.
+    add_executable(charging_order_flow_tests
+        tests/order_flow_tests.cpp
+        src/application/application_service.cpp
+        src/application/order_service.cpp
+        src/application/session_store.cpp
+        src/persistence/repository.cpp
+        src/persistence/in_memory_repository.cpp
+        src/adapters/mock_pile.cpp
+        src/adapters/mock_prediction_provider.cpp
+        src/transport/request_router.cpp
+        src/transport/tcp_gateway.cpp
+        ../client/src/api/i_charging_api.cpp
+        ../client/src/api/tcp_charging_api.cpp
+    )
+    target_include_directories(charging_order_flow_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/../client/src
+    )
+    target_compile_definitions(charging_order_flow_tests PRIVATE
+        CHARGING_SQLITE3_EXECUTABLE="${SQLITE3_EXECUTABLE}"
+        CHARGING_DATABASE_MIGRATION_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/migrations/001_initial_demo.sql"
+        CHARGING_DATABASE_SEED_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/seeds/demo.sql"
+    )
+    target_link_libraries(charging_order_flow_tests PRIVATE
+        charging_protocol Qt6::Core Qt6::Network Qt6::Sql Qt6::Test
+    )
+    add_test(NAME charging_order_flow_tests COMMAND charging_order_flow_tests)
 endif()

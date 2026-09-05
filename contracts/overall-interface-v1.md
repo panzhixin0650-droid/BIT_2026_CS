@@ -393,6 +393,8 @@ DTO 表中列出的字段在成功响应里都必须出现；标为 `/null` 的�
 11. `order.cancel` 只接受 `RESERVED`；`order.progress` 和 `order.stop` 只接受 `CHARGING`；`order.pay` 只接受 `PENDING_PAYMENT`。状态不符统一返回 `40903`。
 12. 任何服务方法返回 `CHARGING` 的 `OrderDto` 时，都先向 `MockPile` 读取一次当前读数并现算时长、电量和预估金额；过程值无需写库。
 
+实现对接：服务端已接入本节全部 8 个 V1 消息，详见[订单联调说明](../server/order-flow.md)。未改变信封、DTO、五种订单状态或 `stop` 自动结算语义。补充 fixture 见[示例索引](examples/README.md)，包含无当前订单、取消、待支付停止、补付、历史列表和归属拒绝。
+
 ---
 
 ## 7. 管理端进程内接口：`AdminFacade`

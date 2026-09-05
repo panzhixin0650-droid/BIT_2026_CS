@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "type": "order.current",
+  "requestId": "fixture-order-current.empty",
+  "token": "fixture-token",
+  "data": {}
+}

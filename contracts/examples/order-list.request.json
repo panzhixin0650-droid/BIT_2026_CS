@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "type": "order.list",
+  "requestId": "fixture-order-list",
+  "token": "fixture-token",
+  "data": {}
+}
