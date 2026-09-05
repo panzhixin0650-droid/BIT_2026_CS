@@ -30,3 +30,13 @@
 - `station-list.invalid-session.*.json`：请求缺少 token，返回 `40101 INVALID_SESSION`。
 - `order-reserve.pile-not-available.*.json`：`PILE-A-02` 已在充电，返回 `40901 PILE_NOT_AVAILABLE`。
 - `order-pay.insufficient-balance.*.json`：订单 `2001` 已是 `PENDING_PAYMENT` 且余额不足，返回 `42201 INSUFFICIENT_BALANCE`。
+
+## 客户端本地地图示例
+
+[`map-route.transit.local.json`](map-route.transit.local.json) 描述本地 `IMapService`
+公共交通输入与腾讯 URI 模式映射，**不是 TCP 请求/响应**，没有 token 或 Key，不能发送到
+项目服务端。成功/失败通过本地地图完成事件返回；Mock 成功只表示生成了离线摘要。
+
+[`map-route.cycling.local.json`](map-route.cycling.local.json) 是本地自行车骑行输入及腾讯
+响应形状的测试示例。坐标、距离和用时为测试数据，不代表真实可骑行路线；它不发送到
+项目服务端，不含真实 Key。用于验证骑行接口选择、压缩折线解码与地图展示。

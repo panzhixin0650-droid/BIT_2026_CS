@@ -24,7 +24,7 @@ public:
     void showError(const QString &message);
     void showMessage(const QString &message, bool error = false);
     void showDetailMessage(const QString &message, bool error = false);
-    void updateOrderDetail(const protocol::OrderDto &order);
+    bool updateOrderDetail(const protocol::OrderDto &order);
     void showListPage();
     void reset();
 
@@ -61,6 +61,7 @@ private:
     QPushButton *payButton_ = nullptr;
     QPushButton *rechargeButton_ = nullptr;
     QHash<qint64, protocol::OrderDto> ordersById_;
+    qint64 displayedOrderId_ = 0;
     bool actionBusy_ = false;
 };
 

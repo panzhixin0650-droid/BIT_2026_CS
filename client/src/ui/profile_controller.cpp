@@ -2,6 +2,7 @@
 
 #include "api/i_charging_api.h"
 #include "charging/protocol/protocol_constants.h"
+#include "ui/api_error_message.h"
 #include "local/avatar_storage.h"
 #include "ui/profile_page.h"
 
@@ -245,8 +246,7 @@ void ProfileController::showFailure(const ApiResponse &response)
         return;
     }
 
-    page_.showMessage(response.message.isEmpty() ? QStringLiteral("操作失败，请稍后重试")
-                                                  : response.message,
+    page_.showMessage(apiErrorMessage(response, QStringLiteral("操作失败，请稍后重试")),
                       true);
 }
 
@@ -255,6 +255,15 @@ void ProfileController::finishRequest()
     pendingRequestId_.clear();
     pendingAction_ = PendingAction::None;
     page_.setBusy(false);
+}
+
+void ProfileController::reset()
+{
+    finishRequest();
+    currentAvatarKey_.clear();
+    page_.setUser(protocol::UserDto{});
+    page_.setAvatarPath({});
+    page_.showMessage({});
 }
 
 }  // namespace charging::client

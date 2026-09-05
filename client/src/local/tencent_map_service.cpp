@@ -54,7 +54,7 @@ QString apiKeyConfigurationError(const QString &apiKey)
     return {};
 }
 
-std::optional<QJsonArray> decodeWalkingPolyline(const QJsonArray &encoded)
+std::optional<QJsonArray> decodeRoutePolyline(const QJsonArray &encoded)
 {
     if (encoded.size() < 4 || encoded.size() % 2 != 0) {
         return std::nullopt;
@@ -88,10 +88,11 @@ std::optional<QJsonArray> decodeWalkingPolyline(const QJsonArray &encoded)
     return points;
 }
 
-QString walkingRouteHtml(const QString &apiKey,
+QString routeHtml(const QString &apiKey,
                          const QJsonArray &points,
                          int distanceMeters,
-                         int durationMinutes)
+                         int durationMinutes,
+                         const QString &modeLabel)
 {
     QUrl scriptUrl(QStringLiteral("https://map.qq.com/api/gljs"));
     QUrlQuery scriptQuery;
@@ -104,8 +105,8 @@ QString walkingRouteHtml(const QString &apiKey,
     const QString distanceText = distanceMeters >= 1000
         ? QStringLiteral("%1 公里").arg(distanceMeters / 1000.0, 0, 'f', 1)
         : QStringLiteral("%1 米").arg(distanceMeters);
-    const QString summary = QStringLiteral("步行约 %1 · %2 分钟")
-                                .arg(distanceText)
+    const QString summary = QStringLiteral("%1约 %2 · %3 分钟")
+                                .arg(modeLabel, distanceText)
                                 .arg(durationMinutes);
 
     return QStringLiteral(R"HTML(<!doctype html>
@@ -140,7 +141,7 @@ QString walkingRouteHtml(const QString &apiKey,
           borderColor: '#ffffff', lineCap: 'round'
         })
       },
-      geometries: [{ id: 'walking-route', styleId: 'route', paths: path }]
+      geometries: [{ id: 'route', styleId: 'route', paths: path }]
     });
     const bounds = new TMap.LatLngBounds();
     path.forEach(point => bounds.extend(point));
@@ -157,10 +158,12 @@ QString walkingRouteHtml(const QString &apiKey,
 
 TencentMapService::TencentMapService(QString apiKey,
                                      int requestTimeoutMs,
-                                     QObject *parent)
+                                     QObject *parent,
+                                     QNetworkAccessManager *networkAccess)
     : IMapService(parent)
     , apiKey_(apiKey.trimmed())
     , requestTimeoutMs_(qMax(1, requestTimeoutMs))
+    , networkAccess_(networkAccess ? networkAccess : &network_)
 {
 }
 
@@ -188,7 +191,7 @@ QString TencentMapService::geocode(const QString &address)
     request.setHeader(QNetworkRequest::UserAgentHeader,
                       QStringLiteral("BIT-ChargingClient/1.0"));
     request.setTransferTimeout(requestTimeoutMs_);
-    QNetworkReply *reply = network_.get(request);
+    QNetworkReply *reply = networkAccess_->get(request);
     connect(reply, &QNetworkReply::finished, this,
             [this, reply, requestId, normalizedAddress]() {
                 GeocodeResult result;
@@ -264,10 +267,15 @@ QString TencentMapService::openRoute(const MapLocation &start,
                    || end.address.trimmed().isEmpty()
                    || !validCoordinate(start) || !validCoordinate(end)) {
             result.message = QStringLiteral("路线起点或终点无效");
-        } else if (mode == RouteMode::Driving) {
+        } else if (mode != RouteMode::Driving && mode != RouteMode::Walking
+                   && mode != RouteMode::Transit && mode != RouteMode::Cycling) {
+            result.message = QStringLiteral("不支持的出行方式");
+        } else if (mode == RouteMode::Driving || mode == RouteMode::Transit) {
             QUrl url(QStringLiteral("https://apis.map.qq.com/uri/v1/routeplan"));
             QUrlQuery query;
-            query.addQueryItem(QStringLiteral("type"), QStringLiteral("drive"));
+            query.addQueryItem(QStringLiteral("type"),
+                               mode == RouteMode::Transit ? QStringLiteral("bus")
+                                                          : QStringLiteral("drive"));
             query.addQueryItem(QStringLiteral("from"), start.address);
             query.addQueryItem(QStringLiteral("fromcoord"), coordinateText(start));
             query.addQueryItem(QStringLiteral("to"), end.address);
@@ -277,12 +285,17 @@ QString TencentMapService::openRoute(const MapLocation &start,
 
             result.success = true;
             result.message = QStringLiteral("正在加载腾讯地图路线…");
-            result.summary = QStringLiteral("驾车：%1 → %2")
-                                 .arg(start.address, end.address);
+            result.summary = QStringLiteral("%1：%2 → %3")
+                                 .arg(mode == RouteMode::Transit ? QStringLiteral("公共交通")
+                                                                : QStringLiteral("驾车"),
+                                      start.address, end.address);
             result.routeUrl = url;
         } else {
-            QUrl url(QStringLiteral(
-                "https://apis.map.qq.com/ws/direction/v1/walking/"));
+            const QString modeLabel = mode == RouteMode::Cycling
+                ? QStringLiteral("骑行") : QStringLiteral("步行");
+            QUrl url(mode == RouteMode::Cycling
+                ? QStringLiteral("https://apis.map.qq.com/ws/direction/v1/bicycling/")
+                : QStringLiteral("https://apis.map.qq.com/ws/direction/v1/walking/"));
             QUrlQuery query;
             query.addQueryItem(QStringLiteral("from"), coordinateText(start));
             query.addQueryItem(QStringLiteral("to"), coordinateText(end));
@@ -293,16 +306,16 @@ QString TencentMapService::openRoute(const MapLocation &start,
             request.setHeader(QNetworkRequest::UserAgentHeader,
                               QStringLiteral("BIT-ChargingClient/1.0"));
             request.setTransferTimeout(requestTimeoutMs_);
-            QNetworkReply *reply = network_.get(request);
+            QNetworkReply *reply = networkAccess_->get(request);
             connect(reply, &QNetworkReply::finished, this,
-                    [this, reply, requestId, start, end]() {
-                        RouteResult walkingResult;
-                        walkingResult.requestId = requestId;
+                    [this, reply, requestId, start, end, modeLabel]() {
+                        RouteResult routeResult;
+                        routeResult.requestId = requestId;
                         if (reply->error() != QNetworkReply::NoError) {
-                            walkingResult.message = QStringLiteral(
-                                "腾讯地图步行路线规划失败，请检查网络后重试");
+                            routeResult.message = QStringLiteral(
+                                "腾讯地图%1路线规划失败，请检查网络后重试").arg(modeLabel);
                             reply->deleteLater();
-                            emit routeCompleted(walkingResult);
+                            emit routeCompleted(routeResult);
                             return;
                         }
 
@@ -312,9 +325,9 @@ QString TencentMapService::openRoute(const MapLocation &start,
                         reply->deleteLater();
                         if (parseError.error != QJsonParseError::NoError
                             || !document.isObject()) {
-                            walkingResult.message = QStringLiteral(
-                                "腾讯地图返回了无法识别的步行路线数据");
-                            emit routeCompleted(walkingResult);
+                            routeResult.message = QStringLiteral(
+                                "腾讯地图返回了无法识别的%1路线数据").arg(modeLabel);
+                            emit routeCompleted(routeResult);
                             return;
                         }
 
@@ -331,24 +344,24 @@ QString TencentMapService::openRoute(const MapLocation &start,
                                 root.value(QStringLiteral("message"))
                                     .toString()
                                     .trimmed();
-                            walkingResult.message = serviceMessage.isEmpty()
-                                ? QStringLiteral("腾讯地图步行路线规划失败（状态码 %1）")
-                                      .arg(status)
+                            routeResult.message = serviceMessage.isEmpty()
+                                ? QStringLiteral("腾讯地图%1路线规划失败（状态码 %2）")
+                                      .arg(modeLabel).arg(status)
                                 : QStringLiteral(
-                                      "腾讯地图步行路线规划失败（状态码 %1）：%2")
-                                      .arg(status)
+                                      "腾讯地图%1路线规划失败（状态码 %2）：%3")
+                                      .arg(modeLabel).arg(status)
                                       .arg(serviceMessage);
-                            emit routeCompleted(walkingResult);
+                            emit routeCompleted(routeResult);
                             return;
                         }
 
                         const QJsonObject route = routes.first().toObject();
-                        const auto points = decodeWalkingPolyline(
+                        const auto points = decodeRoutePolyline(
                             route.value(QStringLiteral("polyline")).toArray());
                         if (!points.has_value()) {
-                            walkingResult.message =
-                                QStringLiteral("腾讯地图返回的步行路线坐标无效");
-                            emit routeCompleted(walkingResult);
+                            routeResult.message =
+                                QStringLiteral("腾讯地图返回的%1路线坐标无效").arg(modeLabel);
+                            emit routeCompleted(routeResult);
                             return;
                         }
 
@@ -356,14 +369,14 @@ QString TencentMapService::openRoute(const MapLocation &start,
                             route.value(QStringLiteral("distance")).toInt();
                         const int duration =
                             route.value(QStringLiteral("duration")).toInt();
-                        walkingResult.success = true;
-                        walkingResult.message =
-                            QStringLiteral("腾讯地图步行路线规划成功");
-                        walkingResult.summary = QStringLiteral("步行：%1 → %2")
-                                                    .arg(start.address, end.address);
-                        walkingResult.routeHtml = walkingRouteHtml(
-                            apiKey_, *points, distance, duration);
-                        emit routeCompleted(walkingResult);
+                        routeResult.success = true;
+                        routeResult.message =
+                            QStringLiteral("腾讯地图%1路线规划成功").arg(modeLabel);
+                        routeResult.summary = QStringLiteral("%1：%2 → %3")
+                                                    .arg(modeLabel, start.address, end.address);
+                        routeResult.routeHtml = routeHtml(
+                            apiKey_, *points, distance, duration, modeLabel);
+                        emit routeCompleted(routeResult);
                     });
             return;
         }

@@ -17,6 +17,10 @@ public:
     OrderController(OrderPage &page, IChargingApi &api, QObject *parent = nullptr);
 
     void refreshOrders();
+    void leavePage();
+
+    // Forget UI requests from the previous authenticated session.
+    void reset();
 
 signals:
     void authenticationRequired(const QString &message);

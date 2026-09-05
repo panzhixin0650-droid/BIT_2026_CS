@@ -68,6 +68,9 @@ QString MockMapService::openRoute(const MapLocation &start,
         if (start.address.trimmed().isEmpty() || end.address.trimmed().isEmpty()
             || !validCoordinate(start) || !validCoordinate(end)) {
             result.message = QStringLiteral("路线起点或终点无效");
+        } else if (mode != RouteMode::Driving && mode != RouteMode::Walking
+                   && mode != RouteMode::Transit && mode != RouteMode::Cycling) {
+            result.message = QStringLiteral("不支持的出行方式");
         } else {
             result.success = true;
             result.message = QStringLiteral("Mock 路线已生成");
@@ -76,7 +79,9 @@ QString MockMapService::openRoute(const MapLocation &start,
                                             "此区域将加载真实路线页面。")
                                  .arg(mode == RouteMode::Driving
                                           ? QStringLiteral("驾车路线")
-                                          : QStringLiteral("步行路线"),
+                                          : mode == RouteMode::Walking ? QStringLiteral("步行路线")
+                                                                       : mode == RouteMode::Transit ? QStringLiteral("公共交通路线")
+                                                                       : QStringLiteral("骑行路线"),
                                       start.address,
                                       end.address);
         }
