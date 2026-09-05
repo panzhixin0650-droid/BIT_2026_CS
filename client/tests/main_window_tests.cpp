@@ -225,7 +225,7 @@ void MainWindowTests::clientUsesConsistentVisualTheme()
     QVERIFY(scanHeading != nullptr);
     QVERIFY(profileHeading != nullptr);
     QVERIFY(balance != nullptr);
-    QCOMPARE(supportTitle->text(), QStringLiteral("客服助理将在后续阶段接入"));
+    QCOMPARE(supportTitle->text(), QStringLiteral("你好，有什么\n可以帮你？"));
     QCOMPARE(orderHeading->font().pointSize(), 24);
     QCOMPARE(scanHeading->font().pointSize(), 24);
     QCOMPARE(profileHeading->font().pointSize(), 24);
