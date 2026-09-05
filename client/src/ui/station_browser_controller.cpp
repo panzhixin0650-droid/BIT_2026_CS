@@ -362,6 +362,7 @@ void StationBrowserController::handleStop(const ChargingStopResult &result)
     }
 
     synchronizeChargingStop(*result.payload);
+    emit chargingStopped(*result.payload);
 }
 
 void StationBrowserController::synchronizeChargingStop(

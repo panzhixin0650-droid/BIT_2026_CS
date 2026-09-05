@@ -29,6 +29,7 @@ signals:
     void authenticationRequired(const QString &message);
     void currentOrderRequiresAttention(protocol::OrderStatus status);
     void navigationReady(const protocol::StationDto &station);
+    void chargingStopped(const ChargingStopPayload &result);
 
 private:
     enum class CurrentOrderPurpose { None, Refresh, BeforeReservation };

@@ -43,6 +43,58 @@ void showPendingPaymentNotice(QWidget *parent)
     notice.exec();
 }
 
+void showChargingStartedNotice(QWidget *parent,
+                               const protocol::OrderDto &order)
+{
+    QMessageBox notice(QMessageBox::Information,
+                       QStringLiteral("充电已开始"),
+                       QStringLiteral("充电桩 %1 已开始充电。")
+                           .arg(order.pileCode),
+                       QMessageBox::Ok,
+                       parent);
+    notice.setObjectName(QStringLiteral("chargingStartedDialog"));
+    notice.button(QMessageBox::Ok)->setText(QStringLiteral("查看充电进度"));
+    notice.exec();
+}
+
+void showChargingStoppedNotice(QWidget *parent,
+                               const ChargingStopPayload &result)
+{
+    const bool debt = !result.paid;
+    const QString message = debt
+        ? QStringLiteral("充电已结束，当前欠费 ¥%1，请充值后完成结算。")
+              .arg(result.shortfallCents.value_or(0) / 100.0, 0, 'f', 2)
+        : QStringLiteral("充电已结束并完成结算，实付 ¥%1。")
+              .arg(result.order.amountCents / 100.0, 0, 'f', 2);
+    QMessageBox notice(debt ? QMessageBox::Warning : QMessageBox::Information,
+                       debt ? QStringLiteral("充电结束，余额不足")
+                            : QStringLiteral("充电结束"),
+                       message,
+                       QMessageBox::Ok,
+                       parent);
+    notice.setObjectName(debt ? QStringLiteral("chargingDebtDialog")
+                              : QStringLiteral("chargingStoppedDialog"));
+    notice.button(QMessageBox::Ok)->setText(
+        debt ? QStringLiteral("前往充值") : QStringLiteral("知道了"));
+    notice.exec();
+}
+
+void showAutomaticSettlementNotice(QWidget *parent,
+                                   const PaymentPayload &result)
+{
+    QMessageBox notice(
+        QMessageBox::Information,
+        QStringLiteral("自动结算成功"),
+        QStringLiteral("待支付订单 %1 已结算，实付 ¥%2。")
+            .arg(result.order.orderNo)
+            .arg(result.order.amountCents / 100.0, 0, 'f', 2),
+        QMessageBox::Ok,
+        parent);
+    notice.setObjectName(QStringLiteral("automaticSettlementDialog"));
+    notice.button(QMessageBox::Ok)->setText(QStringLiteral("知道了"));
+    notice.exec();
+}
+
 }  // namespace
 
 MainWindow::MainWindow(IChargingApi &api, QWidget *parent)
@@ -186,6 +238,12 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService)
             [this](const protocol::UserDto &user) {
                 homePage_->setGreetingNickname(user.nickname);
             });
+    connect(profileController_,
+            &ProfileController::pendingOrderSettled,
+            this,
+            [this](const PaymentPayload &result) {
+                showAutomaticSettlementNotice(this, result);
+            });
     connect(stationBrowserController_,
             &StationBrowserController::authenticationRequired,
             this,
@@ -226,6 +284,21 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService)
             &OrderController::chargingStopped,
             stationBrowserController_,
             &StationBrowserController::synchronizeChargingStop);
+    const auto showChargingStopResult =
+        [this](const ChargingStopPayload &result) {
+            showChargingStoppedNotice(this, result);
+            if (!result.paid) {
+                mainTabs_->setCurrentWidget(profilePage_);
+            }
+        };
+    connect(orderController_,
+            &OrderController::chargingStopped,
+            this,
+            showChargingStopResult);
+    connect(stationBrowserController_,
+            &StationBrowserController::chargingStopped,
+            this,
+            showChargingStopResult);
     const auto openReservationScan = [this](const QString &pileCode) {
         scanPage_->preparePileCode(pileCode);
         mainTabs_->setCurrentWidget(scanPage_);
@@ -239,7 +312,8 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService)
             this,
             &MainWindow::showLoginPage);
     connect(scanController_, &ScanController::chargingStarted,
-            this, [this](const protocol::OrderDto &) {
+            this, [this](const protocol::OrderDto &order) {
+                showChargingStartedNotice(this, order);
                 mainTabs_->setCurrentWidget(homePage_);
                 homePage_->showListMessage(QStringLiteral("充电已开始"));
                 stationBrowserController_->refreshStations();
