@@ -49,7 +49,7 @@ tests/               服务端单元测试
 - `charging_repository_tests`：在临时 SQLite 数据库中覆盖种子读取、派生聚合、持久化、结构拒绝、站点/电桩安全删除和事务回滚。
 - `charging_order_flow_tests`：对 SQLite 和内存替身验证预约、取消、直接/预约充电、实时读数、自动结算、充值补付、归属/状态校验和失败回滚，并用客户端 `TcpChargingApi` 对接真实 `TcpGateway`。
 
-`server-app` 默认使用 SQLite，但不在运行时创建数据库或执行迁移。启动前按
+`server-app` 默认使用包含基础种子和扩容种子的 SQLite 数据库，但不在运行时创建数据库或执行迁移。启动前按
 [`database/README.md`](../database/README.md) 初始化数据库；服务端会拒绝不存在的文件、未知 `user_version` 或缺少 Demo 表的数据库。该切换不改变 UI、TCP 和 ApplicationService 对外语义。
 SQLite 作为 `server-app` 内的嵌入式数据库直接读写本地文件，不监听端口，也不经过 TCP；TCP 只用于 Qt 用户端与服务端的通信。
 

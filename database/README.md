@@ -6,6 +6,7 @@
 
 - `migrations/001_initial_demo.sql`：从空库建立五张业务表、必要索引和约束；
 - `seeds/demo.sql`：可重复执行的课程演示数据；
+- `seeds/expansion_20_20_100_200.sql`：在基础演示数据上追加 20 个用户、20 个充电站、100 个电桩和 200 个订单；
 - `tests/`：独立迁移、播种、完整性、订单事务和失败分支验证；
 - `sample/`：确有联调需要时才提交经过检查的样例说明或数据。
 
@@ -28,10 +29,21 @@ mkdir -p build/database
 demo_database=build/database/demo.db
 sqlite3 -batch -bail "$demo_database" < database/migrations/001_initial_demo.sql
 sqlite3 -batch -bail "$demo_database" < database/seeds/demo.sql
+sqlite3 -batch -bail "$demo_database" < database/seeds/expansion_20_20_100_200.sql
 sqlite3 -batch -bail "$demo_database" < database/tests/verify_demo.sql
+sqlite3 -batch -bail "$demo_database" < database/tests/verify_expansion.sql
 ```
 
-最后一条命令输出 `database verification: OK` 即表示迁移、种子、完整性、外键和核心场景一致。迁移只对新库执行一次；`demo.sql` 可重复执行且不会重复插入固定演示数据。需要重新得到标准演示状态时，应在 `build/` 下创建一个新数据库，而不是改写或删除已经共享的迁移。
+最后两条命令分别输出 `database verification: OK` 和 `expansion verification: OK`，表示默认扩容数据库通过验证。迁移只对新库执行一次；两个种子均可重复执行且不会重复插入固定演示数据。
+
+需要扩大演示数据时，在执行 `demo.sql` 后再执行：
+
+```bash
+sqlite3 "$demo_database" < database/seeds/expansion_20_20_100_200.sql
+sqlite3 "$demo_database" < database/tests/verify_expansion.sql
+```
+
+扩展种子中的站点名称、地址和坐标依据 2026-09-05 从 OpenStreetMap Nominatim 公开检索结果整理，数据许可遵循 OpenStreetMap attribution/ODbL；用户、电桩编号和订单是基于这些公开站点构造的演示数据，不代表真实用户或真实交易。扩展种子使用独立 ID 范围，可重复执行且不会改写基础演示记录。
 
 一键验证全部成功和失败分支：
 
