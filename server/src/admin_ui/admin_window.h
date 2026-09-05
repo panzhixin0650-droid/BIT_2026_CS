@@ -72,6 +72,7 @@ private:
     QWidget *buildOrdersPage();
 
     void attemptLogin();
+    void setLoginError(const QString &message);
     void selectPage(int index);
     void refreshAll();
     // Reset only the current page's view state and reload its data. This is
