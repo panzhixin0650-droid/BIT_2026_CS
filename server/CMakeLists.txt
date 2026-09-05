@@ -48,7 +48,6 @@ add_executable(server-app
     src/admin_ui/pile_status_chart.h
     src/admin_ui/revenue_chart.cpp
     src/admin_ui/revenue_chart.h
-    resources/server_resources.qrc
 )
 
 target_include_directories(server-app
