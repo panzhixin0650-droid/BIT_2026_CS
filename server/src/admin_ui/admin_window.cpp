@@ -19,6 +19,7 @@
 #include <QFormLayout>
 #include <QEventLoop>
 #include <QFrame>
+#include <QGraphicsBlurEffect>
 #include <QGridLayout>
 #include <QHeaderView>
 #include <QHash>
@@ -29,11 +30,16 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QMenu>
+#include <QPixmap>
+#include <QPainter>
+#include <QPaintEvent>
 #include <QSet>
 #include <QSignalBlocker>
 #include <QScrollArea>
 #include <QScreen>
 #include <QShortcut>
+#include <QSizePolicy>
+#include <QStackedLayout>
 #include <QStyle>
 #include <QTimer>
 #include <QToolButton>
@@ -59,6 +65,76 @@ QLabel *heading(const QString &text, QWidget *parent, const char *role = "sectio
     label->setProperty("role", role);
     return label;
 }
+
+// Draw the login artwork as a cover image while preserving its aspect ratio.
+// QLabel::setScaledContents(true) stretches a source image to the widget
+// rectangle, which is especially noticeable when the window is resized.  A
+// small dedicated widget keeps the image proportional and crops only the
+// overflow, so the artwork remains crisp and the central login area stays
+// visually balanced at any window size.
+class LoginBackground final : public QWidget {
+public:
+    explicit LoginBackground(QWidget *parent = nullptr) : QWidget(parent) {}
+
+    void setPixmap(const QPixmap &pixmap)
+    {
+        pixmap_ = pixmap;
+        update();
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override
+    {
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+        if (pixmap_.isNull()) {
+            painter.fillRect(rect(), QColor(QStringLiteral("#0b1f3a")));
+            return;
+        }
+        QSize scaled = pixmap_.size();
+        scaled.scale(size(), Qt::KeepAspectRatioByExpanding);
+        const QRect target((width() - scaled.width()) / 2,
+                           (height() - scaled.height()) / 2,
+                           scaled.width(),
+                           scaled.height());
+        painter.drawPixmap(target, pixmap_);
+    }
+
+private:
+    QPixmap pixmap_;
+};
+
+// The login card owns its background paint instead of relying on a
+// translucent stylesheet on a child widget.  This gives the complete form a
+// single, stable surface: an empty error slot or a repaint can never expose
+// the image layer underneath it.
+class LoginCard final : public QFrame {
+public:
+    explicit LoginCard(QWidget *parent = nullptr) : QFrame(parent)
+    {
+        setAutoFillBackground(true);
+        setAttribute(Qt::WA_StyledBackground, true);
+        setAttribute(Qt::WA_OpaquePaintEvent, true);
+        QPalette cardPalette = palette();
+        cardPalette.setColor(QPalette::Window, QColor(QStringLiteral("#edf5fb")));
+        setPalette(cardPalette);
+    }
+
+protected:
+    void paintEvent(QPaintEvent *event) override
+    {
+        Q_UNUSED(event);
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        // Fill the complete widget rectangle first.  The rounded outline is
+        // only a border treatment; relying on a rounded-path fill alone can
+        // leave layout gaps unpainted when a child widget repaints.
+        painter.fillRect(rect(), QColor(QStringLiteral("#edf5fb")));
+        painter.setPen(QPen(QColor(QStringLiteral("#d7e5f0")), 1));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRoundedRect(rect().adjusted(0, 0, -1, -1), 18.0, 18.0);
+    }
+};
 
 QFrame *panel(QWidget *parent)
 {
@@ -275,6 +351,41 @@ AdminWindow::AdminWindow(AdminFacade *facade,
         QWidget { color: #243044; font-family: "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; font-size: 14px; }
         QFrame#panel, QFrame#loginCard { background: white; border: 1px solid #e7ebf1; border-radius: 9px; }
         QFrame#brandPanel { background: #1746a2; border: none; border-radius: 12px; }
+        QWidget#loginPage { background: #0b1f3a; }
+        QWidget#loginBackground { background: #0b1f3a; }
+        /* The image is intentionally more visible than the earlier dark
+           treatment.  A restrained navy scrim keeps text readable without
+           hiding the blue-grey charging-station artwork. */
+        QFrame#loginScrim { background: rgba(7, 25, 51, 46); border: none; }
+        /* The card is deliberately opaque.  Transparency belongs to the
+           page around the form; an opaque surface prevents the background
+           artwork from bleeding through empty form rows during repaints. */
+        QFrame#loginCard { background: #edf5fb; border: 1px solid #d7e5f0; border-radius: 18px; }
+        /* Keep the form on its own fully painted surface.  This is important
+           on the stacked login page: transparent child widgets must inherit
+           the card surface, never the artwork layer below it. */
+        QWidget#loginSurface { background: #edf5fb; }
+        /* QLabel is transparent by default.  In a stacked login page that
+           lets a label's entire geometry reveal the sibling background layer
+           when it is repainted (the bands seen on hover/error).  Paint every
+           login label with the card surface; the error selector below then
+           intentionally overrides it only when an error exists. */
+        QFrame#loginCard QLabel { background: #edf5fb; }
+        QLabel[role="loginMark"] { color: #1b5d91; font-size: 19px; font-weight: 700; letter-spacing: 1px; }
+        QLabel[role="loginBrandTitle"] { color: #173653; font-size: 25px; font-weight: 600; }
+        QLabel[role="loginBrandCaption"] { color: #5b7188; font-size: 14px; }
+        QLabel[role="loginLabel"] { color: #31506b; font-size: 15px; font-weight: 600; }
+        QLineEdit#loginInput { background: #ffffff; border: 1px solid #bfd1e3; border-radius: 9px; padding: 10px 13px; min-height: 25px; font-size: 16px; color: #173653; }
+        QLineEdit#loginInput:hover { border-color: #8fb1d0; background: #ffffff; }
+        QLineEdit#loginInput:focus { border: 2px solid #2f6fed; padding: 9px 12px; background: #ffffff; }
+        /* Reserve this slot permanently.  Empty means transparent/blank;
+           only the hasError state receives a red surface, so failure never
+           changes the positions of the button or the fields. */
+        QLabel#loginError { color: transparent; background: #edf5fb; border: none; border-radius: 7px; padding: 7px 10px; font-size: 13px; }
+        QLabel#loginError[hasError="true"] { color: #b42318; background: #fff3f1; border: 1px solid #f5c2bd; }
+        QPushButton#loginSubmit { color: white; background: #2f6fed; border: none; border-radius: 9px; padding: 10px 16px; min-height: 27px; font-size: 16px; font-weight: 600; }
+        QPushButton#loginSubmit:hover { background: #2459c5; }
+        QPushButton#loginSubmit:pressed { background: #19449e; }
         QLabel[role="hero"] { color: white; font-size: 27px; font-weight: 600; }
         QLabel[role="heroSub"] { color: #cdddff; font-size: 14px; }
         QLabel[role="title"] { font-size: 23px; font-weight: 600; }
@@ -411,58 +522,119 @@ void AdminWindow::showDetails(const QString &title, const QString &content)
 QWidget *AdminWindow::buildLoginPage()
 {
     auto *page = new QWidget(this);
-    auto *outer = new QHBoxLayout(page);
-    outer->setContentsMargins(90, 70, 90, 70);
-    auto *card = new QFrame(page);
+    page->setObjectName(QStringLiteral("loginPage"));
+    auto *stack = new QStackedLayout(page);
+    stack->setStackingMode(QStackedLayout::StackAll);
+
+    auto *background = new LoginBackground(page);
+    background->setObjectName(QStringLiteral("loginBackground"));
+    background->setPixmap(QPixmap(QStringLiteral(":/server/login-charging-station-blue.png")));
+    background->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+    stack->addWidget(background);
+
+    auto *blur = new QGraphicsBlurEffect(background);
+    blur->setBlurRadius(12.0);
+    blur->setBlurHints(QGraphicsBlurEffect::QualityHint);
+    background->setGraphicsEffect(blur);
+
+    auto *scrim = new QFrame(page);
+    scrim->setObjectName(QStringLiteral("loginScrim"));
+    stack->addWidget(scrim);
+
+    auto *content = new QWidget(page);
+    auto *outer = new QVBoxLayout(content);
+    outer->setContentsMargins(56, 38, 56, 38);
+    outer->setSpacing(0);
+    auto *card = new LoginCard(content);
     card->setObjectName(QStringLiteral("loginCard"));
-    auto *cardLayout = new QHBoxLayout(card);
-    cardLayout->setContentsMargins(0, 0, 0, 0);
+    // QFrame normally only paints its background when it has a frame or an
+    // opaque palette.  Explicitly enabling styled-background painting keeps
+    // the translucent card stable when the stacked login layers repaint.
+    card->setAttribute(Qt::WA_StyledBackground, true);
+    card->setFixedSize(500, 548);
+    auto *cardLayout = new QVBoxLayout(card);
+    cardLayout->setContentsMargins(38, 30, 38, 32);
     cardLayout->setSpacing(0);
 
-    auto *brand = new QFrame(card);
-    brand->setObjectName(QStringLiteral("brandPanel"));
-    brand->setMinimumWidth(410);
-    auto *brandLayout = new QVBoxLayout(brand);
-    brandLayout->setContentsMargins(48, 54, 48, 54);
-    brandLayout->setSpacing(20);
-    auto *mark = new QLabel(QStringLiteral("⚡ BIT CHARGE"), brand);
-    mark->setProperty("role", "hero");
-    brandLayout->addWidget(mark);
-    auto *brandTitle = new QLabel(QStringLiteral("电动汽车充电桩\n应用管理平台"), brand);
-    brandTitle->setProperty("role", "hero");
-    brandLayout->addWidget(brandTitle);
-    brandLayout->addStretch();
-    cardLayout->addWidget(brand, 5);
+    // Use a dedicated opaque surface for every form row.  A QFrame's custom
+    // paint event is not necessarily propagated through transparent QLabel
+    // children while sibling layers are being repainted; this surface gives
+    // those children a real parent background to inherit.
+    auto *surface = new QWidget(card);
+    surface->setObjectName(QStringLiteral("loginSurface"));
+    surface->setAutoFillBackground(true);
+    QPalette surfacePalette = surface->palette();
+    surfacePalette.setColor(QPalette::Window, QColor(QStringLiteral("#edf5fb")));
+    surface->setPalette(surfacePalette);
+    auto *formLayout = new QVBoxLayout(surface);
+    formLayout->setContentsMargins(0, 0, 0, 0);
+    formLayout->setSpacing(0);
+    cardLayout->addWidget(surface, 1);
 
-    auto *formArea = new QWidget(card);
-    auto *formLayout = new QVBoxLayout(formArea);
-    formLayout->setContentsMargins(64, 70, 64, 70);
-    formLayout->setSpacing(14);
-    formLayout->addStretch();
-    formLayout->addWidget(heading(QStringLiteral("管理员登录"), formArea, "title"));
-    formLayout->addSpacing(18);
-    formLayout->addWidget(new QLabel(QStringLiteral("账号"), formArea));
-    usernameEdit_ = new QLineEdit(formArea);
+    // Keep every control as a direct child of the painted card.  There are no
+    // transparent brand/form wrapper widgets whose layout gaps could expose
+    // the stacked background layer.
+    auto *mark = new QLabel(QStringLiteral("⚡  BIT CHARGE"), surface);
+    mark->setAutoFillBackground(true);
+    mark->setProperty("role", "loginMark");
+    mark->setAlignment(Qt::AlignCenter);
+    formLayout->addWidget(mark);
+    auto *brandTitle = new QLabel(QStringLiteral("充电桩应用管理平台"), surface);
+    brandTitle->setAutoFillBackground(true);
+    brandTitle->setProperty("role", "loginBrandTitle");
+    brandTitle->setWordWrap(false);
+    brandTitle->setMinimumHeight(34);
+    brandTitle->setAlignment(Qt::AlignCenter);
+    formLayout->addWidget(brandTitle);
+    formLayout->addSpacing(22);
+
+    formLayout->setSpacing(8);
+    auto *loginTitle = heading(QStringLiteral("管理员登录"), surface, "title");
+    loginTitle->setAutoFillBackground(true);
+    loginTitle->setStyleSheet(QStringLiteral("font-size:24px;font-weight:600;color:#172033;"));
+    loginTitle->setAlignment(Qt::AlignCenter);
+    formLayout->addWidget(loginTitle);
+    formLayout->addSpacing(14);
+    auto *usernameLabel = new QLabel(QStringLiteral("账号"), surface);
+    usernameLabel->setAutoFillBackground(true);
+    usernameLabel->setProperty("role", "loginLabel");
+    formLayout->addWidget(usernameLabel);
+    usernameEdit_ = new QLineEdit(surface);
+    usernameEdit_->setObjectName(QStringLiteral("loginInput"));
     usernameEdit_->setPlaceholderText(QStringLiteral("请输入管理员账号"));
     formLayout->addWidget(usernameEdit_);
-    formLayout->addWidget(new QLabel(QStringLiteral("密码"), formArea));
-    passwordEdit_ = new QLineEdit(formArea);
+    auto *passwordLabel = new QLabel(QStringLiteral("密码"), surface);
+    passwordLabel->setAutoFillBackground(true);
+    passwordLabel->setProperty("role", "loginLabel");
+    formLayout->addWidget(passwordLabel);
+    passwordEdit_ = new QLineEdit(surface);
+    passwordEdit_->setObjectName(QStringLiteral("loginInput"));
     passwordEdit_->setEchoMode(QLineEdit::Password);
     passwordEdit_->setPlaceholderText(QStringLiteral("请输入密码"));
     formLayout->addWidget(passwordEdit_);
-    loginError_ = new QLabel(formArea);
+    loginError_ = new QLabel(surface);
+    loginError_->setAutoFillBackground(true);
+    loginError_->setObjectName(QStringLiteral("loginError"));
     loginError_->setProperty("role", "error");
-    loginError_->setMinimumHeight(22);
+    loginError_->setFixedHeight(34);
+    loginError_->setWordWrap(true);
+    // Keep a fixed, blank slot below the password.  This prevents the
+    // button/card geometry from jumping when an error is shown, while the
+    // stylesheet makes the empty state fully transparent.
+    loginError_->setVisible(true);
+    loginError_->setProperty("hasError", false);
     formLayout->addWidget(loginError_);
-    auto *loginButton = new QPushButton(QStringLiteral("登录管理后台"), formArea);
-    loginButton->setProperty("primary", true);
-    loginButton->setMinimumHeight(44);
+    auto *loginButton = new QPushButton(QStringLiteral("登录管理后台"), surface);
+    loginButton->setObjectName(QStringLiteral("loginSubmit"));
     connect(loginButton, &QPushButton::clicked, this, &AdminWindow::attemptLogin);
     connect(passwordEdit_, &QLineEdit::returnPressed, this, &AdminWindow::attemptLogin);
     formLayout->addWidget(loginButton);
-    formLayout->addStretch();
-    cardLayout->addWidget(formArea, 6);
-    outer->addWidget(card);
+    outer->addWidget(card, 1, Qt::AlignCenter);
+    stack->addWidget(content);
+    // QStackedLayout::StackAll keeps every layer visible, but the current
+    // widget still determines the stacking order.  Select the content layer
+    // explicitly so the background image and scrim stay behind the login UI.
+    stack->setCurrentWidget(content);
     return page;
 }
 
@@ -1054,20 +1226,34 @@ QWidget *AdminWindow::buildOrdersPage()
     return page;
 }
 
+void AdminWindow::setLoginError(const QString &message)
+{
+    if (loginError_ == nullptr) return;
+    loginError_->setText(message);
+    loginError_->setProperty("hasError", !message.isEmpty());
+    // Dynamic QSS properties are evaluated when the widget is polished.  A
+    // repolish updates the reserved slot without changing its fixed height.
+    if (loginError_->style() != nullptr) {
+        loginError_->style()->unpolish(loginError_);
+        loginError_->style()->polish(loginError_);
+    }
+    loginError_->update();
+}
+
 void AdminWindow::attemptLogin()
 {
     if (facade_ == nullptr) {
-        loginError_->setText(QStringLiteral("管理服务尚未初始化"));
+        setLoginError(QStringLiteral("管理服务尚未初始化"));
         return;
     }
     const ServiceResult result = facade_->login(usernameEdit_->text().trimmed(), passwordEdit_->text());
     if (!result.ok()) {
-        loginError_->setText(QStringLiteral("账号或密码错误，请重试"));
+        setLoginError(QStringLiteral("账号或密码错误，请重试"));
         passwordEdit_->selectAll();
         passwordEdit_->setFocus();
         return;
     }
-    loginError_->clear();
+    setLoginError(QString());
     rootStack_->setCurrentIndex(1);
     backHistory_.clear();
     forwardHistory_.clear();

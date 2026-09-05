@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "type": "order.cancel",
+  "requestId": "fixture-order-cancel",
+  "token": "fixture-token",
+  "data": {
+    "orderId": 1001
+  }
+}

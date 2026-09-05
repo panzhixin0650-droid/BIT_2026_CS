@@ -6,6 +6,7 @@
 
 #include <QJsonObject>
 #include <QDate>
+#include <QDateTime>
 #include <QObject>
 #include <QString>
 
@@ -14,20 +15,19 @@
 namespace charging::server {
 
 class IRepository;
-class MockPile;
+class IPileGateway;
 class MockPredictionProvider;
 class SessionStore;
 
-// The business boundary. User operations, administrator operations and
-// transaction orchestration will be added here without exposing SQL to UI or
-// TCP classes.
+// Shared user/admin business boundary; it owns validation, order states,
+// billing and transactions without exposing SQL to UI or TCP classes.
 class ApplicationService final : public QObject {
     Q_OBJECT
 
 public:
     ApplicationService(IRepository *repository,
                        SessionStore *sessions,
-                       MockPile *pileGateway,
+                       IPileGateway *pileGateway,
                        MockPredictionProvider *predictions,
                        QObject *parent = nullptr);
 
@@ -43,6 +43,18 @@ public:
                                              const QJsonObject &input) const;
     [[nodiscard]] ServiceResult getStation(const QString &token,
                                            const QJsonObject &input) const;
+
+    [[nodiscard]] ServiceResult getCurrentOrder(const QString &token,
+                                               const QJsonObject &input = {}) const;
+    [[nodiscard]] ServiceResult listUserOrders(const QString &token,
+                                              const QJsonObject &input = {}) const;
+    [[nodiscard]] ServiceResult reserveOrder(const QString &token, const QJsonObject &input);
+    [[nodiscard]] ServiceResult cancelOrder(const QString &token, const QJsonObject &input);
+    [[nodiscard]] ServiceResult startOrder(const QString &token, const QJsonObject &input);
+    [[nodiscard]] ServiceResult getOrderProgress(const QString &token,
+                                                const QJsonObject &input) const;
+    [[nodiscard]] ServiceResult stopOrder(const QString &token, const QJsonObject &input);
+    [[nodiscard]] ServiceResult payOrder(const QString &token, const QJsonObject &input);
 
     [[nodiscard]] ServiceResult loginAdmin(const QString &username,
                                            const QString &password) const;
@@ -76,10 +88,12 @@ private:
     [[nodiscard]] std::optional<qint64> authenticatedUserId(
         const QString &token,
         ServiceResult *failure) const;
+    [[nodiscard]] bool refreshOrderReading(charging::protocol::OrderDto *order,
+                                           const QDateTime &now, bool stop = false) const;
 
     IRepository *repository_ = nullptr;
     SessionStore *sessions_ = nullptr;
-    MockPile *pileGateway_ = nullptr;
+    IPileGateway *pileGateway_ = nullptr;
     MockPredictionProvider *predictions_ = nullptr;
 };
 

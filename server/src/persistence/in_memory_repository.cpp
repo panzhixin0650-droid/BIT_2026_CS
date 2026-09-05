@@ -119,6 +119,35 @@ bool InMemoryRepository::lastOperationSucceeded() const noexcept
     return true;
 }
 
+bool InMemoryRepository::beginTransaction()
+{
+    if (transaction_.has_value()) return false;
+    transaction_ = Snapshot{users_, stations_, piles_, orders_, nextUserId_,
+                            nextStationId_, nextPileId_, nextOrderId_};
+    return true;
+}
+
+bool InMemoryRepository::commitTransaction()
+{
+    if (!transaction_.has_value()) return false;
+    transaction_.reset();
+    return true;
+}
+
+void InMemoryRepository::rollbackTransaction()
+{
+    if (!transaction_.has_value()) return;
+    users_ = transaction_->users;
+    stations_ = transaction_->stations;
+    piles_ = transaction_->piles;
+    orders_ = transaction_->orders;
+    nextUserId_ = transaction_->nextUserId;
+    nextStationId_ = transaction_->nextStationId;
+    nextPileId_ = transaction_->nextPileId;
+    nextOrderId_ = transaction_->nextOrderId;
+    transaction_.reset();
+}
+
 std::optional<AdminRecord> InMemoryRepository::findAdminByUsername(
     const QString &username) const
 {
@@ -407,14 +436,70 @@ bool InMemoryRepository::updatePile(const PileDto &pile)
     return true;
 }
 
-QList<OrderDto> InMemoryRepository::listOrders() const
+QList<OrderDto> InMemoryRepository::listOrders(std::optional<qint64> userId) const
 {
-    QList<OrderDto> result = orders_;
+    QList<OrderDto> result;
+    for (OrderDto order : orders_) {
+        if (userId.has_value() && order.userId != *userId) continue;
+        const auto station = findStationById(order.stationId);
+        if (station.has_value()) order.stationName = station->name;
+        for (const PileDto &pile : piles_) {
+            if (pile.pileId == order.pileId) order.pileCode = pile.pileCode;
+        }
+        result.append(order);
+    }
     std::sort(result.begin(), result.end(), [](const OrderDto &left,
                                                const OrderDto &right) {
+        if (left.createdAt == right.createdAt) return left.orderId > right.orderId;
         return left.createdAt > right.createdAt;
     });
     return result;
+}
+
+std::optional<OrderDto> InMemoryRepository::findOrderById(qint64 orderId) const
+{
+    for (const OrderDto &order : listOrders()) {
+        if (order.orderId == orderId) return order;
+    }
+    return std::nullopt;
+}
+
+OrderDto InMemoryRepository::createOrder(OrderDto order)
+{
+    if (!transaction_.has_value()) return {};
+    const auto isCurrent = [](OrderStatus status) {
+        return status == OrderStatus::Reserved || status == OrderStatus::Charging
+            || status == OrderStatus::PendingPayment;
+    };
+    for (const OrderDto &stored : orders_) {
+        if (stored.orderNo == order.orderNo
+            || (stored.userId == order.userId && isCurrent(stored.status))
+            || (stored.pileId == order.pileId
+                && (stored.status == OrderStatus::Reserved
+                    || stored.status == OrderStatus::Charging))) return {};
+    }
+    order.orderId = nextOrderId_++;
+    orders_.append(order);
+    return order;
+}
+
+bool InMemoryRepository::updateOrder(const OrderDto &order, OrderStatus expectedStatus)
+{
+    if (!transaction_.has_value()) return false;
+    for (OrderDto &stored : orders_) {
+        if (stored.orderId != order.orderId) continue;
+        if (stored.status != expectedStatus) return false;
+        stored.status = order.status;
+        stored.startedAt = order.startedAt;
+        stored.endedAt = order.endedAt;
+        stored.paidAt = order.paidAt;
+        stored.durationSeconds = order.durationSeconds;
+        stored.energyWh = order.energyWh;
+        stored.unitPriceCentsPerKwh = order.unitPriceCentsPerKwh;
+        stored.amountCents = order.amountCents;
+        return true;
+    }
+    return false;
 }
 
 StationDto InMemoryRepository::withPileCounts(StationDto station) const

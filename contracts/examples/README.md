@@ -31,6 +31,17 @@
 - `order-reserve.pile-not-available.*.json`：`PILE-A-02` 已在充电，返回 `40901 PILE_NOT_AVAILABLE`。
 - `order-pay.insufficient-balance.*.json`：订单 `2001` 已是 `PENDING_PAYMENT` 且余额不足，返回 `42201 INSUFFICIENT_BALANCE`。
 
+## 订单闭环补充
+
+- `order-current.empty.*.json`：本人没有当前订单，成功返回 `order: null`。
+- `order-cancel.*.json`：独立的预约取消分支，不与上面的预约转充电主链路连续执行。
+- `order-stop.pending-payment.*.json`：最终账单 675 分、余额仅 100 分，停止仍成功、释放桩，返回待支付及差额 575 分。
+- `order-pay.*.json`：承接待支付示例，在余额已充值到 1100 分后补付，余额变为 425 分。
+- `order-list.*.json`：当前用户历史订单列表的完整 DTO 示例。
+- `order-cancel.forbidden.*.json`：另一个用户的 token 尝试取消订单 `1001`，返回 `40301`；错误响应无订单信息。
+
+这些示例中的 token 均为固定占位符；运行时需先登录，并使用服务端实际返回的订单 ID。共享协议测试解析这些 JSON，服务端订单测试同时验证实际业务和客户端 TCP DTO 解码。
+
 ## 客户端本地地图示例
 
 [`map-route.transit.local.json`](map-route.transit.local.json) 描述本地 `IMapService`
