@@ -45,15 +45,15 @@ QString orderStatusColor(protocol::OrderStatus status)
     case protocol::OrderStatus::Reserved:
         return QStringLiteral("#b06000");
     case protocol::OrderStatus::Charging:
-        return QStringLiteral("#1677ff");
+        return QStringLiteral("#245c45");
     case protocol::OrderStatus::PendingPayment:
         return QStringLiteral("#c62828");
     case protocol::OrderStatus::Completed:
-        return QStringLiteral("#137333");
+        return QStringLiteral("#386a3c");
     case protocol::OrderStatus::Cancelled:
-        return QStringLiteral("#667085");
+        return QStringLiteral("#697969");
     }
-    return QStringLiteral("#667085");
+    return QStringLiteral("#697969");
 }
 
 bool isCurrentStatus(protocol::OrderStatus status)
@@ -142,15 +142,15 @@ ClickableOrderCard *createCard(QWidget *parent, bool highlighted = false)
     auto *card = new ClickableOrderCard(parent);
     card->setFrameShape(QFrame::StyledPanel);
     card->setStyleSheet(highlighted
-            ? QStringLiteral("QFrame { background: #eef6ff; border: 2px solid #1677ff; "
+            ? QStringLiteral("QFrame { background: #edf4e5; border: 2px solid #245c45; "
                              "border-radius: 12px; } "
-                             "QFrame:hover, QFrame:focus { background: #f2f4f7; "
-                             "border: 2px solid #667085; } "
+                             "QFrame:hover, QFrame:focus { background: #f0f3e9; "
+                             "border: 2px solid #697969; } "
                              "QLabel { border: none; background: transparent; }")
-            : QStringLiteral("QFrame { background: white; border: 1px solid #e4e7ec; "
+            : QStringLiteral("QFrame { background: white; border: 1px solid #e1e7dc; "
                              "border-radius: 12px; } "
-                             "QFrame:hover, QFrame:focus { background: #f2f4f7; "
-                             "border: 2px solid #667085; } "
+                             "QFrame:hover, QFrame:focus { background: #f0f3e9; "
+                             "border: 2px solid #697969; } "
                              "QLabel { border: none; background: transparent; }"));
     card->setProperty("currentOrderHighlighted", highlighted);
     return card;
@@ -172,7 +172,10 @@ OrderPage::OrderPage(QWidget *parent)
     listPage_->setObjectName(QStringLiteral("orderListPage"));
     auto *listLayout = new QVBoxLayout(listPage_);
     listLayout->setContentsMargins(20, 20, 20, 16);
-    listLayout->setSpacing(12);
+    listLayout->setSpacing(14);
+    auto *eyebrow = new QLabel(QStringLiteral("EVERY CHARGE, EVERY JOURNEY"), listPage_);
+    eyebrow->setProperty("role", "eyebrow");
+    listLayout->addWidget(eyebrow);
 
     auto *headingRow = new QHBoxLayout();
     auto *heading = new QLabel(QStringLiteral("我的订单"), listPage_);
@@ -187,8 +190,8 @@ OrderPage::OrderPage(QWidget *parent)
     headingRow->addWidget(refreshButton_);
 
     auto *description = new QLabel(
-        QStringLiteral("按创建时间倒序显示；进行中的订单会优先高亮。"), listPage_);
-    description->setStyleSheet(QStringLiteral("color: #667085;"));
+        QStringLiteral("记录每一次补能，也照顾正在进行的一程。"), listPage_);
+    description->setStyleSheet(QStringLiteral("color: #697969;"));
     description->setWordWrap(true);
     messageLabel_ = new QLabel(listPage_);
     messageLabel_->setObjectName(QStringLiteral("orderListMessage"));
@@ -238,7 +241,7 @@ OrderPage::OrderPage(QWidget *parent)
     auto *detailCard = new QFrame(detailContent);
     detailCard->setObjectName(QStringLiteral("orderDetailCard"));
     detailCard->setStyleSheet(QStringLiteral(
-        "QFrame#orderDetailCard { background: white; border: 1px solid #e4e7ec; "
+        "QFrame#orderDetailCard { background: white; border: 1px solid #e1e7dc; "
         "border-radius: 14px; } "
         "QFrame#orderDetailCard QLabel { border: none; background: transparent; }"));
     auto *detailCardLayout = new QVBoxLayout(detailCard);
@@ -264,14 +267,14 @@ OrderPage::OrderPage(QWidget *parent)
     auto *separator = new QFrame(detailCard);
     separator->setObjectName(QStringLiteral("orderDetailSeparator"));
     separator->setFrameShape(QFrame::HLine);
-    separator->setStyleSheet(QStringLiteral("color: #e4e7ec;"));
+    separator->setStyleSheet(QStringLiteral("color: #e1e7dc;"));
 
     detailBodyLabel_ = new QLabel(detailCard);
     detailBodyLabel_->setObjectName(QStringLiteral("orderDetailBody"));
     detailBodyLabel_->setTextFormat(Qt::RichText);
     detailBodyLabel_->setWordWrap(true);
     detailBodyLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    detailBodyLabel_->setStyleSheet(QStringLiteral("color: #475467;"));
+    detailBodyLabel_->setStyleSheet(QStringLiteral("color: #536553;"));
     detailMessageLabel_ = new QLabel(detailCard);
     detailMessageLabel_->setObjectName(QStringLiteral("orderDetailMessage"));
     detailMessageLabel_->setWordWrap(true);
@@ -389,33 +392,39 @@ void OrderPage::showOrders(const QList<protocol::OrderDto> &orders)
             showOrderDetail(orderId);
         });
         auto *layout = new QVBoxLayout(card);
-        layout->setContentsMargins(14, 14, 14, 14);
-        layout->setSpacing(6);
+        layout->setContentsMargins(18, 18, 18, 18);
+        layout->setSpacing(12);
         auto *titleRow = new QHBoxLayout();
         auto *station = new QLabel(order.stationName, card);
         QFont stationFont = station->font();
         stationFont.setBold(true);
         station->setFont(stationFont);
+        station->setWordWrap(true);
         auto *status = new QLabel(orderStatusText(order.status), card);
         status->setObjectName(QStringLiteral("orderStatus_%1").arg(order.orderId));
-        status->setStyleSheet(QStringLiteral("color: %1; font-weight: 600;")
+        status->setStyleSheet(QStringLiteral(
+            "color: %1; font-weight: 600; padding: 4px 8px; background: #f0f4e9; "
+            "border-radius: 8px; font-size: 11px;")
                                   .arg(orderStatusColor(order.status)));
         titleRow->addWidget(station, 1);
         titleRow->addWidget(status);
         auto *summary = new QLabel(
             QStringLiteral("充电桩：%1\n创建时间：%2")
                 .arg(order.pileCode, formatDateTime(order.createdAt)), card);
-        summary->setStyleSheet(QStringLiteral("color: #667085;"));
+        summary->setStyleSheet(QStringLiteral("color: #697969;"));
+        summary->setWordWrap(true);
         auto *bottomRow = new QHBoxLayout();
         auto *amount = new QLabel(
             order.amountCents > 0 ? QStringLiteral("金额：%1").arg(formatMoney(order.amountCents))
                                   : QStringLiteral("金额：待产生"),
             card);
+        amount->setStyleSheet(QStringLiteral("font-size: 17px; font-weight: 700; color: #245c45;"));
         auto *detailHint = new QLabel(QStringLiteral("点击卡片查看详情  ›"), card);
         detailHint->setObjectName(
             QStringLiteral("orderDetailHint_%1").arg(order.orderId));
         detailHint->setAlignment(Qt::AlignRight);
-        detailHint->setStyleSheet(QStringLiteral("color: #1677ff;"));
+        detailHint->setStyleSheet(QStringLiteral("color: #65796c; font-size: 10px;"));
+        detailHint->setWordWrap(true);
         for (QLabel *label : {station, status, summary, amount, detailHint}) {
             label->setAttribute(Qt::WA_TransparentForMouseEvents);
         }
@@ -443,7 +452,7 @@ void OrderPage::showMessage(const QString &message, bool error)
 {
     messageLabel_->setText(message);
     messageLabel_->setStyleSheet(error ? QStringLiteral("color: #c62828;")
-                                       : QStringLiteral("color: #667085;"));
+                                       : QStringLiteral("color: #697969;"));
     messageLabel_->setVisible(!message.isEmpty());
 }
 
@@ -451,7 +460,7 @@ void OrderPage::showDetailMessage(const QString &message, bool error)
 {
     detailMessageLabel_->setText(message);
     detailMessageLabel_->setStyleSheet(error ? QStringLiteral("color: #c62828;")
-                                             : QStringLiteral("color: #667085;"));
+                                             : QStringLiteral("color: #697969;"));
     detailMessageLabel_->setVisible(!message.isEmpty());
 }
 
@@ -505,10 +514,10 @@ void OrderPage::showOrderDetail(qint64 orderId)
                  order.status == protocol::OrderStatus::Completed
                      ? QStringLiteral("#e8f7ee")
                  : order.status == protocol::OrderStatus::Cancelled
-                     ? QStringLiteral("#f2f4f7")
+                     ? QStringLiteral("#f0f3e9")
                  : order.status == protocol::OrderStatus::PendingPayment
                      ? QStringLiteral("#fff0ee")
-                     : QStringLiteral("#eaf2ff")));
+                     : QStringLiteral("#edf4e4")));
 
     QString detailTable = QStringLiteral(
         "<table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">");
@@ -518,10 +527,10 @@ void OrderPage::showOrderDetail(qint64 orderId)
                                   const QString &value) {
         detailTable += QStringLiteral(
                            "<tr><td width=\"92\" valign=\"top\" "
-                           "style=\"padding: 0 12px 9px 0; color: #667085; "
+                           "style=\"padding: 0 12px 9px 0; color: #697969; "
                            "white-space: nowrap;\">%1：</td>"
                            "<td valign=\"top\" style=\"padding: 0 0 9px 0; "
-                           "color: #1d2939;\">%2</td></tr>")
+                           "color: #203d33;\">%2</td></tr>")
                            .arg(label.toHtmlEscaped(), value.toHtmlEscaped());
         accessibleDetails.append(QStringLiteral("%1：%2").arg(label, value));
     };

@@ -1,6 +1,8 @@
 #include "ui/station_browser_page.h"
 
 #include "ui/charging_stop_dialog.h"
+#include "ui/charging_art.h"
+#include "ui/client_theme.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -128,17 +130,17 @@ QString pileStatusColor(protocol::PileStatus status)
 {
     switch (status) {
     case protocol::PileStatus::Idle:
-        return QStringLiteral("#137333");
+        return QStringLiteral("#386a3c");
     case protocol::PileStatus::Reserved:
         return QStringLiteral("#b06000");
     case protocol::PileStatus::Charging:
-        return QStringLiteral("#1677ff");
+        return QStringLiteral("#245c45");
     case protocol::PileStatus::Fault:
         return QStringLiteral("#c62828");
     case protocol::PileStatus::Offline:
-        return QStringLiteral("#667085");
+        return QStringLiteral("#697969");
     }
-    return QStringLiteral("#667085");
+    return QStringLiteral("#697969");
 }
 
 QString orderStatusText(protocol::OrderStatus status)
@@ -162,9 +164,7 @@ QFrame *createCard(QWidget *parent)
 {
     auto *card = new QFrame(parent);
     card->setFrameShape(QFrame::StyledPanel);
-    card->setStyleSheet(QStringLiteral(
-        "QFrame { background: white; border: 1px solid #e4e7ec; "
-        "border-radius: 12px; } QLabel { border: none; }"));
+    card->setProperty("role", "card");
     return card;
 }
 
@@ -200,12 +200,18 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     welcomeLabel_ = new QLabel(homeContent);
     welcomeLabel_->setObjectName(QStringLiteral("welcomeLabel"));
     QFont welcomeFont = welcomeLabel_->font();
-    welcomeFont.setPointSize(18);
-    welcomeFont.setBold(true);
+    welcomeFont.setPointSize(11);
     welcomeLabel_->setFont(welcomeFont);
     loginNoticeLabel_ = new QLabel(homeContent);
     loginNoticeLabel_->setObjectName(QStringLiteral("loginNoticeLabel"));
-    loginNoticeLabel_->setStyleSheet(QStringLiteral("color: #1677ff;"));
+    loginNoticeLabel_->setStyleSheet(QStringLiteral("color: #245c45;"));
+    loginNoticeLabel_->setProperty("role", "eyebrow");
+    welcomeLabel_->setWordWrap(true);
+    auto *brand = new QLabel(QStringLiteral("BIT  /  CHARGE     悦充"), homeContent);
+    brand->setStyleSheet(QStringLiteral("font-size: 13px; font-weight: 700; color: #245c45;"));
+    auto *greetingRow = new QHBoxLayout;
+    greetingRow->addWidget(welcomeLabel_, 1);
+    greetingRow->addWidget(loginNoticeLabel_);
 
     actionMessageLabel_ = new QLabel(homeContent);
     actionMessageLabel_->setObjectName(QStringLiteral("stationActionMessage"));
@@ -214,6 +220,8 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
 
     currentOrderCard_ = createCard(homeContent);
     currentOrderCard_->setObjectName(QStringLiteral("currentOrderCard"));
+    currentOrderCard_->setStyleSheet(QStringLiteral(
+        "QFrame#currentOrderCard { background: #edf4e5; border: 1px solid #b9cfa7; border-radius: 18px; }"));
     auto *currentOrderLayout = new QVBoxLayout(currentOrderCard_);
     currentOrderLayout->setContentsMargins(14, 14, 14, 14);
     currentOrderLayout->setSpacing(7);
@@ -229,7 +237,8 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     currentOrderProgressLabel_->setObjectName(
         QStringLiteral("currentOrderProgress"));
     currentOrderProgressLabel_->setWordWrap(true);
-    currentOrderProgressLabel_->setStyleSheet(QStringLiteral("color: #667085;"));
+    currentOrderProgressLabel_->setStyleSheet(QStringLiteral(
+        "color: #36583c; font-size: 15px; font-weight: 600; padding: 8px 0;"));
     cancelOrderButton_ = new QPushButton(QStringLiteral("取消预约"), currentOrderCard_);
     cancelOrderButton_->setObjectName(QStringLiteral("cancelReservationButton"));
     currentOrderNavigationButton_ =
@@ -247,7 +256,11 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     stopButton_ = new QPushButton(QStringLiteral("结束充电"), currentOrderCard_);
     stopButton_->setObjectName(QStringLiteral("chargingStopButton"));
     auto *currentOrderActions = new QHBoxLayout();
-    currentOrderActions->addStretch();
+    currentOrderActions->setSpacing(6);
+    for (auto *button : {currentOrderNavigationButton_, cancelOrderButton_,
+                         reservationScanButton_, progressButton_, stopButton_}) {
+        button->setStyleSheet(QStringLiteral("padding: 0 7px; font-size: 11px;"));
+    }
     currentOrderActions->addWidget(currentOrderNavigationButton_);
     currentOrderActions->addWidget(cancelOrderButton_);
     currentOrderActions->addWidget(reservationScanButton_);
@@ -262,8 +275,14 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     auto *queryCard = createCard(homeContent);
     queryCard->setObjectName(QStringLiteral("stationQueryCard"));
     auto *queryLayout = new QVBoxLayout(queryCard);
-    queryLayout->setContentsMargins(14, 14, 14, 14);
-    queryLayout->setSpacing(8);
+    queryLayout->setContentsMargins(16, 14, 16, 14);
+    queryLayout->setSpacing(10);
+    advancedFilters_ = new QWidget(queryCard);
+    advancedFilters_->setObjectName(QStringLiteral("stationAdvancedFilters"));
+    advancedFilters_->setStyleSheet(QStringLiteral("background: transparent;"));
+    auto *advancedLayout = new QVBoxLayout(advancedFilters_);
+    advancedLayout->setContentsMargins(0, 8, 0, 0);
+    advancedLayout->setSpacing(8);
     auto *locationTitle = new QLabel(QStringLiteral("当前位置"), queryCard);
     locationTitle->setObjectName(QStringLiteral("stationLocationTitle"));
     QFont locationFont = locationTitle->font();
@@ -276,7 +295,7 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     locationSummaryLabel_ = new QLabel(queryCard);
     locationSummaryLabel_->setObjectName(QStringLiteral("stationLocationSummary"));
     locationSummaryLabel_->setWordWrap(true);
-    locationSummaryLabel_->setStyleSheet(QStringLiteral("color: #667085;"));
+    locationSummaryLabel_->setStyleSheet(QStringLiteral("color: #697969;"));
     locationPresetCombo_ = new QComboBox(queryCard);
     locationPresetCombo_->setObjectName(QStringLiteral("locationPresetCombo"));
     locationPresetCombo_->addItem(QStringLiteral("演示当前位置"),
@@ -300,7 +319,7 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
         QStringLiteral("请输入包含城市名称的完整地址，以便腾讯地图准确解析。"),
         queryCard);
     locationInputHint->setObjectName(QStringLiteral("locationInputHint"));
-    locationInputHint->setStyleSheet(QStringLiteral("color: #667085;"));
+    locationInputHint->setStyleSheet(QStringLiteral("color: #697969;"));
     locationInputHint->setWordWrap(true);
     locationMessageLabel_ = new QLabel(queryCard);
     locationMessageLabel_->setObjectName(QStringLiteral("locationMessage"));
@@ -312,8 +331,6 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     QFont filterFont = filterTitle->font();
     filterFont.setBold(true);
     filterTitle->setFont(filterFont);
-    auto *filterLayout = new QVBoxLayout();
-    filterLayout->setSpacing(8);
     keywordInput_ = new QLineEdit(queryCard);
     keywordInput_->setObjectName(QStringLiteral("stationKeywordInput"));
     keywordInput_->setPlaceholderText(
@@ -324,28 +341,55 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
         QStringLiteral("完整区域名（可选），如“和平区”"));
     refreshButton_ = new QPushButton(QStringLiteral("查询"), queryCard);
     refreshButton_->setObjectName(QStringLiteral("stationRefreshButton"));
-    auto *regionLayout = new QHBoxLayout();
-    regionLayout->addWidget(regionInput_, 1);
-    regionLayout->addWidget(refreshButton_);
-    filterLayout->addWidget(keywordInput_);
-    filterLayout->addLayout(regionLayout);
+    auto *searchRow = new QHBoxLayout();
+    searchRow->addWidget(keywordInput_, 1);
+    searchRow->addWidget(refreshButton_);
     auto *filterHint = new QLabel(
         QStringLiteral("关键词支持模糊匹配；区域按完整名称精确筛选。"),
         queryCard);
     filterHint->setObjectName(QStringLiteral("stationFilterHint"));
-    filterHint->setStyleSheet(QStringLiteral("color: #667085;"));
+    filterHint->setStyleSheet(QStringLiteral("color: #697969;"));
     filterHint->setWordWrap(true);
-    queryLayout->addWidget(locationTitle);
-    queryLayout->addWidget(locationSummaryLabel_);
-    queryLayout->addWidget(demoLocationCheck_);
-    queryLayout->addWidget(locationPresetCombo_);
-    queryLayout->addLayout(locationInputRow);
-    queryLayout->addWidget(locationInputHint);
-    queryLayout->addWidget(locationMessageLabel_);
-    queryLayout->addSpacing(4);
+    advancedLayout->addWidget(locationTitle);
+    advancedLayout->addWidget(locationSummaryLabel_);
+    advancedLayout->addWidget(demoLocationCheck_);
+    advancedLayout->addWidget(locationPresetCombo_);
+    advancedLayout->addLayout(locationInputRow);
+    advancedLayout->addWidget(locationInputHint);
+    advancedLayout->addWidget(locationMessageLabel_);
+    advancedLayout->addWidget(regionInput_);
+    advancedLayout->addWidget(filterHint);
+    advancedFilters_->hide();
+    locationCaption_ = new QLabel(queryCard);
+    locationCaption_->setObjectName(QStringLiteral("stationLocationCaption"));
+    locationCaption_->setWordWrap(true);
+    locationCaption_->setStyleSheet(QStringLiteral("font-size: 11px; color: #65796c;"));
+    filterToggle_ = new QPushButton(QStringLiteral("位置与筛选  +"), queryCard);
+    filterToggle_->setObjectName(QStringLiteral("stationFilterToggle"));
+    filterToggle_->setCheckable(true);
+    filterToggle_->setFlat(true);
+    filterToggle_->setAccessibleName(QStringLiteral("展开位置与区域筛选"));
+    connect(regionInput_, &QLineEdit::textChanged, this, [this](const QString &region) {
+        if (!filterToggle_->isChecked()) {
+            filterToggle_->setText(region.trimmed().isEmpty()
+                ? QStringLiteral("位置与筛选  +") : QStringLiteral("位置与筛选 · 1  +"));
+        }
+    });
+    connect(filterToggle_, &QPushButton::toggled, this, [this](bool expanded) {
+        advancedFilters_->setVisible(expanded);
+        filterToggle_->setText(expanded ? QStringLiteral("收起筛选  −")
+            : regionInput_->text().trimmed().isEmpty() ? QStringLiteral("位置与筛选  +")
+                                                     : QStringLiteral("位置与筛选 · 1  +"));
+        filterToggle_->setAccessibleName(expanded ? QStringLiteral("收起位置与区域筛选")
+                                                 : QStringLiteral("展开位置与区域筛选"));
+    });
+    auto *locationRow = new QHBoxLayout();
+    locationRow->addWidget(locationCaption_, 1);
+    locationRow->addWidget(filterToggle_);
     queryLayout->addWidget(filterTitle);
-    queryLayout->addLayout(filterLayout);
-    queryLayout->addWidget(filterHint);
+    queryLayout->addLayout(searchRow);
+    queryLayout->addLayout(locationRow);
+    queryLayout->addWidget(advancedFilters_);
 
     listMessageLabel_ = new QLabel(homeContent);
     listMessageLabel_->setObjectName(QStringLiteral("stationListMessage"));
@@ -359,11 +403,21 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     stationListLayout_->setSpacing(10);
     stationListLayout_->addStretch();
 
-    homeContentLayout->addWidget(welcomeLabel_);
-    homeContentLayout->addWidget(loginNoticeLabel_);
+    auto *stationHeadingRow = new QHBoxLayout();
+    auto *stationHeading = new QLabel(QStringLiteral("附近好站"), homeContent);
+    stationHeading->setProperty("role", "sectionTitle");
+    stationCountLabel_ = new QLabel(homeContent);
+    stationCountLabel_->setObjectName(QStringLiteral("stationResultCount"));
+    stationCountLabel_->setProperty("role", "eyebrow");
+    stationHeadingRow->addWidget(stationHeading, 1);
+    stationHeadingRow->addWidget(stationCountLabel_);
+    homeContentLayout->addWidget(brand);
+    homeContentLayout->addLayout(greetingRow);
+    homeContentLayout->addWidget(new ChargingArt(ChargingArt::Scene::Journey, homeContent));
     homeContentLayout->addWidget(actionMessageLabel_);
     homeContentLayout->addWidget(currentOrderCard_);
     homeContentLayout->addWidget(queryCard);
+    homeContentLayout->addLayout(stationHeadingRow);
     homeContentLayout->addWidget(listMessageLabel_);
     homeContentLayout->addWidget(stationListContent_);
     homeContentLayout->addStretch();
@@ -395,12 +449,13 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     detailNameFont.setPointSize(18);
     detailNameFont.setBold(true);
     detailNameLabel_->setFont(detailNameFont);
+    detailNameLabel_->setWordWrap(true);
     detailMetaLabel_ = new QLabel(detailContent_);
     detailMetaLabel_->setObjectName(QStringLiteral("stationDetailMeta"));
     detailMetaLabel_->setWordWrap(true);
     detailPriceLabel_ = new QLabel(detailContent_);
     detailPriceLabel_->setObjectName(QStringLiteral("stationDetailPrice"));
-    detailPriceLabel_->setStyleSheet(QStringLiteral("color: #137333; font-weight: 600;"));
+    detailPriceLabel_->setStyleSheet(QStringLiteral("color: #386a3c; font-weight: 600;"));
     detailNavigationButton_ = new QPushButton(QStringLiteral("导航"), detailContent_);
     detailNavigationButton_->setObjectName(QStringLiteral("stationDetailNavigationButton"));
     auto *pileTitle = new QLabel(QStringLiteral("充电桩"), detailContent_);
@@ -471,7 +526,7 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     routeDestinationLabel_ = new QLabel(routeControlsCard);
     routeDestinationLabel_->setObjectName(QStringLiteral("routeDestination"));
     routeDestinationLabel_->setWordWrap(true);
-    routeDestinationLabel_->setStyleSheet(QStringLiteral("color: #475467;"));
+    routeDestinationLabel_->setStyleSheet(QStringLiteral("color: #536553;"));
     auto *routeDestinationRow = new QHBoxLayout();
     routeDestinationRow->setSpacing(8);
     routeDestinationRow->addWidget(destinationLabel, 0, Qt::AlignTop);
@@ -513,8 +568,8 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     routeDisplayLabel_->setSizePolicy(QSizePolicy::Expanding,
                                       QSizePolicy::Expanding);
     routeDisplayLabel_->setStyleSheet(QStringLiteral(
-        "background: #f2f4f7; border: 1px solid #d0d5dd; border-radius: 12px; "
-        "color: #475467; padding: 16px;"));
+        "background: #f0f3e9; border: 1px solid #acb8a6; border-radius: 12px; "
+        "color: #536553; padding: 16px;"));
     routeDisplayStack_ = new QStackedWidget(navigationPage_);
     routeDisplayStack_->setObjectName(QStringLiteral("routeDisplayStack"));
     routeDisplayStack_->setMinimumHeight(360);
@@ -638,7 +693,7 @@ void StationBrowserPage::setListLoading(bool loading)
     keywordInput_->setDisabled(loading);
     demoLocationCheck_->setDisabled(loading);
     stationListContent_->setDisabled(loading);
-    listMessageLabel_->setStyleSheet(QStringLiteral("color: #667085;"));
+    listMessageLabel_->setStyleSheet(QStringLiteral("color: #697969;"));
     listMessageLabel_->setText(loading ? QStringLiteral("正在获取充电站…") : QString{});
     listMessageLabel_->setVisible(loading);
 }
@@ -661,9 +716,10 @@ void StationBrowserPage::showStations(const QList<protocol::StationDto> &station
 {
     clearStationCards();
     setListLoading(false);
+    stationCountLabel_->setText(QStringLiteral("%1 个站点").arg(stations.size()));
     if (stations.isEmpty()) {
         listMessageLabel_->setText(QStringLiteral("没有找到符合条件的充电站"));
-        listMessageLabel_->setStyleSheet(QStringLiteral("color: #667085;"));
+        listMessageLabel_->setStyleSheet(QStringLiteral("color: #697969;"));
         listMessageLabel_->show();
         return;
     }
@@ -671,54 +727,70 @@ void StationBrowserPage::showStations(const QList<protocol::StationDto> &station
     for (const auto &station : stations) {
         auto *card = new ClickableStationCard(stationListContent_);
         card->setFrameShape(QFrame::StyledPanel);
-        card->setStyleSheet(QStringLiteral(
-            "QFrame { background: white; border: 1px solid #e4e7ec; "
-            "border-radius: 12px; } "
-            "QFrame:hover, QFrame:focus { border: 2px solid #91caff; "
-            "background: #f5f9ff; } QLabel { border: none; background: transparent; }"));
+        card->setProperty("role", "card");
         card->setObjectName(QStringLiteral("stationCard_%1").arg(station.stationId));
+        card->setStyleSheet(QStringLiteral(
+            "QFrame#stationCard_%1:hover, QFrame#stationCard_%1:focus { "
+            "border: 1px solid #789875; background: #f2f6ec; }")
+                .arg(station.stationId));
         card->setAccessibleName(QStringLiteral("查看%1详情").arg(station.name));
         card->setActivatedHandler([this, stationId = station.stationId]() {
             emit stationSelected(stationId);
         });
         auto *layout = new QVBoxLayout(card);
-        layout->setContentsMargins(14, 14, 14, 14);
-        layout->setSpacing(6);
+        layout->setContentsMargins(18, 16, 18, 16);
+        layout->setSpacing(9);
         auto *titleRow = new QHBoxLayout();
         auto *name = new QLabel(station.name, card);
         name->setObjectName(QStringLiteral("stationName_%1").arg(station.stationId));
         QFont nameFont = name->font();
         nameFont.setBold(true);
+        nameFont.setPointSize(12);
         name->setFont(nameFont);
+        name->setWordWrap(true);
+        auto *stationIcon = new QLabel(card);
+        stationIcon->setPixmap(clientNavigationIcon(NavigationIcon::Charging).pixmap(22, 22, QIcon::Selected));
+        stationIcon->setFixedSize(34, 34);
+        stationIcon->setAlignment(Qt::AlignCenter);
+        stationIcon->setStyleSheet(QStringLiteral("background: #edf4e4; border-radius: 10px;"));
+        stationIcon->setAttribute(Qt::WA_TransparentForMouseEvents);
+        titleRow->addWidget(stationIcon);
         titleRow->addWidget(name, 1);
         if (station.recommended) {
             auto *badge = new QLabel(QStringLiteral("推荐"), card);
             badge->setObjectName(QStringLiteral("stationRecommended_%1")
                                      .arg(station.stationId));
             badge->setStyleSheet(QStringLiteral(
-                "color: white; background: #137333; border-radius: 8px; padding: 2px 7px;"));
+                "color: white; background: #386a3c; border-radius: 8px; padding: 2px 7px;"));
             badge->setAttribute(Qt::WA_TransparentForMouseEvents);
             titleRow->addWidget(badge);
         }
         auto *address = new QLabel(station.address, card);
-        address->setStyleSheet(QStringLiteral("color: #667085;"));
+        address->setStyleSheet(QStringLiteral("color: #697969;"));
         address->setWordWrap(true);
         const QString distance = station.distanceKm.has_value()
             ? QStringLiteral("%1 km").arg(*station.distanceKm, 0, 'f', 2)
             : QStringLiteral("距离待定位");
         auto *availability = new QLabel(
-            QStringLiteral("空闲 %1/%2 · %3 · %4")
+            QStringLiteral("空闲 %1/%2 · %3")
                 .arg(station.availablePileCount)
                 .arg(station.totalPileCount)
-                .arg(distance, formatPrice(station.priceCentsPerKwh)),
+                .arg(distance),
             card);
+        availability->setWordWrap(true);
+        availability->setStyleSheet(QStringLiteral("color: #245c45; font-size: 12px; font-weight: 600;"));
+        auto *price = new QLabel(formatPrice(station.priceCentsPerKwh), card);
+        price->setObjectName(QStringLiteral("stationPrice_%1").arg(station.stationId));
+        price->setStyleSheet(QStringLiteral("color: #245c45; font-size: 23px; font-weight: 700;"));
+        price->setAttribute(Qt::WA_TransparentForMouseEvents);
         auto *prediction = new QLabel(congestionText(station.predictedCongestion), card);
-        prediction->setStyleSheet(QStringLiteral("color: #667085;"));
+        prediction->setStyleSheet(QStringLiteral("color: #697969;"));
+        prediction->setWordWrap(true);
         auto *detailHint = new QLabel(QStringLiteral("点击卡片查看详情  ›"), card);
         detailHint->setObjectName(
             QStringLiteral("stationDetailHint_%1").arg(station.stationId));
         detailHint->setAlignment(Qt::AlignRight);
-        detailHint->setStyleSheet(QStringLiteral("color: #1677ff;"));
+        detailHint->setStyleSheet(QStringLiteral("color: #245c45;"));
         auto *navigationButton = new QPushButton(QStringLiteral("导航"), card);
         navigationButton->setObjectName(
             QStringLiteral("stationNavigationButton_%1").arg(station.stationId));
@@ -727,9 +799,10 @@ void StationBrowserPage::showStations(const QList<protocol::StationDto> &station
             emit navigationRequested(station);
         });
         auto *bottomRow = new QHBoxLayout();
+        navigationButton->setIcon(clientNavigationIcon(NavigationIcon::Route));
+        navigationButton->setAccessibleName(QStringLiteral("导航到%1").arg(station.name));
+        bottomRow->addWidget(price, 1);
         bottomRow->addWidget(navigationButton);
-        bottomRow->addStretch();
-        bottomRow->addWidget(detailHint);
         for (QLabel *label : {name, address, availability, prediction, detailHint}) {
             label->setAttribute(Qt::WA_TransparentForMouseEvents);
         }
@@ -738,6 +811,7 @@ void StationBrowserPage::showStations(const QList<protocol::StationDto> &station
         layout->addWidget(availability);
         layout->addWidget(prediction);
         layout->addLayout(bottomRow);
+        layout->addWidget(detailHint);
         stationListLayout_->addWidget(card);
     }
     stationListLayout_->addStretch();
@@ -755,7 +829,7 @@ void StationBrowserPage::showListMessage(const QString &message, bool error)
 {
     actionMessageLabel_->setText(message);
     actionMessageLabel_->setStyleSheet(error ? QStringLiteral("color: #c62828;")
-                                              : QStringLiteral("color: #137333;"));
+                                              : QStringLiteral("color: #386a3c;"));
     actionMessageLabel_->setVisible(!message.isEmpty());
 }
 
@@ -819,7 +893,7 @@ void StationBrowserPage::showDetailLoading()
     backButton_->setEnabled(true);
     detailContent_->hide();
     detailMessageLabel_->setText(QStringLiteral("正在获取充电站详情…"));
-    detailMessageLabel_->setStyleSheet(QStringLiteral("color: #667085;"));
+    detailMessageLabel_->setStyleSheet(QStringLiteral("color: #697969;"));
     detailMessageLabel_->show();
 }
 
@@ -887,7 +961,7 @@ void StationBrowserPage::showDetailMessage(const QString &message, bool error)
 {
     detailMessageLabel_->setText(message);
     detailMessageLabel_->setStyleSheet(error ? QStringLiteral("color: #c62828;")
-                                              : QStringLiteral("color: #137333;"));
+                                              : QStringLiteral("color: #386a3c;"));
     detailMessageLabel_->setVisible(!message.isEmpty());
 }
 
@@ -909,7 +983,7 @@ void StationBrowserPage::showLocationMessage(const QString &message, bool error)
 {
     locationMessageLabel_->setText(message);
     locationMessageLabel_->setStyleSheet(error ? QStringLiteral("color: #c62828;")
-                                                : QStringLiteral("color: #137333;"));
+                                                : QStringLiteral("color: #386a3c;"));
     locationMessageLabel_->setVisible(!message.isEmpty());
 }
 
@@ -942,7 +1016,7 @@ void StationBrowserPage::showRouteMessage(const QString &message, bool error)
 {
     routeMessageLabel_->setText(message);
     routeMessageLabel_->setStyleSheet(error ? QStringLiteral("color: #c62828;")
-                                             : QStringLiteral("color: #137333;"));
+                                             : QStringLiteral("color: #386a3c;"));
     routeMessageLabel_->setVisible(!message.isEmpty());
 }
 
@@ -995,6 +1069,8 @@ void StationBrowserPage::reset()
 {
     setListLoading(false);
     clearStationCards();
+    stationCountLabel_->clear();
+    filterToggle_->setChecked(false);
     clearPileCards();
     listMessageLabel_->hide();
     actionMessageLabel_->hide();
@@ -1032,6 +1108,9 @@ void StationBrowserPage::clearPileCards()
 
 void StationBrowserPage::updateLocationSummary()
 {
+    locationCaption_->setText(demoLocationCheck_->isChecked()
+        ? QStringLiteral("◎  %1").arg(currentLocation_.address)
+        : QStringLiteral("◎  未指定位置"));
     if (demoLocationCheck_->isChecked()) {
         locationSummaryLabel_->setText(
             QStringLiteral("%1 · %2, %3\n"

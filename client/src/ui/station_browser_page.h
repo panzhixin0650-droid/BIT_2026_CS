@@ -89,6 +89,10 @@ private:
     QLineEdit *locationAddressInput_ = nullptr;
     QPushButton *resolveLocationButton_ = nullptr;
     QLabel *locationSummaryLabel_ = nullptr;
+    QLabel *locationCaption_ = nullptr;
+    QLabel *stationCountLabel_ = nullptr;
+    QWidget *advancedFilters_ = nullptr;
+    QPushButton *filterToggle_ = nullptr;
     QLabel *locationMessageLabel_ = nullptr;
     QLineEdit *regionInput_ = nullptr;
     QLineEdit *keywordInput_ = nullptr;

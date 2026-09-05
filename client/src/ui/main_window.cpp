@@ -85,10 +85,10 @@ protected:
                                  iconRect.bottom() + 3,
                                  content.width(),
                                  content.bottom() - iconRect.bottom() - 2);
-            const QColor textColor = !enabled ? QColor(QStringLiteral("#98a2b3"))
-                : selected ? QColor(QStringLiteral("#155eef"))
-                           : hovered ? QColor(QStringLiteral("#155eef"))
-                                     : QColor(QStringLiteral("#667085"));
+            const QColor textColor = !enabled ? QColor(QStringLiteral("#96a18e"))
+                : selected ? QColor(QStringLiteral("#245c45"))
+                           : hovered ? QColor(QStringLiteral("#245c45"))
+                                     : QColor(QStringLiteral("#697969"));
             QFont labelFont = painter.font();
             labelFont.setPointSize(9);
             labelFont.setWeight(selected ? QFont::DemiBold : QFont::Medium);
@@ -203,7 +203,7 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
 {
     setObjectName(QStringLiteral("mainWindow"));
     setWindowTitle(QStringLiteral("新能源汽车充电服务"));
-    resize(420, 760);
+    resize(480, 860);
     setMinimumSize(360, 640);
     setStyleSheet(clientThemeStyleSheet());
 

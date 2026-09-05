@@ -32,6 +32,7 @@ private slots:
     void invalidPhoneStaysOnLoginPage();
     void authenticatedShellHasFiveBottomEntries();
     void clientUsesConsistentVisualTheme();
+    void stationFiltersExpandAndPreserveQuery();
     void chargingHomeListsFiltersAndOpensStationDetail();
     void locationCanResolveAndOpenMockRoute();
     void reservationAppearsOnHomeAndCanBeCancelled();
@@ -242,6 +243,39 @@ void MainWindowTests::clientUsesConsistentVisualTheme()
     QCOMPARE(balance->font().pointSize(), 30);
 }
 
+void MainWindowTests::stationFiltersExpandAndPreserveQuery()
+{
+    MockChargingApi api;
+    MainWindow window(api);
+    window.resize(360, 640);
+    window.show();
+    loginFixtureUser(window);
+    auto *toggle = window.findChild<QPushButton *>(QStringLiteral("stationFilterToggle"));
+    auto *filters = window.findChild<QWidget *>(QStringLiteral("stationAdvancedFilters"));
+    auto *region = window.findChild<QLineEdit *>(QStringLiteral("stationRegionInput"));
+    auto *query = window.findChild<QPushButton *>(QStringLiteral("stationRefreshButton"));
+    auto *count = window.findChild<QLabel *>(QStringLiteral("stationResultCount"));
+    QVERIFY(toggle && filters && region && query && count);
+    QTRY_COMPARE(count->text(), QStringLiteral("2 个站点"));
+    QTRY_VERIFY(query->isEnabled());
+    QVERIFY(!filters->isVisible());
+    toggle->setFocus();
+    QTest::keyClick(toggle, Qt::Key_Space);
+    QVERIFY(filters->isVisible());
+    region->setText(QStringLiteral("和平区"));
+    QTest::mouseClick(toggle, Qt::LeftButton);
+    QVERIFY(!filters->isVisible());
+    QTest::mouseClick(query, Qt::LeftButton);
+    QTRY_COMPARE(count->text(), QStringLiteral("1 个站点"));
+    QVERIFY(window.findChild<QWidget *>(QStringLiteral("stationCard_1")) == nullptr);
+    QVERIFY(window.findChild<QWidget *>(QStringLiteral("stationCard_2")) != nullptr);
+    QTest::mouseClick(toggle, Qt::LeftButton);
+    QCOMPARE(region->text(), QStringLiteral("和平区"));
+    auto *scroll = window.findChild<QScrollArea *>(QStringLiteral("stationHomeScrollArea"));
+    QVERIFY(scroll != nullptr);
+    QTRY_VERIFY(scroll->widget()->width() <= scroll->viewport()->width());
+}
+
 void MainWindowTests::chargingHomeListsFiltersAndOpensStationDetail()
 {
     MockChargingApi api;
@@ -365,6 +399,7 @@ void MainWindowTests::locationCanResolveAndOpenMockRoute()
     window.resize(360, 640);
     window.show();
     loginFixtureUser(window);
+    window.findChild<QPushButton *>(QStringLiteral("stationFilterToggle"))->click();
 
     auto *preset =
         window.findChild<QComboBox *>(QStringLiteral("locationPresetCombo"));
@@ -829,7 +864,7 @@ void MainWindowTests::simulatedScanStartsChargingAndRefreshesHome()
     auto *adapterHint =
         window.findChild<QLabel *>(QStringLiteral("scanAdapterHint"));
     QVERIFY(scanPage->isVisible());
-    QVERIFY(adapterHint->text().contains(QStringLiteral("独立扫码适配器")));
+    QVERIFY(adapterHint->text().contains(QStringLiteral("模拟扫码")));
 
     QTest::mouseClick(startButton, Qt::LeftButton);
     QCOMPARE(scanMessage->text(), QStringLiteral("请输入有效的充电桩编号"));
