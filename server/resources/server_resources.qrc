@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/server">
+        <file>login-charging-station.jpg</file>
+        <file>login-charging-station-blue.png</file>
+    </qresource>
+</RCC>
