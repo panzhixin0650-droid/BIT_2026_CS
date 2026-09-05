@@ -19,6 +19,9 @@ public:
 public slots:
     void submitPileCode(const QString &pileCode);
 
+    // Forget UI requests from the previous authenticated session.
+    void reset();
+
 signals:
     void authenticationRequired(const QString &message);
     void chargingStarted(const protocol::OrderDto &order);

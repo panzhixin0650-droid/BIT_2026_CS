@@ -1,0 +1,7 @@
+{
+  "boundary": "client-local IMapService.openRoute (not TCP)",
+  "mode": "TRANSIT",
+  "start": {"address": "沈阳市和平区", "longitude": 123.4, "latitude": 41.79},
+  "end": {"address": "浑南演示充电站", "longitude": 123.43, "latitude": 41.71},
+  "tencentRouteType": "bus"
+}

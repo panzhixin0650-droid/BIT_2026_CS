@@ -12,7 +12,8 @@ class TencentMapService final : public IMapService {
 public:
     explicit TencentMapService(QString apiKey,
                                int requestTimeoutMs = 5000,
-                               QObject *parent = nullptr);
+                               QObject *parent = nullptr,
+                               QNetworkAccessManager *networkAccess = nullptr);
 
     [[nodiscard]] QString geocode(const QString &address) override;
     [[nodiscard]] QString openRoute(const MapLocation &start,
@@ -27,6 +28,8 @@ private:
     int requestTimeoutMs_ = 5000;
     quint64 nextRequestNumber_ = 1;
     QNetworkAccessManager network_;
+    // Optional caller-owned transport must outlive this service (used by offline tests).
+    QNetworkAccessManager *networkAccess_;
 };
 
 }  // namespace charging::client

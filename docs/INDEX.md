@@ -29,6 +29,8 @@
 | --- | --- |
 | [`decisions/0001-demo-first.md`](decisions/0001-demo-first.md) | Demo 优先，复杂能力按需迁入 |
 | [`decisions/0002-development-environment.md`](decisions/0002-development-environment.md) | 冻结课程 Demo 的参考开发环境 |
+| [`decisions/0003-client-transit-navigation.md`](decisions/0003-client-transit-navigation.md) | 用户端公共交通导航、本地地图边界与兼容方式 |
+| [`decisions/0004-client-cycling-navigation.md`](decisions/0004-client-cycling-navigation.md) | 用户端自行车骑行导航与腾讯地图适配 |
 
 ## 规则
 

@@ -23,6 +23,9 @@ public:
     void setInitialUser(const protocol::UserDto &user);
     void refreshProfile();
 
+    // Forget UI requests from the previous authenticated session.
+    void reset();
+
 signals:
     void loggedOut();
     void authenticationRequired(const QString &message);

@@ -2,6 +2,7 @@
 
 #include "api/i_charging_api.h"
 #include "charging/protocol/protocol_constants.h"
+#include "ui/api_error_message.h"
 #include "ui/order_page.h"
 
 namespace charging::client {
@@ -34,6 +35,18 @@ OrderController::OrderController(OrderPage &page, IChargingApi &api, QObject *pa
             this, &OrderController::handlePayment);
     connect(&api_, &IChargingApi::stationDetailCompleted,
             this, &OrderController::handleStationDetail);
+}
+
+void OrderController::leavePage()
+{
+    // Only abandon navigation intent; submitted business operations still complete.
+    pendingNavigationRequestId_.clear();
+    page_.setActionBusy(!pendingListRequestId_.isEmpty()
+                       || !pendingCancellationRequestId_.isEmpty()
+                       || !pendingStopRequestId_.isEmpty()
+                       || !pendingProgressRequestId_.isEmpty()
+                       || !pendingPaymentRequestId_.isEmpty());
+    page_.showListPage();
 }
 
 void OrderController::refreshOrders()
@@ -71,7 +84,8 @@ void OrderController::requestProgress(qint64 orderId)
         || !pendingCancellationRequestId_.isEmpty()
         || !pendingStopRequestId_.isEmpty()
         || !pendingProgressRequestId_.isEmpty()
-        || !pendingPaymentRequestId_.isEmpty()) {
+        || !pendingPaymentRequestId_.isEmpty()
+        || !pendingNavigationRequestId_.isEmpty()) {
         return;
     }
     page_.setActionBusy(true);
@@ -85,7 +99,8 @@ void OrderController::requestStop(qint64 orderId)
         || !pendingCancellationRequestId_.isEmpty()
         || !pendingStopRequestId_.isEmpty()
         || !pendingProgressRequestId_.isEmpty()
-        || !pendingPaymentRequestId_.isEmpty()) {
+        || !pendingPaymentRequestId_.isEmpty()
+        || !pendingNavigationRequestId_.isEmpty()) {
         return;
     }
     page_.setActionBusy(true);
@@ -99,7 +114,8 @@ void OrderController::requestPayment(qint64 orderId)
         || !pendingCancellationRequestId_.isEmpty()
         || !pendingStopRequestId_.isEmpty()
         || !pendingProgressRequestId_.isEmpty()
-        || !pendingPaymentRequestId_.isEmpty()) {
+        || !pendingPaymentRequestId_.isEmpty()
+        || !pendingNavigationRequestId_.isEmpty()) {
         return;
     }
     page_.setActionBusy(true);
@@ -113,7 +129,8 @@ void OrderController::requestCancellation(qint64 orderId)
         || !pendingCancellationRequestId_.isEmpty()
         || !pendingStopRequestId_.isEmpty()
         || !pendingProgressRequestId_.isEmpty()
-        || !pendingPaymentRequestId_.isEmpty()) {
+        || !pendingPaymentRequestId_.isEmpty()
+        || !pendingNavigationRequestId_.isEmpty()) {
         return;
     }
     page_.setActionBusy(true);
@@ -123,7 +140,8 @@ void OrderController::requestCancellation(qint64 orderId)
 
 void OrderController::handleOrderList(const OrderListResult &result)
 {
-    if (result.response.requestId != pendingListRequestId_
+    if (pendingListRequestId_.isEmpty()
+        || result.response.requestId != pendingListRequestId_
         || result.response.type != QString::fromLatin1(protocol::MessageType::OrderList)) {
         return;
     }
@@ -134,9 +152,7 @@ void OrderController::handleOrderList(const OrderListResult &result)
         return;
     }
     if (!result.ok() || !result.payload.has_value()) {
-        page_.showError(result.response.message.isEmpty()
-                            ? QStringLiteral("获取订单失败，请稍后重试")
-                            : result.response.message);
+        page_.showError(apiErrorMessage(result.response, QStringLiteral("获取订单失败，请稍后重试")));
         return;
     }
 
@@ -149,7 +165,8 @@ void OrderController::handleOrderList(const OrderListResult &result)
 
 void OrderController::handleCancellation(const OrderResult &result)
 {
-    if (result.response.requestId != pendingCancellationRequestId_
+    if (pendingCancellationRequestId_.isEmpty()
+        || result.response.requestId != pendingCancellationRequestId_
         || result.response.type != QString::fromLatin1(protocol::MessageType::OrderCancel)) {
         return;
     }
@@ -160,9 +177,7 @@ void OrderController::handleCancellation(const OrderResult &result)
         return;
     }
     if (!result.ok() || !result.payload.has_value()) {
-        page_.showDetailMessage(result.response.message.isEmpty()
-                                    ? QStringLiteral("取消预约失败，请稍后重试")
-                                    : result.response.message,
+        page_.showDetailMessage(apiErrorMessage(result.response, QStringLiteral("取消预约失败，请稍后重试")),
                                 true);
         return;
     }
@@ -174,7 +189,8 @@ void OrderController::handleCancellation(const OrderResult &result)
 
 void OrderController::handleStop(const ChargingStopResult &result)
 {
-    if (result.response.requestId != pendingStopRequestId_
+    if (pendingStopRequestId_.isEmpty()
+        || result.response.requestId != pendingStopRequestId_
         || result.response.type != QString::fromLatin1(protocol::MessageType::OrderStop)) {
         return;
     }
@@ -185,9 +201,7 @@ void OrderController::handleStop(const ChargingStopResult &result)
         return;
     }
     if (!result.ok() || !result.payload.has_value()) {
-        page_.showDetailMessage(result.response.message.isEmpty()
-                                    ? QStringLiteral("结束充电失败，请稍后重试")
-                                    : result.response.message,
+        page_.showDetailMessage(apiErrorMessage(result.response, QStringLiteral("结束充电失败，请稍后重试")),
                                 true);
         return;
     }
@@ -203,7 +217,8 @@ void OrderController::handleStop(const ChargingStopResult &result)
 
 void OrderController::handleProgress(const ChargingProgressResult &result)
 {
-    if (result.response.requestId != pendingProgressRequestId_
+    if (pendingProgressRequestId_.isEmpty()
+        || result.response.requestId != pendingProgressRequestId_
         || result.response.type
             != QString::fromLatin1(protocol::MessageType::OrderProgress)) {
         return;
@@ -215,20 +230,20 @@ void OrderController::handleProgress(const ChargingProgressResult &result)
         return;
     }
     if (!result.ok() || !result.payload.has_value()) {
-        page_.showDetailMessage(result.response.message.isEmpty()
-                                    ? QStringLiteral("刷新充电进度失败，请稍后重试")
-                                    : result.response.message,
+        page_.showDetailMessage(apiErrorMessage(result.response, QStringLiteral("刷新充电进度失败，请稍后重试")),
                                 true);
         return;
     }
 
-    page_.updateOrderDetail(result.payload->order);
-    page_.showDetailMessage(QStringLiteral("充电进度已刷新"));
+    if (page_.updateOrderDetail(result.payload->order)) {
+        page_.showDetailMessage(QStringLiteral("充电进度已刷新"));
+    }
 }
 
 void OrderController::handlePayment(const PaymentResult &result)
 {
-    if (result.response.requestId != pendingPaymentRequestId_
+    if (pendingPaymentRequestId_.isEmpty()
+        || result.response.requestId != pendingPaymentRequestId_
         || result.response.type != QString::fromLatin1(protocol::MessageType::OrderPay)) {
         return;
     }
@@ -239,9 +254,7 @@ void OrderController::handlePayment(const PaymentResult &result)
         return;
     }
     if (!result.ok() || !result.payload.has_value()) {
-        page_.showDetailMessage(result.response.message.isEmpty()
-                                    ? QStringLiteral("订单结算失败，请稍后重试")
-                                    : result.response.message,
+        page_.showDetailMessage(apiErrorMessage(result.response, QStringLiteral("订单结算失败，请稍后重试")),
                                 true);
         return;
     }
@@ -255,7 +268,8 @@ void OrderController::handlePayment(const PaymentResult &result)
 
 void OrderController::handleStationDetail(const StationDetailResult &result)
 {
-    if (result.response.requestId != pendingNavigationRequestId_
+    if (pendingNavigationRequestId_.isEmpty()
+        || result.response.requestId != pendingNavigationRequestId_
         || result.response.type
             != QString::fromLatin1(protocol::MessageType::StationDetail)) {
         return;
@@ -268,13 +282,23 @@ void OrderController::handleStationDetail(const StationDetailResult &result)
     }
     if (!result.ok() || !result.payload.has_value()) {
         page_.showDetailMessage(
-            result.response.message.isEmpty()
-                ? QStringLiteral("获取导航站点失败，请稍后重试")
-                : result.response.message,
+            apiErrorMessage(result.response, QStringLiteral("获取导航站点失败，请稍后重试")),
             true);
         return;
     }
     emit navigationReady(result.payload->station);
+}
+
+void OrderController::reset()
+{
+    pendingListRequestId_.clear();
+    pendingCancellationRequestId_.clear();
+    pendingStopRequestId_.clear();
+    pendingProgressRequestId_.clear();
+    pendingPaymentRequestId_.clear();
+    pendingNavigationRequestId_.clear();
+    noticeAfterRefresh_.clear();
+    page_.reset();
 }
 
 }  // namespace charging::client

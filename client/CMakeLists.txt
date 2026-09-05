@@ -55,6 +55,7 @@ add_library(charging_client_ui STATIC
     src/local/mock_map_service.h
     src/local/tencent_map_service.cpp
     src/local/tencent_map_service.h
+    src/ui/api_error_message.h
     src/ui/charging_stop_dialog.cpp
     src/ui/charging_stop_dialog.h
     src/ui/client_theme.cpp
@@ -117,6 +118,12 @@ target_link_libraries(user-client
 
 if(BUILD_TESTING)
     find_package(Qt6 6.2 REQUIRED COMPONENTS Test)
+
+    add_executable(charging_client_ui_recovery_tests tests/ui_recovery_tests.cpp)
+    target_link_libraries(charging_client_ui_recovery_tests PRIVATE charging_client_ui Qt6::Test)
+    add_test(NAME charging_client_ui_recovery_tests COMMAND charging_client_ui_recovery_tests)
+    set_tests_properties(charging_client_ui_recovery_tests PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     add_executable(charging_client_tests
         tests/main_window_tests.cpp

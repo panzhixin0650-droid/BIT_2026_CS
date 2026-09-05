@@ -455,10 +455,14 @@ void OrderPage::showDetailMessage(const QString &message, bool error)
     detailMessageLabel_->setVisible(!message.isEmpty());
 }
 
-void OrderPage::updateOrderDetail(const protocol::OrderDto &order)
+bool OrderPage::updateOrderDetail(const protocol::OrderDto &order)
 {
     ordersById_.insert(order.orderId, order);
-    showOrderDetail(order.orderId);
+    if (pages_->currentWidget() == detailPage_ && displayedOrderId_ == order.orderId) {
+        showOrderDetail(order.orderId);
+        return true;
+    }
+    return false;
 }
 
 void OrderPage::showListPage()
@@ -490,6 +494,7 @@ void OrderPage::showOrderDetail(qint64 orderId)
     if (!ordersById_.contains(orderId)) {
         return;
     }
+    displayedOrderId_ = orderId;
     const protocol::OrderDto order = ordersById_.value(orderId);
     detailOrderNumberLabel_->setText(QStringLiteral("订单 %1").arg(order.orderNo));
     detailStatusLabel_->setText(orderStatusText(order.status));
