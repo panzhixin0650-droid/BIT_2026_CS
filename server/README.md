@@ -46,6 +46,7 @@ tests/               服务端单元测试
 - 管理员 UI：支持登录、7/30 日及自定义日期概览、站点搜索/筛选/新增/安全删除和站内电桩展开（新增站点时可编辑初始电桩编号、类型和功率）、电桩搜索/筛选/新增/安全删除/上线/下线/重启/故障标记、用户查询及冻结/解冻、订单查看，以及站点/电桩/用户/订单详情；
 - `AdminFacade`：所有管理员界面操作均通过 `ApplicationService`，UI 不直接访问 Repository；
 - `charging_server_tests`：覆盖基础 TCP 业务、管理员登录、Dashboard、自定义日期、站点新增/安全删除、电桩生命周期和冻结限制；
+- `charging_admin_ui_tests`：覆盖登录失败后的输入保留、焦点与布局稳定、重试成功，以及焦点切换、错误提示和窗口缩放后的实际屏幕像素；
 - `charging_repository_tests`：在临时 SQLite 数据库中覆盖种子读取、派生聚合、持久化、结构拒绝、站点/电桩安全删除和事务回滚。
 - `charging_order_flow_tests`：对 SQLite 和内存替身验证预约、取消、直接/预约充电、实时读数、自动结算、充值补付、归属/状态校验和失败回滚，并用客户端 `TcpChargingApi` 对接真实 `TcpGateway`。
 
@@ -89,6 +90,25 @@ ctest --test-dir build/server --output-on-failure
   --database /path/to/BIT_2026_CS/build/database/demo.db \
   --no-tcp
 ```
+
+### 登录页重绘回归检查
+
+`charging_admin_ui_tests` 使用内存测试替身，不读写运行时数据库，也不启动 TCP。
+CTest 默认通过 `offscreen` 平台运行。像素检查读取 `QScreen::grabWindow()` 返回的已呈现画面，
+避免 `QWidget::grab()` 触发完整重绘而掩盖局部重绘问题；同时检查密码标签、错误提示及其上下空隙。
+若当前平台不支持屏幕抓取，像素用例会明确标记为跳过，登录行为检查仍会执行。
+
+在已安装 Xvfb 的 Linux 环境中，也可检查 X11 和显示缩放：
+
+```bash
+xvfb-run -a -s "-screen 0 3840x2400x24" \
+  env QT_QPA_PLATFORM=xcb QT_SCALE_FACTOR=1.5 \
+  ./build/server/charging_admin_ui_tests
+```
+
+可将缩放比例改为 `1`、`1.25`、`1.75`、`2`。如需保存截图，在运行前将
+`CHARGING_UI_ARTIFACT_DIR` 设为已创建的可写目录；截图属于本地验证产物，不提交到仓库。
+该问题需特别在项目基线 Qt 6.2.4 中验证，不能仅以较新 Qt 下未复现作为通过依据。
 
 ## 管理员端快速使用
 
