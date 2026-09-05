@@ -1,0 +1,11 @@
+{
+  "boundary": "client-local IMapService.openRoute (not TCP)",
+  "mode": "CYCLING",
+  "start": {"address": "沈阳市和平区", "longitude": 123.4, "latitude": 41.79},
+  "end": {"address": "演示终点", "longitude": 123.401, "latitude": 41.791},
+  "tencentPath": "/ws/direction/v1/bicycling/",
+  "tencentResponse": {
+    "status": 0,
+    "result": {"routes": [{"distance": 180, "duration": 2, "polyline": [41.79, 123.4, 1000, 1000]}]}
+  }
+}

@@ -41,3 +41,13 @@
 - `order-cancel.forbidden.*.json`：另一个用户的 token 尝试取消订单 `1001`，返回 `40301`；错误响应无订单信息。
 
 这些示例中的 token 均为固定占位符；运行时需先登录，并使用服务端实际返回的订单 ID。共享协议测试解析这些 JSON，服务端订单测试同时验证实际业务和客户端 TCP DTO 解码。
+
+## 客户端本地地图示例
+
+[`map-route.transit.local.json`](map-route.transit.local.json) 描述本地 `IMapService`
+公共交通输入与腾讯 URI 模式映射，**不是 TCP 请求/响应**，没有 token 或 Key，不能发送到
+项目服务端。成功/失败通过本地地图完成事件返回；Mock 成功只表示生成了离线摘要。
+
+[`map-route.cycling.local.json`](map-route.cycling.local.json) 是本地自行车骑行输入及腾讯
+响应形状的测试示例。坐标、距离和用时为测试数据，不代表真实可骑行路线；它不发送到
+项目服务端，不含真实 Key。用于验证骑行接口选择、压缩折线解码与地图展示。

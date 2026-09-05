@@ -22,6 +22,9 @@ public:
     void navigateToStation(qint64 stationId);
     void synchronizeChargingStop(const ChargingStopPayload &result);
 
+    // Forget UI requests from the previous authenticated session.
+    void reset();
+
 signals:
     void authenticationRequired(const QString &message);
     void currentOrderRequiresAttention(protocol::OrderStatus status);

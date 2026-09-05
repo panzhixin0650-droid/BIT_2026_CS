@@ -2,6 +2,7 @@
 
 #include "api/i_charging_api.h"
 #include "charging/protocol/protocol_constants.h"
+#include "ui/api_error_message.h"
 #include "ui/scan_page.h"
 
 namespace charging::client {
@@ -35,7 +36,8 @@ void ScanController::submitPileCode(const QString &pileCode)
 
 void ScanController::handleCurrentOrder(const CurrentOrderResult &result)
 {
-    if (result.response.requestId != pendingCurrentOrderRequestId_
+    if (pendingCurrentOrderRequestId_.isEmpty()
+        || result.response.requestId != pendingCurrentOrderRequestId_
         || result.response.type
             != QString::fromLatin1(protocol::MessageType::OrderCurrent)) {
         return;
@@ -47,9 +49,7 @@ void ScanController::handleCurrentOrder(const CurrentOrderResult &result)
         return;
     }
     if (!result.ok() || !result.payload.has_value()) {
-        const QString message = result.response.message.isEmpty()
-            ? QStringLiteral("检查当前订单失败，请稍后重试")
-            : result.response.message;
+        const QString message = apiErrorMessage(result.response, QStringLiteral("检查当前订单失败，请稍后重试"));
         finishRequest();
         page_.showMessage(message, true);
         return;
@@ -86,7 +86,8 @@ void ScanController::handleCurrentOrder(const CurrentOrderResult &result)
 
 void ScanController::handleChargingStart(const OrderResult &result)
 {
-    if (result.response.requestId != pendingStartRequestId_
+    if (pendingStartRequestId_.isEmpty()
+        || result.response.requestId != pendingStartRequestId_
         || result.response.type != QString::fromLatin1(protocol::MessageType::OrderStart)) {
         return;
     }
@@ -97,9 +98,7 @@ void ScanController::handleChargingStart(const OrderResult &result)
         return;
     }
     if (!result.ok() || !result.payload.has_value()) {
-        const QString message = result.response.message.isEmpty()
-            ? QStringLiteral("开始充电失败，请稍后重试")
-            : result.response.message;
+        const QString message = apiErrorMessage(result.response, QStringLiteral("开始充电失败，请稍后重试"));
         finishRequest();
         page_.showMessage(message, true);
         return;
@@ -123,6 +122,12 @@ void ScanController::finishRequest()
     pendingStartRequestId_.clear();
     pendingPileCode_.clear();
     page_.setLoading(false);
+}
+
+void ScanController::reset()
+{
+    finishRequest();
+    page_.reset();
 }
 
 }  // namespace charging::client

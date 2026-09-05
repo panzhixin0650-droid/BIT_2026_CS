@@ -408,7 +408,7 @@ void MainWindowTests::locationCanResolveAndOpenMockRoute()
     QVERIFY(destination->text().contains(QStringLiteral("和平演示充电站")));
     QVERIFY(!destination->text().startsWith(QStringLiteral("终点")));
     QVERIFY(!destination->text().contains(QStringLiteral("123.4000")));
-    QCOMPARE(routeMode->count(), 2);
+    QCOMPARE(routeMode->count(), 4);
 
     routeMode->setCurrentIndex(1);
     routeStart->setText(QStringLiteral("沈阳市浑南区"));
@@ -416,6 +416,19 @@ void MainWindowTests::locationCanResolveAndOpenMockRoute()
     QTRY_VERIFY(routeDisplay->text().contains(QStringLiteral("步行路线")));
     QVERIFY(routeDisplay->text().contains(QStringLiteral("沈阳市浑南区")));
     QCOMPARE(routeMessage->text(), QStringLiteral("Mock 路线已生成"));
+
+    routeMode->setCurrentIndex(2);
+    QCOMPARE(routeMode->currentText(), QStringLiteral("公共交通"));
+    QTest::mouseClick(routeButton, Qt::LeftButton);
+    QTRY_VERIFY(routeDisplay->text().contains(QStringLiteral("公共交通路线")));
+    QVERIFY(routeDisplay->text().contains(QStringLiteral("离线 Mock")));
+    QVERIFY(routeButton->isEnabled());
+
+    routeMode->setCurrentIndex(3);
+    QCOMPARE(routeMode->currentText(), QStringLiteral("骑行"));
+    QTest::mouseClick(routeButton, Qt::LeftButton);
+    QTRY_VERIFY(routeDisplay->text().contains(QStringLiteral("骑行路线")));
+    QVERIFY(routeButton->isEnabled());
 
     routeStart->setText(QStringLiteral("无法解析的位置"));
     QTest::mouseClick(routeButton, Qt::LeftButton);

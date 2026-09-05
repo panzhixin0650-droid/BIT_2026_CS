@@ -2,6 +2,7 @@
 
 #include "api/i_charging_api.h"
 #include "charging/protocol/protocol_constants.h"
+#include "ui/api_error_message.h"
 #include "ui/station_browser_page.h"
 
 namespace charging::client {
@@ -74,7 +75,8 @@ void StationBrowserController::navigateToStation(qint64 stationId)
 void StationBrowserController::requestReservation(const QString &pileCode)
 {
     if (!pendingReservationRequestId_.isEmpty()
-        || !pendingCancellationRequestId_.isEmpty()) {
+        || !pendingCancellationRequestId_.isEmpty()
+        || currentOrderPurpose_ == CurrentOrderPurpose::BeforeReservation) {
         return;
     }
     pendingReservationPileCode_ = pileCode;
@@ -133,7 +135,8 @@ void StationBrowserController::refreshCurrentOrder()
 
 void StationBrowserController::handleStationList(const StationListResult &result)
 {
-    if (result.response.requestId != pendingListRequestId_
+    if (pendingListRequestId_.isEmpty()
+        || result.response.requestId != pendingListRequestId_
         || result.response.type
             != QString::fromLatin1(protocol::MessageType::StationList)) {
         return;
@@ -143,9 +146,7 @@ void StationBrowserController::handleStationList(const StationListResult &result
         return;
     }
     if (!result.ok() || !result.payload.has_value()) {
-        page_.showListError(result.response.message.isEmpty()
-                                ? QStringLiteral("获取充电站失败，请稍后重试")
-                                : result.response.message);
+        page_.showListError(apiErrorMessage(result.response, QStringLiteral("获取充电站失败，请稍后重试")));
         return;
     }
     page_.showStations(result.payload->items);
@@ -154,8 +155,10 @@ void StationBrowserController::handleStationList(const StationListResult &result
 void StationBrowserController::handleStationDetail(const StationDetailResult &result)
 {
     const bool navigationResponse =
-        result.response.requestId == pendingNavigationRequestId_;
-    const bool detailResponse = result.response.requestId == pendingDetailRequestId_;
+        !pendingNavigationRequestId_.isEmpty()
+        && result.response.requestId == pendingNavigationRequestId_;
+    const bool detailResponse = !pendingDetailRequestId_.isEmpty()
+        && result.response.requestId == pendingDetailRequestId_;
     if ((!navigationResponse && !detailResponse)
         || result.response.type
             != QString::fromLatin1(protocol::MessageType::StationDetail)) {
@@ -169,9 +172,7 @@ void StationBrowserController::handleStationDetail(const StationDetailResult &re
         }
         if (!result.ok() || !result.payload.has_value()) {
             page_.showListMessage(
-                result.response.message.isEmpty()
-                    ? QStringLiteral("获取导航站点失败，请稍后重试")
-                    : result.response.message,
+                apiErrorMessage(result.response, QStringLiteral("获取导航站点失败，请稍后重试")),
                 true);
             return;
         }
@@ -185,9 +186,7 @@ void StationBrowserController::handleStationDetail(const StationDetailResult &re
         return;
     }
     if (!result.ok() || !result.payload.has_value()) {
-        page_.showDetailError(result.response.message.isEmpty()
-                                  ? QStringLiteral("获取充电站详情失败，请稍后重试")
-                                  : result.response.message);
+        page_.showDetailError(apiErrorMessage(result.response, QStringLiteral("获取充电站详情失败，请稍后重试")));
         return;
     }
     page_.showStationDetail(*result.payload);
@@ -199,7 +198,8 @@ void StationBrowserController::handleStationDetail(const StationDetailResult &re
 
 void StationBrowserController::handleCurrentOrder(const CurrentOrderResult &result)
 {
-    if (result.response.requestId != pendingCurrentOrderRequestId_
+    if (pendingCurrentOrderRequestId_.isEmpty()
+        || result.response.requestId != pendingCurrentOrderRequestId_
         || result.response.type
             != QString::fromLatin1(protocol::MessageType::OrderCurrent)) {
         return;
@@ -213,9 +213,7 @@ void StationBrowserController::handleCurrentOrder(const CurrentOrderResult &resu
     }
     if (!result.ok() || !result.payload.has_value()) {
         page_.setReservationBusy(false);
-        const QString message = result.response.message.isEmpty()
-            ? QStringLiteral("获取当前订单失败，请稍后重试")
-            : result.response.message;
+        const QString message = apiErrorMessage(result.response, QStringLiteral("获取当前订单失败，请稍后重试"));
         if (purpose == CurrentOrderPurpose::BeforeReservation) {
             page_.showDetailMessage(message, true);
         } else {
@@ -248,7 +246,8 @@ void StationBrowserController::handleCurrentOrder(const CurrentOrderResult &resu
 
 void StationBrowserController::handleReservation(const OrderResult &result)
 {
-    if (result.response.requestId != pendingReservationRequestId_
+    if (pendingReservationRequestId_.isEmpty()
+        || result.response.requestId != pendingReservationRequestId_
         || result.response.type
             != QString::fromLatin1(protocol::MessageType::OrderReserve)) {
         return;
@@ -259,9 +258,7 @@ void StationBrowserController::handleReservation(const OrderResult &result)
         return;
     }
     if (!result.ok() || !result.payload.has_value()) {
-        const QString message = result.response.message.isEmpty()
-            ? QStringLiteral("预约失败，请稍后重试")
-            : result.response.message;
+        const QString message = apiErrorMessage(result.response, QStringLiteral("预约失败，请稍后重试"));
         if (result.response.code == protocol::ErrorCode::CurrentOrderExists) {
             page_.showListPage();
             page_.showListMessage(message, true);
@@ -283,7 +280,8 @@ void StationBrowserController::handleReservation(const OrderResult &result)
 
 void StationBrowserController::handleCancellation(const OrderResult &result)
 {
-    if (result.response.requestId != pendingCancellationRequestId_
+    if (pendingCancellationRequestId_.isEmpty()
+        || result.response.requestId != pendingCancellationRequestId_
         || result.response.type
             != QString::fromLatin1(protocol::MessageType::OrderCancel)) {
         return;
@@ -294,9 +292,7 @@ void StationBrowserController::handleCancellation(const OrderResult &result)
         return;
     }
     if (!result.ok() || !result.payload.has_value()) {
-        page_.showListMessage(result.response.message.isEmpty()
-                                  ? QStringLiteral("取消预约失败，请稍后重试")
-                                  : result.response.message,
+        page_.showListMessage(apiErrorMessage(result.response, QStringLiteral("取消预约失败，请稍后重试")),
                               true);
         refreshStations();
         return;
@@ -308,7 +304,8 @@ void StationBrowserController::handleCancellation(const OrderResult &result)
 
 void StationBrowserController::handleProgress(const ChargingProgressResult &result)
 {
-    if (result.response.requestId != pendingProgressRequestId_
+    if (pendingProgressRequestId_.isEmpty()
+        || result.response.requestId != pendingProgressRequestId_
         || result.response.type
             != QString::fromLatin1(protocol::MessageType::OrderProgress)) {
         return;
@@ -319,9 +316,7 @@ void StationBrowserController::handleProgress(const ChargingProgressResult &resu
         return;
     }
     if (!result.ok() || !result.payload.has_value()) {
-        page_.showListMessage(result.response.message.isEmpty()
-                                  ? QStringLiteral("刷新充电进度失败，请稍后重试")
-                                  : result.response.message,
+        page_.showListMessage(apiErrorMessage(result.response, QStringLiteral("刷新充电进度失败，请稍后重试")),
                               true);
         refreshCurrentOrder();
         return;
@@ -333,7 +328,8 @@ void StationBrowserController::handleProgress(const ChargingProgressResult &resu
 
 void StationBrowserController::handleStop(const ChargingStopResult &result)
 {
-    if (result.response.requestId != pendingStopRequestId_
+    if (pendingStopRequestId_.isEmpty()
+        || result.response.requestId != pendingStopRequestId_
         || result.response.type
             != QString::fromLatin1(protocol::MessageType::OrderStop)) {
         return;
@@ -344,9 +340,7 @@ void StationBrowserController::handleStop(const ChargingStopResult &result)
         return;
     }
     if (!result.ok() || !result.payload.has_value()) {
-        page_.showListMessage(result.response.message.isEmpty()
-                                  ? QStringLiteral("结束充电失败，请稍后重试")
-                                  : result.response.message,
+        page_.showListMessage(apiErrorMessage(result.response, QStringLiteral("结束充电失败，请稍后重试")),
                               true);
         refreshCurrentOrder();
         return;
@@ -376,6 +370,13 @@ bool StationBrowserController::handleAuthenticationFailure(int code)
     if (code != protocol::ErrorCode::InvalidSession) {
         return false;
     }
+    reset();
+    emit authenticationRequired(QStringLiteral("登录状态已失效，请重新登录"));
+    return true;
+}
+
+void StationBrowserController::reset()
+{
     pendingListRequestId_.clear();
     pendingDetailRequestId_.clear();
     pendingNavigationRequestId_.clear();
@@ -386,10 +387,10 @@ bool StationBrowserController::handleAuthenticationFailure(int code)
     pendingStopRequestId_.clear();
     pendingReservationPileCode_.clear();
     detailNoticeAfterRefresh_.clear();
+    selectedStationId_ = 0;
     currentOrderPurpose_ = CurrentOrderPurpose::None;
     page_.setReservationBusy(false);
-    emit authenticationRequired(QStringLiteral("登录状态已失效，请重新登录"));
-    return true;
+    page_.reset();
 }
 
 }  // namespace charging::client

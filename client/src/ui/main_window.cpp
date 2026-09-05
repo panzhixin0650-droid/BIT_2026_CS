@@ -145,7 +145,7 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService)
     connect(mainTabs_, &QTabWidget::currentChanged, this, [this](int index) {
         QWidget *selectedPage = mainTabs_->widget(index);
         if (selectedPage != orderPage_) {
-            orderPage_->showListPage();
+            orderController_->leavePage();
         }
         if (selectedPage == homePage_) {
             stationBrowserController_->refreshStations();
@@ -250,9 +250,10 @@ void MainWindow::showLoginPage(const QString &message)
 {
     loginPage_->setLoading(false);
     loginPage_->setErrorMessage(message);
-    homePage_->reset();
-    orderPage_->reset();
-    scanPage_->reset();
+    stationBrowserController_->reset();
+    orderController_->reset();
+    scanController_->reset();
+    profileController_->reset();
     mapController_->reset();
     pages_->setCurrentWidget(loginPage_);
 }

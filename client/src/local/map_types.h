@@ -11,6 +11,8 @@ namespace charging::client {
 enum class RouteMode {
     Driving,
     Walking,
+    Transit,
+    Cycling,
 };
 
 struct MapLocation {

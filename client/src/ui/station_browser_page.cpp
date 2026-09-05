@@ -485,6 +485,10 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
                              static_cast<int>(RouteMode::Driving));
     routeModeCombo_->addItem(QStringLiteral("步行"),
                              static_cast<int>(RouteMode::Walking));
+    routeModeCombo_->addItem(QStringLiteral("公共交通"),
+                             static_cast<int>(RouteMode::Transit));
+    routeModeCombo_->addItem(QStringLiteral("骑行"),
+                             static_cast<int>(RouteMode::Cycling));
     routePlanButton_ = new QPushButton(QStringLiteral("开始导航"), routeControlsCard);
     routePlanButton_->setObjectName(QStringLiteral("routePlanButton"));
     auto *routeOptions = new QHBoxLayout();
