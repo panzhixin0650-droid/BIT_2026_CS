@@ -1,6 +1,7 @@
 #include "ui/profile_page.h"
 
 #include <QDoubleValidator>
+#include <QButtonGroup>
 #include <QFileDialog>
 #include <QFrame>
 #include <QGridLayout>
@@ -22,9 +23,7 @@ QFrame *createCard(QWidget *parent)
 {
     auto *card = new QFrame(parent);
     card->setFrameShape(QFrame::StyledPanel);
-    card->setStyleSheet(QStringLiteral(
-        "QFrame { background: white; border: 1px solid #e4e7ec; "
-        "border-radius: 12px; } QLabel { border: none; }"));
+    card->setProperty("role", "card");
     return card;
 }
 
@@ -45,6 +44,9 @@ ProfilePage::ProfilePage(QWidget *parent)
     auto *contentLayout = new QVBoxLayout(content);
     contentLayout->setContentsMargins(20, 24, 20, 24);
     contentLayout->setSpacing(14);
+    auto *eyebrow = new QLabel(QStringLiteral("YOUR EVERYDAY ENERGY"), content);
+    eyebrow->setProperty("role", "eyebrow");
+    contentLayout->addWidget(eyebrow);
 
     auto *heading = new QLabel(QStringLiteral("我的"), content);
     heading->setObjectName(QStringLiteral("profileHeading"));
@@ -64,7 +66,7 @@ ProfilePage::ProfilePage(QWidget *parent)
     avatarLabel_->setFixedSize(64, 64);
     avatarLabel_->setAlignment(Qt::AlignCenter);
     avatarLabel_->setStyleSheet(QStringLiteral(
-        "background: #d0d5dd; color: white; border-radius: 32px; font-weight: 600;"));
+        "background: #acb8a6; color: white; border-radius: 32px; font-weight: 600;"));
     auto *changeAvatarButton = new QPushButton(QStringLiteral("更换头像"), identityCard);
     changeAvatarButton->setObjectName(QStringLiteral("changeAvatarButton"));
     changeAvatarButton->setFlat(true);
@@ -78,9 +80,11 @@ ProfilePage::ProfilePage(QWidget *parent)
     nicknameFont.setPointSize(15);
     nicknameFont.setBold(true);
     nicknameLabel_->setFont(nicknameFont);
+    nicknameLabel_->setWordWrap(true);
     phoneLabel_ = new QLabel(QStringLiteral("手机号：--"), identityCard);
     phoneLabel_->setObjectName(QStringLiteral("profilePhoneLabel"));
-    phoneLabel_->setStyleSheet(QStringLiteral("color: #667085;"));
+    phoneLabel_->setStyleSheet(QStringLiteral("color: #697969;"));
+    phoneLabel_->setWordWrap(true);
     identityTextLayout->addWidget(nicknameLabel_);
     identityTextLayout->addWidget(phoneLabel_);
 
@@ -88,9 +92,19 @@ ProfilePage::ProfilePage(QWidget *parent)
     refreshButton_->setObjectName(QStringLiteral("profileRefreshButton"));
     identityLayout->addLayout(avatarLayout);
     identityLayout->addLayout(identityTextLayout, 1);
-    identityLayout->addWidget(refreshButton_, 0, Qt::AlignTop);
+    identityTextLayout->addWidget(refreshButton_, 0, Qt::AlignLeft);
 
     auto *walletCard = createCard(content);
+    walletCard->setObjectName(QStringLiteral("profileWalletCard"));
+    walletCard->setStyleSheet(QStringLiteral(
+        "QFrame#profileWalletCard { background: #183f34; border: none; border-radius: 20px; }"
+        "QFrame#profileWalletCard QLabel { color: #dbe7d2; background: transparent; border: none; }"
+        "QFrame#profileWalletCard QPushButton[rechargeAmount] { background: #2c5041; color: #e8f0de; border-color: #52735b; }"
+        "QFrame#profileWalletCard QPushButton[rechargeAmount]:hover { background: #3c614d; }"
+        "QFrame#profileWalletCard QPushButton[rechargeAmount]:checked { background: #d5eab1; color: #243e2d; border-color: #d5eab1; }"
+        "QFrame#profileWalletCard QPushButton#rechargeButton { background: #d5eab1; color: #243e2d; border: none; }"
+        "QFrame#profileWalletCard QPushButton#rechargeButton:hover { background: #e5f4c7; }"
+        "QFrame#profileWalletCard QPushButton#rechargeButton:disabled { background: #697b60; color: #d0dbca; }"));
     auto *walletLayout = new QVBoxLayout(walletCard);
     walletLayout->setContentsMargins(18, 18, 18, 18);
     walletLayout->setSpacing(12);
@@ -101,15 +115,19 @@ ProfilePage::ProfilePage(QWidget *parent)
     balanceFont.setPointSize(30);
     balanceFont.setBold(true);
     balanceLabel_->setFont(balanceFont);
-    balanceLabel_->setStyleSheet(QStringLiteral("color: #155eef;"));
+    balanceLabel_->setStyleSheet(QStringLiteral("color: #f1f8dd;"));
 
     auto *quickAmounts = new QHBoxLayout();
+    quickAmounts->setSpacing(7);
+    auto *amountGroup = new QButtonGroup(walletCard);
     for (const QString &amount : {QStringLiteral("10"),
                                   QStringLiteral("20"),
                                   QStringLiteral("50"),
                                   QStringLiteral("100")}) {
         auto *button = new QPushButton(QStringLiteral("%1元").arg(amount), walletCard);
         button->setProperty("rechargeAmount", amount);
+        button->setCheckable(true);
+        amountGroup->addButton(button);
         connect(button, &QPushButton::clicked, this, [this, amount]() {
             rechargeInput_->setText(amount);
         });
@@ -121,6 +139,14 @@ ProfilePage::ProfilePage(QWidget *parent)
     rechargeInput_->setObjectName(QStringLiteral("rechargeAmountInput"));
     rechargeInput_->setPlaceholderText(QStringLiteral("输入充值金额（元）"));
     rechargeInput_->setValidator(new QDoubleValidator(0.01, 10000.0, 2, rechargeInput_));
+    rechargeInput_->setAccessibleName(QStringLiteral("充值金额，单位元"));
+    connect(rechargeInput_, &QLineEdit::textChanged, this, [amountGroup](const QString &text) {
+        amountGroup->setExclusive(false);
+        for (auto *button : amountGroup->buttons()) {
+            button->setChecked(text.toDouble() == button->property("rechargeAmount").toDouble());
+        }
+        amountGroup->setExclusive(true);
+    });
     rechargeButton_ = new QPushButton(QStringLiteral("充值"), walletCard);
     rechargeButton_->setObjectName(QStringLiteral("rechargeButton"));
     rechargeLayout->addWidget(rechargeInput_, 1);
@@ -241,7 +267,7 @@ void ProfilePage::showMessage(const QString &message, bool error)
 {
     messageLabel_->setText(message);
     messageLabel_->setStyleSheet(error ? QStringLiteral("color: #c62828;")
-                                       : QStringLiteral("color: #137333;"));
+                                       : QStringLiteral("color: #386a3c;"));
     messageLabel_->setVisible(!message.isEmpty());
 }
 

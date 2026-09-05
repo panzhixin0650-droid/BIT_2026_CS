@@ -70,6 +70,8 @@ add_library(charging_client_ui STATIC
     src/ui/charging_stop_dialog.h
     src/ui/client_theme.cpp
     src/ui/client_theme.h
+    src/ui/charging_art.cpp
+    src/ui/charging_art.h
     src/ui/login_controller.cpp
     src/ui/login_controller.h
     src/ui/login_page.cpp

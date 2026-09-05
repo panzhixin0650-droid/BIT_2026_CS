@@ -11,6 +11,7 @@ enum class NavigationIcon {
     Scan,
     Support,
     Profile,
+    Route,
 };
 
 [[nodiscard]] QString clientThemeStyleSheet();
