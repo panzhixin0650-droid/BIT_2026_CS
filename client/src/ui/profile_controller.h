@@ -30,9 +30,18 @@ signals:
     void loggedOut();
     void authenticationRequired(const QString &message);
     void profileChanged(const charging::protocol::UserDto &user);
+    void pendingOrderSettled(const PaymentPayload &result);
 
 private:
-    enum class PendingAction { None, Refresh, UpdateNickname, Recharge, Logout };
+    enum class PendingAction {
+        None,
+        Refresh,
+        UpdateNickname,
+        Recharge,
+        RechargeCheckCurrentOrder,
+        RechargePayPendingOrder,
+        Logout,
+    };
 
     void updateNickname(const QString &nickname);
     void recharge(const QString &amountYuan);
@@ -41,6 +50,8 @@ private:
     void handleProfileCompleted(const UserResult &result);
     void handleProfileUpdateCompleted(const UserResult &result);
     void handleRechargeCompleted(const RechargeResult &result);
+    void handleRechargeCurrentOrder(const CurrentOrderResult &result);
+    void handleRechargePayment(const PaymentResult &result);
     void handleLogoutCompleted(const LogoutResult &result);
     [[nodiscard]] bool acceptResult(const ApiResponse &response,
                                     PendingAction action,

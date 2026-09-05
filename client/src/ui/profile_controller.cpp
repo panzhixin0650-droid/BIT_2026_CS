@@ -40,6 +40,14 @@ ProfileController::ProfileController(ProfilePage &page,
             this,
             &ProfileController::handleRechargeCompleted);
     connect(&api_,
+            &IChargingApi::currentOrderCompleted,
+            this,
+            &ProfileController::handleRechargeCurrentOrder);
+    connect(&api_,
+            &IChargingApi::paymentCompleted,
+            this,
+            &ProfileController::handleRechargePayment);
+    connect(&api_,
             &IChargingApi::logoutCompleted,
             this,
             &ProfileController::handleLogoutCompleted);
@@ -181,14 +189,81 @@ void ProfileController::handleRechargeCompleted(const RechargeResult &result)
         return;
     }
 
-    finishRequest();
     if (!result.ok() || !result.payload.has_value()) {
+        finishRequest();
         showFailure(result.response);
         return;
     }
 
     page_.setBalance(result.payload->balanceCents);
-    page_.showMessage(QStringLiteral("充值成功，余额已刷新"));
+    page_.showMessage(QStringLiteral("充值成功，正在检查待支付订单…"));
+    pendingAction_ = PendingAction::RechargeCheckCurrentOrder;
+    pendingRequestId_ = api_.getCurrentOrder();
+}
+
+void ProfileController::handleRechargeCurrentOrder(const CurrentOrderResult &result)
+{
+    if (!acceptResult(result.response,
+                      PendingAction::RechargeCheckCurrentOrder,
+                      protocol::MessageType::OrderCurrent)) {
+        return;
+    }
+
+    if (!result.ok() || !result.payload.has_value()) {
+        finishRequest();
+        if (result.response.code == protocol::ErrorCode::InvalidSession) {
+            emit authenticationRequired(QStringLiteral("登录状态已失效，请重新登录"));
+            return;
+        }
+        page_.showMessage(
+            QStringLiteral("充值成功；%1")
+                .arg(apiErrorMessage(
+                    result.response,
+                    QStringLiteral("未能检查待支付订单，请前往订单页手动核对"))),
+            true);
+        return;
+    }
+
+    if (!result.payload->order.has_value()
+        || result.payload->order->status != protocol::OrderStatus::PendingPayment) {
+        finishRequest();
+        page_.showMessage(QStringLiteral("充值成功，余额已刷新"));
+        return;
+    }
+
+    page_.showMessage(QStringLiteral("充值成功，正在自动结算待支付订单…"));
+    pendingAction_ = PendingAction::RechargePayPendingOrder;
+    pendingRequestId_ = api_.payOrder(result.payload->order->orderId);
+}
+
+void ProfileController::handleRechargePayment(const PaymentResult &result)
+{
+    if (!acceptResult(result.response,
+                      PendingAction::RechargePayPendingOrder,
+                      protocol::MessageType::OrderPay)) {
+        return;
+    }
+
+    finishRequest();
+    if (!result.ok() || !result.payload.has_value()) {
+        if (result.response.code == protocol::ErrorCode::InvalidSession) {
+            emit authenticationRequired(QStringLiteral("登录状态已失效，请重新登录"));
+            return;
+        }
+        const QString fallback =
+            result.response.code == protocol::ErrorCode::InsufficientBalance
+            ? QStringLiteral("余额仍不足，待支付订单尚未结算")
+            : QStringLiteral("自动结算失败，请前往订单页核对后重试");
+        page_.showMessage(
+            QStringLiteral("充值成功；%1")
+                .arg(apiErrorMessage(result.response, fallback)),
+            true);
+        return;
+    }
+
+    page_.setBalance(result.payload->balanceCents);
+    page_.showMessage(QStringLiteral("充值成功，待支付订单已自动结算"));
+    emit pendingOrderSettled(*result.payload);
 }
 
 void ProfileController::handleLogoutCompleted(const LogoutResult &result)
