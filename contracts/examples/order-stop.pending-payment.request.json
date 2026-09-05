@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "type": "order.stop",
+  "requestId": "fixture-order-stop.pending-payment",
+  "token": "fixture-token",
+  "data": {
+    "orderId": 1001
+  }
+}

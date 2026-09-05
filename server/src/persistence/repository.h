@@ -22,6 +22,9 @@ public:
     void close();
     [[nodiscard]] bool isOpen() const noexcept;
     [[nodiscard]] bool lastOperationSucceeded() const noexcept override;
+    [[nodiscard]] bool beginTransaction() override;
+    [[nodiscard]] bool commitTransaction() override;
+    void rollbackTransaction() override;
 
     [[nodiscard]] std::optional<AdminRecord>
     findAdminByUsername(const QString &username) const override;
@@ -64,7 +67,14 @@ public:
         const charging::protocol::PileDto &pile) override;
 
     [[nodiscard]] QList<charging::protocol::OrderDto>
-    listOrders() const override;
+    listOrders(std::optional<qint64> userId = std::nullopt) const override;
+    [[nodiscard]] std::optional<charging::protocol::OrderDto>
+    findOrderById(qint64 orderId) const override;
+    [[nodiscard]] charging::protocol::OrderDto createOrder(
+        charging::protocol::OrderDto order) override;
+    [[nodiscard]] bool updateOrder(
+        const charging::protocol::OrderDto &order,
+        charging::protocol::OrderStatus expectedStatus) override;
 
 private:
     void beginOperation() const noexcept;
@@ -73,6 +83,7 @@ private:
 
     QString connectionName_;
     QSqlDatabase database_;
+    bool transactionOpen_ = false;
     mutable bool lastOperationSucceeded_ = true;
 };
 

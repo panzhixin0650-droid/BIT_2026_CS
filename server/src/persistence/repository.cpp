@@ -233,7 +233,7 @@ QString pileSelectSql(const QString &whereClause = {})
               "p.rated_power_kw, p.status ORDER BY p.pile_id");
 }
 
-QString orderSelectSql()
+QString orderSelectSql(const QString &whereClause = {})
 {
     return QStringLiteral(
         "SELECT o.order_id, o.order_no, o.created_at, o.user_id, "
@@ -242,8 +242,25 @@ QString orderSelectSql()
         "o.duration_seconds, o.energy_wh, o.unit_price_cents_per_kwh, "
         "o.amount_cents FROM charging_orders AS o "
         "JOIN charging_piles AS p ON p.pile_id = o.pile_id "
-        "JOIN charging_stations AS s ON s.station_id = p.station_id "
-        "ORDER BY o.created_at DESC, o.order_id DESC");
+        "JOIN charging_stations AS s ON s.station_id = p.station_id ")
+        + whereClause
+        + QStringLiteral(" ORDER BY o.created_at DESC, o.order_id DESC");
+}
+
+void bindOrderValues(QSqlQuery &query, const OrderDto &order)
+{
+    const auto optionalText = [](const std::optional<QString> &value) {
+        return value.has_value() ? QVariant(*value) : QVariant{};
+    };
+    query.bindValue(QStringLiteral(":status"), toString(order.status));
+    query.bindValue(QStringLiteral(":started_at"), optionalText(order.startedAt));
+    query.bindValue(QStringLiteral(":ended_at"), optionalText(order.endedAt));
+    query.bindValue(QStringLiteral(":paid_at"), optionalText(order.paidAt));
+    query.bindValue(QStringLiteral(":duration"), order.durationSeconds);
+    query.bindValue(QStringLiteral(":energy"), order.energyWh);
+    query.bindValue(QStringLiteral(":price"), order.unitPriceCentsPerKwh.has_value()
+                        ? QVariant(*order.unitPriceCentsPerKwh) : QVariant{});
+    query.bindValue(QStringLiteral(":amount"), order.amountCents);
 }
 
 }  // namespace
@@ -337,6 +354,7 @@ bool Repository::open(const QString &databasePath, QString *error)
 
 void Repository::close()
 {
+    rollbackTransaction();
     if (!database_.isValid()) {
         return;
     }
@@ -1032,7 +1050,49 @@ bool Repository::updatePile(const PileDto &pile)
     return query.numRowsAffected() == 1;
 }
 
-QList<OrderDto> Repository::listOrders() const
+bool Repository::beginTransaction()
+{
+    beginOperation();
+    const QString operation = QStringLiteral("beginOrderTransaction");
+    if (!requireOpen(operation)) return false;
+    if (transactionOpen_) {
+        failOperation(operation, QStringLiteral("nested transaction"));
+        return false;
+    }
+    QSqlQuery query(database_);
+    if (!query.exec(QStringLiteral("BEGIN IMMEDIATE"))) {
+        failOperation(operation, query.lastError().text());
+        return false;
+    }
+    transactionOpen_ = true;
+    return true;
+}
+
+bool Repository::commitTransaction()
+{
+    beginOperation();
+    const QString operation = QStringLiteral("commitOrderTransaction");
+    if (!requireOpen(operation) || !transactionOpen_) return false;
+    if (!database_.commit()) {
+        failOperation(operation, database_.lastError().text());
+        return false;
+    }
+    transactionOpen_ = false;
+    return true;
+}
+
+void Repository::rollbackTransaction()
+{
+    if (!transactionOpen_) return;
+    if (!database_.rollback()) {
+        failOperation(QStringLiteral("rollbackOrderTransaction"),
+                      database_.lastError().text());
+        return;
+    }
+    transactionOpen_ = false;
+}
+
+QList<OrderDto> Repository::listOrders(std::optional<qint64> userId) const
 {
     beginOperation();
     const QString operation = QStringLiteral("listOrders");
@@ -1042,7 +1102,13 @@ QList<OrderDto> Repository::listOrders() const
     }
 
     QSqlQuery query(database_);
-    if (!query.exec(orderSelectSql())) {
+    if (!query.prepare(orderSelectSql(userId.has_value()
+            ? QStringLiteral("WHERE o.user_id = :user_id") : QString{}))) {
+        failOperation(operation, query.lastError().text());
+        return {};
+    }
+    if (userId.has_value()) query.bindValue(QStringLiteral(":user_id"), *userId);
+    if (!query.exec()) {
         failOperation(operation, query.lastError().text());
         return {};
     }
@@ -1055,6 +1121,85 @@ QList<OrderDto> Repository::listOrders() const
         orders.append(order);
     }
     return orders;
+}
+
+std::optional<OrderDto> Repository::findOrderById(qint64 orderId) const
+{
+    beginOperation();
+    const QString operation = QStringLiteral("findOrderById");
+    if (!requireOpen(operation)) return std::nullopt;
+    QSqlQuery query(database_);
+    if (!query.prepare(orderSelectSql(QStringLiteral("WHERE o.order_id = :order_id")))) {
+        failOperation(operation, query.lastError().text());
+        return std::nullopt;
+    }
+    query.bindValue(QStringLiteral(":order_id"), orderId);
+    if (!query.exec()) {
+        failOperation(operation, query.lastError().text());
+        return std::nullopt;
+    }
+    if (!query.next()) return std::nullopt;
+    OrderDto order;
+    if (!readOrder(query, &order)) {
+        failOperation(operation, QStringLiteral("invalid order value in database"));
+        return std::nullopt;
+    }
+    return order;
+}
+
+OrderDto Repository::createOrder(OrderDto order)
+{
+    beginOperation();
+    const QString operation = QStringLiteral("createOrder");
+    if (!requireOpen(operation) || !transactionOpen_) return {};
+    QSqlQuery query(database_);
+    if (!query.prepare(QStringLiteral(
+            "INSERT INTO charging_orders (order_no, user_id, pile_id, mode, status, "
+            "reserved_at, started_at, ended_at, paid_at, duration_seconds, energy_wh, "
+            "unit_price_cents_per_kwh, amount_cents, created_at) "
+            "VALUES (:order_no, :user_id, :pile_id, :mode, :status, :reserved_at, "
+            ":started_at, :ended_at, :paid_at, :duration, :energy, :price, :amount, :created_at)"))) {
+        failOperation(operation, query.lastError().text());
+        return {};
+    }
+    bindOrderValues(query, order);
+    query.bindValue(QStringLiteral(":order_no"), order.orderNo);
+    query.bindValue(QStringLiteral(":user_id"), order.userId);
+    query.bindValue(QStringLiteral(":pile_id"), order.pileId);
+    query.bindValue(QStringLiteral(":mode"), toString(order.mode));
+    query.bindValue(QStringLiteral(":reserved_at"), order.reservedAt.has_value()
+                        ? QVariant(*order.reservedAt) : QVariant{});
+    query.bindValue(QStringLiteral(":created_at"), order.createdAt);
+    if (!query.exec()) {
+        failOperation(operation, query.lastError().text());
+        return {};
+    }
+    const auto saved = findOrderById(query.lastInsertId().toLongLong());
+    return saved.value_or(OrderDto{});
+}
+
+bool Repository::updateOrder(const OrderDto &order, OrderStatus expectedStatus)
+{
+    beginOperation();
+    const QString operation = QStringLiteral("updateOrder");
+    if (!requireOpen(operation) || !transactionOpen_) return false;
+    QSqlQuery query(database_);
+    if (!query.prepare(QStringLiteral(
+            "UPDATE charging_orders SET status = :status, started_at = :started_at, "
+            "ended_at = :ended_at, paid_at = :paid_at, duration_seconds = :duration, "
+            "energy_wh = :energy, unit_price_cents_per_kwh = :price, amount_cents = :amount "
+            "WHERE order_id = :order_id AND status = :expected_status"))) {
+        failOperation(operation, query.lastError().text());
+        return false;
+    }
+    bindOrderValues(query, order);
+    query.bindValue(QStringLiteral(":order_id"), order.orderId);
+    query.bindValue(QStringLiteral(":expected_status"), toString(expectedStatus));
+    if (!query.exec()) {
+        failOperation(operation, query.lastError().text());
+        return false;
+    }
+    return query.numRowsAffected() == 1;
 }
 
 }  // namespace charging::server

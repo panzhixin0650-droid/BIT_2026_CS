@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "type": "order.current",
+  "requestId": "fixture-order-current.empty",
+  "code": 0,
+  "message": "OK",
+  "data": {
+    "order": null
+  }
+}

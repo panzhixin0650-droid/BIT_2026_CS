@@ -37,6 +37,12 @@ public:
     // never exposes the underlying SQL error to callers.
     [[nodiscard]] virtual bool lastOperationSucceeded() const noexcept = 0;
 
+    // ApplicationService owns the order transaction. SQL and connection
+    // details stay here; future ledger/history writes can join this boundary.
+    [[nodiscard]] virtual bool beginTransaction() = 0;
+    [[nodiscard]] virtual bool commitTransaction() = 0;
+    virtual void rollbackTransaction() = 0;
+
     [[nodiscard]] virtual std::optional<AdminRecord>
     findAdminByUsername(const QString &username) const = 0;
 
@@ -78,7 +84,14 @@ public:
         const charging::protocol::PileDto &pile) = 0;
 
     [[nodiscard]] virtual QList<charging::protocol::OrderDto>
-    listOrders() const = 0;
+    listOrders(std::optional<qint64> userId = std::nullopt) const = 0;
+    [[nodiscard]] virtual std::optional<charging::protocol::OrderDto>
+    findOrderById(qint64 orderId) const = 0;
+    [[nodiscard]] virtual charging::protocol::OrderDto createOrder(
+        charging::protocol::OrderDto order) = 0;
+    [[nodiscard]] virtual bool updateOrder(
+        const charging::protocol::OrderDto &order,
+        charging::protocol::OrderStatus expectedStatus) = 0;
 };
 
 }  // namespace charging::server

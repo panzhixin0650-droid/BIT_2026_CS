@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "type": "order.list",
+  "requestId": "fixture-order-list",
+  "code": 0,
+  "message": "OK",
+  "data": {
+    "items": [
+      {
+        "orderId": 1001,
+        "orderNo": "ORD-20260902-1001",
+        "createdAt": "2026-09-02T19:00:00Z",
+        "userId": 1,
+        "stationId": 1,
+        "stationName": "浑南演示充电站",
+        "pileId": 1,
+        "pileCode": "PILE-A-01",
+        "mode": "RESERVATION",
+        "status": "COMPLETED",
+        "reservedAt": "2026-09-02T19:00:00Z",
+        "startedAt": "2026-09-02T19:05:00Z",
+        "endedAt": "2026-09-02T19:35:00Z",
+        "paidAt": "2026-09-02T19:35:00Z",
+        "durationSeconds": 1800,
+        "energyWh": 5000,
+        "unitPriceCentsPerKwh": 135,
+        "amountCents": 675
+      }
+    ]
+  }
+}

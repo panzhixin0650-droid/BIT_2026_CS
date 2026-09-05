@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "order.cancel",
+  "requestId": "fixture-order-cancel.forbidden",
+  "code": 40301,
+  "message": "FORBIDDEN",
+  "data": {}
+}

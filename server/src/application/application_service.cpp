@@ -1,7 +1,7 @@
 #include "application_service.h"
 
 #include "application/session_store.h"
-#include "adapters/mock_pile.h"
+#include "adapters/i_pile_gateway.h"
 #include "adapters/mock_prediction_provider.h"
 #include "charging/protocol/protocol_constants.h"
 #include "persistence/i_repository.h"
@@ -108,7 +108,7 @@ QJsonArray pilesToJson(const QList<PileDto> &piles)
 
 ApplicationService::ApplicationService(IRepository *repository,
                                        SessionStore *sessions,
-                                       MockPile *pileGateway,
+                                       IPileGateway *pileGateway,
                                        MockPredictionProvider *predictions,
                                        QObject *parent)
     : QObject(parent)
@@ -1050,7 +1050,9 @@ ServiceResult ApplicationService::listAdminOrders() const
         return internalError();
     }
     QJsonArray items;
-    for (const OrderDto &order : orders) {
+    const QDateTime now = QDateTime::currentDateTimeUtc();
+    for (OrderDto order : orders) {
+        if (!refreshOrderReading(&order, now)) return internalError();
         items.append(toJson(order));
     }
     return ServiceResult::success({{QStringLiteral("items"), items}});

@@ -10,6 +10,7 @@
 - [`logic.md`](logic.md)：当前业务规则和管理员端交互逻辑；
 - [`improvement.md`](improvement.md)：已确认改进项及实现记录。
 - [`使用说明.md`](使用说明.md)：管理员端页面、单击/双击/右键、导航、搜索筛选和业务操作说明；启动服务端前 Agent 必须阅读。
+- [`order-flow.md`](order-flow.md)：当前订单闭环、事务边界、客户端联调步骤和测试。
 
 ## 边界
 
@@ -39,13 +40,14 @@ tests/               服务端单元测试
 
 - `server-app`：启动管理员登录页和管理后台，并默认在 `127.0.0.1:45678` 监听 TCP；
 - `TcpGateway`：复用 `shared/protocol` 处理长度帧和 JSON，请求按顺序交给路由；
-- `RequestRouter` / `ApplicationService`：已打通 ping、用户登录/退出、资料、充值和站点查询；
-- `Repository`：通过 QSQLITE 实现当前用户、管理员、站点、电桩和订单查询，连接后校验外键、结构版本与五张 Demo 表；
+- `RequestRouter` / `ApplicationService`：已打通 ping、用户登录/退出、资料、充值、站点查询及 8 个订单接口；
+- `Repository`：通过 QSQLITE 实现用户、管理员、站点、电桩和订单的数据访问，以及订单事务读写；连接后校验外键、结构版本与五张 Demo 表；
 - `InMemoryRepository`：保留为显式启用的开发和单元测试替身，进程退出后修改丢失；
 - 管理员 UI：支持登录、7/30 日及自定义日期概览、站点搜索/筛选/新增/安全删除和站内电桩展开（新增站点时可编辑初始电桩编号、类型和功率）、电桩搜索/筛选/新增/安全删除/上线/下线/重启/故障标记、用户查询及冻结/解冻、订单查看，以及站点/电桩/用户/订单详情；
 - `AdminFacade`：所有管理员界面操作均通过 `ApplicationService`，UI 不直接访问 Repository；
 - `charging_server_tests`：覆盖基础 TCP 业务、管理员登录、Dashboard、自定义日期、站点新增/安全删除、电桩生命周期和冻结限制；
 - `charging_repository_tests`：在临时 SQLite 数据库中覆盖种子读取、派生聚合、持久化、结构拒绝、站点/电桩安全删除和事务回滚。
+- `charging_order_flow_tests`：对 SQLite 和内存替身验证预约、取消、直接/预约充电、实时读数、自动结算、充值补付、归属/状态校验和失败回滚，并用客户端 `TcpChargingApi` 对接真实 `TcpGateway`。
 
 `server-app` 默认使用 SQLite，但不在运行时创建数据库或执行迁移。启动前按
 [`database/README.md`](../database/README.md) 初始化数据库；服务端会拒绝不存在的文件、未知 `user_version` 或缺少 Demo 表的数据库。该切换不改变 UI、TCP 和 ApplicationService 对外语义。
@@ -56,7 +58,13 @@ SQLite 作为 `server-app` 内的嵌入式数据库直接读写本地文件，�
 - `system.ping`；
 - `auth.user.login`、`auth.logout`；
 - `user.profile.get`、`user.profile.update`、`wallet.recharge`；
-- `station.list`、`station.detail`。
+- `station.list`、`station.detail`；
+- `order.current`、`order.reserve`、`order.cancel`、`order.start`；
+- `order.progress`、`order.stop`、`order.pay`、`order.list`。
+
+订单写操作由 `ApplicationService` 在同一事务中编排，SQLite 使用 `BEGIN IMMEDIATE`，任何中途失败均回滚订单、桩状态和余额。进度只在返回时读取 Mock，不逐次写库；开始时冻结站点单价，停止后冻结最终账单。重复停止/补支付返回 `40903`，不会再次扣款。
+
+`prediction.latest` 仍未接入。当前订单使用现有五表和 V1，不启用预约到期、违约、分时计费、退款或报修状态；未来接入位置见[订单扩展候选说明](../docs/extension/order-evolution.md)。
 
 数据库演示数据可用 `13800000001` 登录；`13800000004` 是冻结用户失败场景，`13800000005` 是待支付场景。编号迁移和种子始终是数据库事实源。
 

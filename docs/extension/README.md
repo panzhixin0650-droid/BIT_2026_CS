@@ -6,6 +6,7 @@
 
 - [`cs-contract-extension-reference.md`](cs-contract-extension-reference.md)：复杂 C/S 消息、DTO、权限和可靠性候选设计。
 - [`database-extension-reference.md`](database-extension-reference.md)：24 表数据库、事务、指标和运维候选设计。
+- [`order-evolution.md`](order-evolution.md)：对照外部需求矩阵的订单扩展候选，以及当前 Demo 的接入边界；状态为 `IDEA`。
 
 ## 使用方式
 

@@ -13,6 +13,9 @@ public:
     InMemoryRepository();
 
     [[nodiscard]] bool lastOperationSucceeded() const noexcept override;
+    [[nodiscard]] bool beginTransaction() override;
+    [[nodiscard]] bool commitTransaction() override;
+    void rollbackTransaction() override;
 
     [[nodiscard]] std::optional<AdminRecord>
     findAdminByUsername(const QString &username) const override;
@@ -55,7 +58,14 @@ public:
         const charging::protocol::PileDto &pile) override;
 
     [[nodiscard]] QList<charging::protocol::OrderDto>
-    listOrders() const override;
+    listOrders(std::optional<qint64> userId = std::nullopt) const override;
+    [[nodiscard]] std::optional<charging::protocol::OrderDto>
+    findOrderById(qint64 orderId) const override;
+    [[nodiscard]] charging::protocol::OrderDto createOrder(
+        charging::protocol::OrderDto order) override;
+    [[nodiscard]] bool updateOrder(
+        const charging::protocol::OrderDto &order,
+        charging::protocol::OrderStatus expectedStatus) override;
 
 private:
     [[nodiscard]] charging::protocol::StationDto withPileCounts(
@@ -69,6 +79,19 @@ private:
     qint64 nextUserId_ = 1;
     qint64 nextStationId_ = 1;
     qint64 nextPileId_ = 1;
+    qint64 nextOrderId_ = 1007;
+
+    struct Snapshot {
+        QList<charging::protocol::UserDto> users;
+        QList<charging::protocol::StationDto> stations;
+        QList<charging::protocol::PileDto> piles;
+        QList<charging::protocol::OrderDto> orders;
+        qint64 nextUserId;
+        qint64 nextStationId;
+        qint64 nextPileId;
+        qint64 nextOrderId;
+    };
+    std::optional<Snapshot> transaction_;
 };
 
 }  // namespace charging::server

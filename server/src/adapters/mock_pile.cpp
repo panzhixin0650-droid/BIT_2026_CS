@@ -22,6 +22,7 @@ bool MockPile::start(qint64 pileId,
         }
         return false;
     }
+    readings_.insert(pileId, {startedAt, {}});
     clearError(error);
     return true;
 }
@@ -34,9 +35,13 @@ PileReading MockPile::read(qint64 pileId,
         return {};
     }
 
-    const qint64 duration = qMax<qint64>(0, startedAt.secsTo(now));
+    SessionReading &session = readings_[pileId];
+    if (session.startedAt != startedAt) session = {startedAt, {}};
+    const qint64 duration = qMax<qint64>(session.reading.durationSeconds,
+                                        qMax<qint64>(0, startedAt.secsTo(now)));
     // A deterministic 7.2 kW demo curve: two Wh per elapsed second.
-    return {duration, duration * 2};
+    session.reading = {duration, duration * 2};
+    return session.reading;
 }
 
 PileReading MockPile::stop(qint64 pileId,
@@ -57,7 +62,8 @@ bool MockPile::restart(qint64 pileId,
         return false;
     }
     if (status == charging::protocol::PileStatus::Reserved
-        || status == charging::protocol::PileStatus::Charging) {
+        || status == charging::protocol::PileStatus::Charging
+        || status == charging::protocol::PileStatus::Fault) {
         if (error != nullptr) {
             *error = QStringLiteral("pile is in use");
         }

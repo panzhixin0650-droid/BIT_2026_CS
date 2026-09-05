@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "type": "order.pay",
+  "requestId": "fixture-order-pay",
+  "token": "fixture-token",
+  "data": {
+    "orderId": 1001
+  }
+}
