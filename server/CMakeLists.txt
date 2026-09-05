@@ -109,6 +109,31 @@ if(BUILD_TESTING)
 
     add_test(NAME charging_server_tests COMMAND charging_server_tests)
 
+    add_executable(charging_admin_ui_tests
+        tests/admin_ui_tests.cpp
+        src/admin_ui/admin_window.cpp
+        src/admin_ui/admin_facade.cpp
+        src/admin_ui/pile_status_chart.cpp
+        src/admin_ui/revenue_chart.cpp
+        src/application/application_service.cpp
+        src/application/order_service.cpp
+        src/application/session_store.cpp
+        src/persistence/in_memory_repository.cpp
+        src/adapters/mock_pile.cpp
+        src/adapters/mock_prediction_provider.cpp
+        resources/server_resources.qrc
+    )
+    target_include_directories(charging_admin_ui_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_link_libraries(charging_admin_ui_tests PRIVATE
+        charging_protocol Qt6::Widgets Qt6::Test
+    )
+    add_test(NAME charging_admin_ui_tests COMMAND charging_admin_ui_tests)
+    set_tests_properties(charging_admin_ui_tests PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
     add_executable(charging_repository_tests
         tests/repository_tests.cpp
         src/persistence/repository.cpp
