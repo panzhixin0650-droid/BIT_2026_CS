@@ -29,10 +29,12 @@ mkdir -p build/database
 demo_database=build/database/demo.db
 sqlite3 -batch -bail "$demo_database" < database/migrations/001_initial_demo.sql
 sqlite3 -batch -bail "$demo_database" < database/seeds/demo.sql
+sqlite3 -batch -bail "$demo_database" < database/seeds/expansion_20_20_100_200.sql
 sqlite3 -batch -bail "$demo_database" < database/tests/verify_demo.sql
+sqlite3 -batch -bail "$demo_database" < database/tests/verify_expansion.sql
 ```
 
-最后一条命令输出 `database verification: OK` 即表示迁移、种子、完整性、外键和核心场景一致。迁移只对新库执行一次；`demo.sql` 可重复执行且不会重复插入固定演示数据。需要重新得到标准演示状态时，应在 `build/` 下创建一个新数据库，而不是改写或删除已经共享的迁移。
+最后两条命令分别输出 `database verification: OK` 和 `expansion verification: OK`，表示默认扩容数据库通过验证。迁移只对新库执行一次；两个种子均可重复执行且不会重复插入固定演示数据。
 
 需要扩大演示数据时，在执行 `demo.sql` 后再执行：
 
