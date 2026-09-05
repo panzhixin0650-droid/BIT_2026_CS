@@ -5,6 +5,9 @@
 #include "ui/api_error_message.h"
 #include "ui/station_browser_page.h"
 
+#include <QAbstractButton>
+#include <QMessageBox>
+
 namespace charging::client {
 
 StationBrowserController::StationBrowserController(StationBrowserPage &page,
@@ -228,12 +231,14 @@ void StationBrowserController::handleCurrentOrder(const CurrentOrderResult &resu
     }
     if (result.payload->order.has_value()) {
         page_.setReservationBusy(false);
-        page_.showListPage();
         const protocol::OrderStatus status = result.payload->order->status;
+        if (status == protocol::OrderStatus::PendingPayment) {
+            emit currentOrderRequiresAttention(status);
+            return;
+        }
+        page_.showListPage();
         page_.showListMessage(
-            status == protocol::OrderStatus::PendingPayment
-                ? QStringLiteral("您有待支付订单，请先完成结算")
-                : QStringLiteral("您已有进行中的订单，请先处理当前订单"),
+            QStringLiteral("您已有进行中的订单，请先处理当前订单"),
             true);
         emit currentOrderRequiresAttention(status);
         return;
@@ -272,6 +277,16 @@ void StationBrowserController::handleReservation(const OrderResult &result)
         }
         return;
     }
+
+    QMessageBox confirmation(QMessageBox::Information,
+                             QStringLiteral("预约成功"),
+                             QStringLiteral("已成功预约充电桩 %1。")
+                                 .arg(result.payload->order.pileCode),
+                             QMessageBox::Ok,
+                             &page_);
+    confirmation.setObjectName(QStringLiteral("reservationSuccessDialog"));
+    confirmation.button(QMessageBox::Ok)->setText(QStringLiteral("知道了"));
+    confirmation.exec();
 
     page_.showListPage();
     page_.showListMessage(QStringLiteral("预约成功"));

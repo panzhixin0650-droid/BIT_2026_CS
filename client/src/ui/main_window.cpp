@@ -17,8 +17,10 @@
 #include "ui/station_browser_controller.h"
 #include "ui/station_browser_page.h"
 
+#include <QAbstractButton>
 #include <QFrame>
 #include <QLabel>
+#include <QMessageBox>
 #include <QSizePolicy>
 #include <QStackedWidget>
 #include <QTabBar>
@@ -26,6 +28,22 @@
 #include <QVBoxLayout>
 
 namespace charging::client {
+
+namespace {
+
+void showPendingPaymentNotice(QWidget *parent)
+{
+    QMessageBox notice(QMessageBox::Warning,
+                       QStringLiteral("存在待支付订单"),
+                       QStringLiteral("您有待支付订单，请先完成结算。"),
+                       QMessageBox::Ok,
+                       parent);
+    notice.setObjectName(QStringLiteral("pendingPaymentDialog"));
+    notice.button(QMessageBox::Ok)->setText(QStringLiteral("前往订单"));
+    notice.exec();
+}
+
+}  // namespace
 
 MainWindow::MainWindow(IChargingApi &api, QWidget *parent)
     : QMainWindow(parent)
@@ -188,6 +206,7 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService)
             &StationBrowserController::currentOrderRequiresAttention,
             this, [this](protocol::OrderStatus status) {
                 if (status == protocol::OrderStatus::PendingPayment) {
+                    showPendingPaymentNotice(this);
                     mainTabs_->setCurrentWidget(orderPage_);
                 } else {
                     mainTabs_->setCurrentWidget(homePage_);
@@ -228,6 +247,7 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService)
     connect(scanController_, &ScanController::currentOrderRequiresAttention,
             this, [this](protocol::OrderStatus status) {
                 if (status == protocol::OrderStatus::PendingPayment) {
+                    showPendingPaymentNotice(this);
                     mainTabs_->setCurrentWidget(orderPage_);
                 } else {
                     mainTabs_->setCurrentWidget(homePage_);
