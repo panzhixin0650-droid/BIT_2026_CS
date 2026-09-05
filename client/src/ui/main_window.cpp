@@ -23,8 +23,11 @@
 #include <QFrame>
 #include <QLabel>
 #include <QMessageBox>
+#include <QPaintEvent>
 #include <QSizePolicy>
 #include <QStackedWidget>
+#include <QStyleOptionTab>
+#include <QStylePainter>
 #include <QTabBar>
 #include <QTabWidget>
 #include <QVBoxLayout>
@@ -32,6 +35,80 @@
 namespace charging::client {
 
 namespace {
+
+class NavigationTabBar final : public QTabBar {
+public:
+    explicit NavigationTabBar(QWidget *parent = nullptr)
+        : QTabBar(parent)
+    {
+    }
+
+    QSize tabSizeHint(int index) const override
+    {
+        QSize size = QTabBar::tabSizeHint(index);
+        size.setWidth(64);
+        size.setHeight(64);
+        return size;
+    }
+
+protected:
+    void paintEvent(QPaintEvent *event) override
+    {
+        Q_UNUSED(event)
+        QStylePainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+
+        for (int index = 0; index < count(); ++index) {
+            QStyleOptionTab option;
+            initStyleOption(&option, index);
+            painter.drawControl(QStyle::CE_TabBarTabShape, option);
+
+            const bool selected = option.state.testFlag(QStyle::State_Selected);
+            const bool hovered = option.state.testFlag(QStyle::State_MouseOver);
+            const bool enabled = option.state.testFlag(QStyle::State_Enabled);
+            const QRect content = option.rect.adjusted(2, 5, -2, -4);
+            const QSize drawnIconSize(27, 27);
+            const QRect iconRect(content.center().x() - drawnIconSize.width() / 2,
+                                 content.top(),
+                                 drawnIconSize.width(),
+                                 drawnIconSize.height());
+            const QIcon::Mode iconMode = !enabled ? QIcon::Disabled
+                : selected ? QIcon::Selected
+                           : hovered ? QIcon::Active : QIcon::Normal;
+            option.icon.paint(&painter,
+                              iconRect,
+                              Qt::AlignCenter,
+                              iconMode,
+                              QIcon::Off);
+
+            const QRect textRect(content.left(),
+                                 iconRect.bottom() + 3,
+                                 content.width(),
+                                 content.bottom() - iconRect.bottom() - 2);
+            const QColor textColor = !enabled ? QColor(QStringLiteral("#98a2b3"))
+                : selected ? QColor(QStringLiteral("#155eef"))
+                           : hovered ? QColor(QStringLiteral("#155eef"))
+                                     : QColor(QStringLiteral("#667085"));
+            QFont labelFont = painter.font();
+            labelFont.setPointSize(9);
+            labelFont.setWeight(selected ? QFont::DemiBold : QFont::Medium);
+            painter.setFont(labelFont);
+            painter.setPen(textColor);
+            painter.drawText(textRect,
+                             Qt::AlignHCenter | Qt::AlignTop,
+                             option.text);
+        }
+    }
+};
+
+class NavigationTabWidget final : public QTabWidget {
+public:
+    explicit NavigationTabWidget(QWidget *parent = nullptr)
+        : QTabWidget(parent)
+    {
+        setTabBar(new NavigationTabBar(this));
+    }
+};
 
 void showPendingPaymentNotice(QWidget *parent)
 {
@@ -134,10 +211,11 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
     pages_->setObjectName(QStringLiteral("applicationPages"));
     loginPage_ = new LoginPage(pages_);
 
-    mainTabs_ = new QTabWidget(pages_);
+    mainTabs_ = new NavigationTabWidget(pages_);
     mainTabs_->setObjectName(QStringLiteral("mainNavigation"));
     mainTabs_->setTabPosition(QTabWidget::South);
     mainTabs_->setDocumentMode(true);
+    mainTabs_->setIconSize(QSize(27, 27));
     mainTabs_->tabBar()->setExpanding(true);
     mainTabs_->tabBar()->setUsesScrollButtons(false);
 
@@ -148,13 +226,22 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
     assistantService_ = new AssistantService(assistantConfig, this);
     supportPage_ = new SupportPage(*assistantService_, mainTabs_);
 
-    mainTabs_->addTab(homePage_, QStringLiteral("充电"));
-    mainTabs_->addTab(orderPage_, QStringLiteral("订单"));
-    mainTabs_->addTab(scanPage_, QStringLiteral("扫一扫"));
+    mainTabs_->addTab(homePage_,
+                      clientNavigationIcon(NavigationIcon::Charging),
+                      QStringLiteral("充电"));
+    mainTabs_->addTab(orderPage_,
+                      clientNavigationIcon(NavigationIcon::Orders),
+                      QStringLiteral("订单"));
+    mainTabs_->addTab(scanPage_,
+                      clientNavigationIcon(NavigationIcon::Scan),
+                      QStringLiteral("扫一扫"));
     mainTabs_->addTab(supportPage_,
+                      clientNavigationIcon(NavigationIcon::Support),
                       QStringLiteral("客服助理"));
     profilePage_ = new ProfilePage(mainTabs_);
-    mainTabs_->addTab(profilePage_, QStringLiteral("我的"));
+    mainTabs_->addTab(profilePage_,
+                      clientNavigationIcon(NavigationIcon::Profile),
+                      QStringLiteral("我的"));
 
     pages_->addWidget(loginPage_);
     pages_->addWidget(mainTabs_);

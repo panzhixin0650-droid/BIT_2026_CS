@@ -18,6 +18,7 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QTabBar>
 #include <QTabWidget>
 #include <QToolButton>
 #include <QtTest>
@@ -203,7 +204,8 @@ void AssistantUiTests::fullWindowAtSmallSizes()
     const auto origin = composer->mapTo(&window, QPoint(0, 0));
     QVERIFY(origin.x() >= 0);
     QVERIFY(origin.x() + composer->width() <= window.width());
-    QVERIFY(origin.y() + composer->height() <= window.height() - 48);
+    const int navigationTop = tabs->tabBar()->mapTo(&window, QPoint(0, 0)).y();
+    QVERIFY(origin.y() + composer->height() <= navigationTop);
     const auto suffix = QStringLiteral("%1x%2").arg(size.width()).arg(size.height());
     capture(window, QStringLiteral("assistant-welcome-") + suffix);
     child<QPushButton>(window, "assistantSuggestion1")->click();
