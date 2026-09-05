@@ -1,0 +1,17 @@
+{
+  "scope": "client-local-https-not-tcp",
+  "request": {
+    "model": "gpt-5.6-luna",
+    "instructions": "仅根据项目知识回答；知识不足时说明，不执行业务操作。",
+    "input": [{"role": "user", "content": "如何预约充电？"}],
+    "stream": true,
+    "store": false,
+    "max_output_tokens": 2048
+  },
+  "successEvents": [
+    {"type": "response.output_text.delta", "delta": "进入站点详情，选择闲置桩进行预约。"},
+    {"type": "response.completed", "response": {"status": "completed"}}
+  ],
+  "failureEvent": {"type": "response.failed", "response": {"status": "failed", "error": {"code": "server_error"}}},
+  "localFailure": {"status": "failed", "message": "AI 服务暂时不可用，可重试或切换到本地知识库。"}
+}

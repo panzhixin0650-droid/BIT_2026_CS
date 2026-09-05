@@ -1,6 +1,7 @@
 #pragma once
 
 #include "charging/protocol/dto.h"
+#include "assistant/assistant_config.h"
 
 #include <QMainWindow>
 
@@ -25,6 +26,8 @@ class ScanController;
 class ScanPage;
 class StationBrowserController;
 class StationBrowserPage;
+class AssistantService;
+class SupportPage;
 
 class MainWindow final : public QMainWindow {
 public:
@@ -32,10 +35,13 @@ public:
     MainWindow(IChargingApi &api,
                IMapService &mapService,
                QWidget *parent = nullptr);
+    MainWindow(IChargingApi &api, IMapService &mapService,
+               const AssistantConfig &assistantConfig, QWidget *parent = nullptr);
     ~MainWindow() override;
 
 private:
-    void initialize(IChargingApi &api, IMapService &mapService);
+    void initialize(IChargingApi &api, IMapService &mapService,
+                    const AssistantConfig &assistantConfig = {});
     void showAuthenticatedHome(const protocol::UserDto &user, bool isNewUser);
     void showLoginPage(const QString &message = {});
 
@@ -45,6 +51,8 @@ private:
     StationBrowserPage *homePage_ = nullptr;
     OrderPage *orderPage_ = nullptr;
     ScanPage *scanPage_ = nullptr;
+    AssistantService *assistantService_ = nullptr;
+    SupportPage *supportPage_ = nullptr;
     ProfilePage *profilePage_ = nullptr;
     LoginController *loginController_ = nullptr;
     MapController *mapController_ = nullptr;

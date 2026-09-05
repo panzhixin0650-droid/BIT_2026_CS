@@ -1,6 +1,12 @@
 # 核心协议 fixture
 
-本目录中的 JSON 是客户端 Mock 与服务端协议测试共用的固定输入，不是数据库种子，也不定义契约之外的新业务语义。
+本目录中的核心 TCP JSON 是客户端 Mock 与服务端协议测试共用的固定输入，不是数据库种子，也不定义契约之外的新业务语义。标为 `local` 的本地适配示例不属于 TCP 协议，见相应小节。
+
+## 客户端本地智能助理示例
+
+[`assistant-responses.local.json`](assistant-responses.local.json) 描述只读 RAG 的外部
+Responses 请求及成功/失败事件，**不是 TCP 请求/响应**，不包含真实 Key、用户 token
+或业务数据，不可发送到项目服务端。边界见[本地智能助理契约](../client-assistant-local.md)。
 
 ## 成功主链路
 

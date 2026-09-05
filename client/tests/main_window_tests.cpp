@@ -1,10 +1,12 @@
 #include "api/mock_charging_api.h"
 #include "ui/main_window.h"
 #include "ui/scan_controller.h"
+#include "ui/support_page.h"
 
 #include <QAbstractButton>
 #include <QApplication>
 #include <QComboBox>
+#include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
@@ -175,6 +177,14 @@ void MainWindowTests::authenticatedShellHasFiveBottomEntries()
     QCOMPARE(navigation->tabText(2), QStringLiteral("扫一扫"));
     QCOMPARE(navigation->tabText(3), QStringLiteral("客服助理"));
     QCOMPARE(navigation->tabText(4), QStringLiteral("我的"));
+    for (int index = 0; index < navigation->count(); ++index) {
+        QVERIFY(!navigation->tabIcon(index).isNull());
+    }
+    auto *support = qobject_cast<SupportPage *>(navigation->widget(3));
+    QVERIFY(support != nullptr);
+    navigation->setCurrentWidget(support);
+    QVERIFY(support->isVisible());
+    QVERIFY(support->findChild<QPushButton *>(QStringLiteral("assistantSend")) != nullptr);
     auto *tabBar = navigation->tabBar();
     QVERIFY(tabBar->expanding());
     QVERIFY(!tabBar->usesScrollButtons());
@@ -225,7 +235,7 @@ void MainWindowTests::clientUsesConsistentVisualTheme()
     QVERIFY(scanHeading != nullptr);
     QVERIFY(profileHeading != nullptr);
     QVERIFY(balance != nullptr);
-    QCOMPARE(supportTitle->text(), QStringLiteral("客服助理将在后续阶段接入"));
+    QCOMPARE(supportTitle->text(), QStringLiteral("你好，有什么\n可以帮你？"));
     QCOMPARE(orderHeading->font().pointSize(), 24);
     QCOMPARE(scanHeading->font().pointSize(), 24);
     QCOMPARE(profileHeading->font().pointSize(), 24);

@@ -1,5 +1,6 @@
 #include "api/mock_charging_api.h"
 #include "api/tcp_charging_api.h"
+#include "assistant/assistant_config.h"
 #include "local/input_method_setup.h"
 #include "local/i_map_service.h"
 #include "local/mock_map_service.h"
@@ -48,7 +49,12 @@ int main(int argc, char *argv[])
         QStringLiteral("Map adapter: mock or tencent (default: mock)."),
         QStringLiteral("adapter"),
         QStringLiteral("mock"));
-    parser.addOptions({apiOption, hostOption, portOption, timeoutOption, mapOption});
+    const QCommandLineOption assistantConfigOption(
+        QStringLiteral("assistant-config"),
+        QStringLiteral("Path to local AI configuration (never pass a Key on the command line)."),
+        QStringLiteral("path"));
+    parser.addOptions({apiOption, hostOption, portOption, timeoutOption, mapOption,
+                       assistantConfigOption});
     parser.process(application);
 
     bool timeoutOk = false;
@@ -112,7 +118,9 @@ int main(int argc, char *argv[])
         return 2;
     }
 
-    charging::client::MainWindow window(*api, *mapService);
+    const auto assistantConfig = charging::client::AssistantConfig::load(
+        parser.value(assistantConfigOption));
+    charging::client::MainWindow window(*api, *mapService, assistantConfig);
     window.show();
 
     return application.exec();

@@ -31,6 +31,8 @@
 | [`decisions/0002-development-environment.md`](decisions/0002-development-environment.md) | 冻结课程 Demo 的参考开发环境 |
 | [`decisions/0003-client-transit-navigation.md`](decisions/0003-client-transit-navigation.md) | 用户端公共交通导航、本地地图边界与兼容方式 |
 | [`decisions/0004-client-cycling-navigation.md`](decisions/0004-client-cycling-navigation.md) | 用户端自行车骑行导航与腾讯地图适配 |
+| [`decisions/0005-client-rag-assistant.md`](decisions/0005-client-rag-assistant.md) | 用户端只读 RAG 问答；不启用人工客服工单 |
+| [`../contracts/client-assistant-local.md`](../contracts/client-assistant-local.md) | 智能助理本地检索与外部 HTTPS 边界，不改变 V1 TCP |
 
 ## 规则
 

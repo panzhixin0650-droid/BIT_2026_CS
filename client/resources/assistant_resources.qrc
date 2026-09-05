@@ -1,0 +1,5 @@
+<RCC>
+  <qresource prefix="/assistant">
+    <file alias="knowledge.json">assistant_knowledge.json</file>
+  </qresource>
+</RCC>

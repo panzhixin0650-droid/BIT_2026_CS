@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC OFF)
+set(CMAKE_AUTORCC ON)
 
 option(CHARGING_CLIENT_ENABLE_WEBENGINE
        "Build the embedded Tencent map view with Qt WebEngine"
@@ -44,6 +45,15 @@ target_link_libraries(charging_client_api
 )
 
 add_library(charging_client_ui STATIC
+    resources/assistant_resources.qrc
+    src/assistant/assistant_config.cpp
+    src/assistant/assistant_config.h
+    src/assistant/assistant_service.cpp
+    src/assistant/assistant_service.h
+    src/assistant/knowledge_base.cpp
+    src/assistant/knowledge_base.h
+    src/ui/support_page.cpp
+    src/ui/support_page.h
     src/local/avatar_storage.cpp
     src/local/avatar_storage.h
     src/local/i_map_service.cpp
@@ -118,6 +128,18 @@ target_link_libraries(user-client
 
 if(BUILD_TESTING)
     find_package(Qt6 6.2 REQUIRED COMPONENTS Test)
+
+    add_executable(charging_client_assistant_tests tests/assistant_tests.cpp)
+    target_link_libraries(charging_client_assistant_tests PRIVATE charging_client_ui Qt6::Test)
+    target_compile_definitions(charging_client_assistant_tests PRIVATE
+        ASSISTANT_FIXTURE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../contracts/examples/assistant-responses.local.json")
+    add_test(NAME charging_client_assistant_tests COMMAND charging_client_assistant_tests)
+
+    add_executable(charging_client_assistant_ui_tests tests/assistant_ui_tests.cpp)
+    target_link_libraries(charging_client_assistant_ui_tests PRIVATE charging_client_ui Qt6::Test)
+    add_test(NAME charging_client_assistant_ui_tests COMMAND charging_client_assistant_ui_tests)
+    set_tests_properties(charging_client_assistant_ui_tests PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     add_executable(charging_client_ui_recovery_tests tests/ui_recovery_tests.cpp)
     target_link_libraries(charging_client_ui_recovery_tests PRIVATE charging_client_ui Qt6::Test)

@@ -16,6 +16,8 @@
 #include "ui/scan_page.h"
 #include "ui/station_browser_controller.h"
 #include "ui/station_browser_page.h"
+#include "assistant/assistant_service.h"
+#include "ui/support_page.h"
 
 #include <QAbstractButton>
 #include <QFrame>
@@ -189,7 +191,15 @@ MainWindow::MainWindow(IChargingApi &api,
     initialize(api, mapService);
 }
 
-void MainWindow::initialize(IChargingApi &api, IMapService &mapService)
+MainWindow::MainWindow(IChargingApi &api, IMapService &mapService,
+                       const AssistantConfig &assistantConfig, QWidget *parent)
+    : QMainWindow(parent)
+{
+    initialize(api, mapService, assistantConfig);
+}
+
+void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
+                            const AssistantConfig &assistantConfig)
 {
     setObjectName(QStringLiteral("mainWindow"));
     setWindowTitle(QStringLiteral("新能源汽车充电服务"));
@@ -213,56 +223,8 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService)
     orderPage_ = new OrderPage(mainTabs_);
     scanPage_ = new ScanPage(mainTabs_);
 
-    const auto createSupportPage = [this]() {
-        auto *page = new QWidget(mainTabs_);
-        page->setObjectName(QStringLiteral("supportPage"));
-        auto *layout = new QVBoxLayout(page);
-        layout->setContentsMargins(20, 24, 20, 20);
-        layout->setSpacing(14);
-
-        auto *heading = new QLabel(QStringLiteral("客服助理"), page);
-        heading->setObjectName(QStringLiteral("supportHeading"));
-        QFont headingFont = heading->font();
-        headingFont.setPointSize(24);
-        headingFont.setBold(true);
-        heading->setFont(headingFont);
-
-        auto *card = new QFrame(page);
-        card->setObjectName(QStringLiteral("supportCard"));
-        card->setMaximumWidth(520);
-        auto *cardLayout = new QVBoxLayout(card);
-        cardLayout->setContentsMargins(24, 28, 24, 28);
-        cardLayout->setSpacing(12);
-
-        auto *badge = new QLabel(QStringLiteral("功能预留"), card);
-        badge->setObjectName(QStringLiteral("supportBadge"));
-        badge->setAlignment(Qt::AlignCenter);
-        badge->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
-        auto *title = new QLabel(QStringLiteral("客服助理将在后续阶段接入"), card);
-        title->setObjectName(QStringLiteral("supportTitle"));
-        QFont titleFont = title->font();
-        titleFont.setPointSize(16);
-        titleFont.setBold(true);
-        title->setFont(titleFont);
-        title->setAlignment(Qt::AlignCenter);
-        auto *description = new QLabel(
-            QStringLiteral("当前 Demo 暂不提供客服业务。充电、订单和账户功能可从底部导航继续使用。"),
-            card);
-        description->setObjectName(QStringLiteral("supportDescription"));
-        description->setAlignment(Qt::AlignCenter);
-        description->setWordWrap(true);
-        description->setStyleSheet(QStringLiteral("color: #667085;"));
-
-        cardLayout->addWidget(badge, 0, Qt::AlignHCenter);
-        cardLayout->addWidget(title);
-        cardLayout->addWidget(description);
-
-        layout->addWidget(heading);
-        layout->addStretch();
-        layout->addWidget(card, 0, Qt::AlignHCenter);
-        layout->addStretch(2);
-        return page;
-    };
+    assistantService_ = new AssistantService(assistantConfig, this);
+    supportPage_ = new SupportPage(*assistantService_, mainTabs_);
 
     mainTabs_->addTab(homePage_,
                       clientNavigationIcon(NavigationIcon::Charging),
@@ -273,7 +235,7 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService)
     mainTabs_->addTab(scanPage_,
                       clientNavigationIcon(NavigationIcon::Scan),
                       QStringLiteral("扫一扫"));
-    mainTabs_->addTab(createSupportPage(),
+    mainTabs_->addTab(supportPage_,
                       clientNavigationIcon(NavigationIcon::Support),
                       QStringLiteral("客服助理"));
     profilePage_ = new ProfilePage(mainTabs_);
@@ -420,6 +382,7 @@ MainWindow::~MainWindow() = default;
 
 void MainWindow::showAuthenticatedHome(const protocol::UserDto &user, bool isNewUser)
 {
+    supportPage_->resetConversation();
     homePage_->setGreeting(user.nickname, isNewUser);
     profileController_->setInitialUser(user);
     mainTabs_->setCurrentWidget(homePage_);
@@ -429,6 +392,7 @@ void MainWindow::showAuthenticatedHome(const protocol::UserDto &user, bool isNew
 
 void MainWindow::showLoginPage(const QString &message)
 {
+    supportPage_->resetConversation();
     loginPage_->setLoading(false);
     loginPage_->setErrorMessage(message);
     stationBrowserController_->reset();
