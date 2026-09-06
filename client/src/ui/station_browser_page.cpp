@@ -624,6 +624,11 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     connect(zoomOut, &QPushButton::clicked, routeMapView_, &RouteMapView::zoomOut);
     connect(fitRoute, &QPushButton::clicked, routeMapView_, &RouteMapView::fitRoute);
     connect(routeDetailsButton_, &QPushButton::toggled, routeDetails_, &QWidget::setVisible);
+    connect(routeMapView_, &RouteMapView::preloadReady, this, [this]() {
+        if (pages_->currentWidget() != navigationPage_) return;
+        routeDisplayStack_->setCurrentWidget(routeMapView_);
+        routeMapView_->prepareMap();
+    });
     connect(routeMapView_, &RouteMapView::readyChanged, this,
             [zoomIn, zoomOut, fitRoute](bool ready) {
                 for (auto *button : {zoomIn, zoomOut, fitRoute}) button->setEnabled(ready);
@@ -1062,13 +1067,23 @@ void StationBrowserPage::showNavigation(const protocol::StationDto &station,
     routeDestinationLabel_->setText(
         QStringLiteral("%1 · %2").arg(station.name, station.address));
     routeDisplayLabel_->setText(QStringLiteral("选择出行方式后点击“开始导航”"));
-    routeDisplayStack_->setCurrentWidget(routeDisplayLabel_);
     routeMapView_->clearRoute();
+    if (routeMapView_->isPreloaded()) {
+        routeDisplayStack_->setCurrentWidget(routeMapView_);
+    } else {
+        routeDisplayStack_->setCurrentWidget(routeDisplayLabel_);
+    }
     routeSummaryLabel_->hide();
     routeDetailsButton_->setChecked(false);
     routeDetailsButton_->setEnabled(false);
     routeMessageLabel_->hide();
     pages_->setCurrentWidget(navigationPage_);
+    if (routeMapView_->isPreloaded()) routeMapView_->prepareMap();
+}
+
+void StationBrowserPage::preloadMap(const QUrl &scriptUrl)
+{
+    routeMapView_->preload(scriptUrl);
 }
 
 void StationBrowserPage::setRouteBusy(bool busy)
@@ -1077,7 +1092,12 @@ void StationBrowserPage::setRouteBusy(bool busy)
     if (busy) {
         routeMapView_->clearRoute();
         routeDisplayLabel_->setText(QStringLiteral("正在规划路线…"));
-        routeDisplayStack_->setCurrentWidget(routeDisplayLabel_);
+        if (routeMapView_->isPreloaded()) {
+            routeDisplayStack_->setCurrentWidget(routeMapView_);
+            routeMapView_->prepareMap();
+        } else {
+            routeDisplayStack_->setCurrentWidget(routeDisplayLabel_);
+        }
         routeSummaryLabel_->hide();
         routeDetailsButton_->setChecked(false);
         routeDetailsButton_->setEnabled(false);

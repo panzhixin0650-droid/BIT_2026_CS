@@ -30,6 +30,7 @@
 #include <QStylePainter>
 #include <QTabBar>
 #include <QTabWidget>
+#include <QTimer>
 #include <QVBoxLayout>
 
 namespace charging::client {
@@ -376,6 +377,15 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
                     mainTabs_->setCurrentWidget(homePage_);
                 }
             });
+
+    const QUrl mapScriptUrl = mapService.mapScriptUrl();
+    if (!mapScriptUrl.isEmpty()) {
+        // Let the login window paint first, then warm WebEngine and the map SDK
+        // without requesting a route or exposing a loading state to the user.
+        QTimer::singleShot(250, this, [this, mapScriptUrl]() {
+            homePage_->preloadMap(mapScriptUrl);
+        });
+    }
 }
 
 MainWindow::~MainWindow()
