@@ -30,6 +30,10 @@ signals:
     void loggedOut();
     void authenticationRequired(const QString &message);
     void profileChanged(const charging::protocol::UserDto &user);
+    void rechargeSucceeded(qint64 balanceCents);
+    void rechargeNeedsAttention(qint64 balanceCents,
+                                const QString &message,
+                                bool insufficientBalance);
     void pendingOrderSettled(const PaymentPayload &result);
 
 private:
@@ -65,6 +69,8 @@ private:
     AvatarStorage &avatarStorage_;
     QString currentAvatarKey_;
     QString pendingRequestId_;
+    qint64 rechargedBalanceCents_ = 0;
+    qint64 pendingPaymentAmountCents_ = 0;
     PendingAction pendingAction_ = PendingAction::None;
 };
 

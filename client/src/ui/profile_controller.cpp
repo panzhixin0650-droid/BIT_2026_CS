@@ -105,6 +105,7 @@ void ProfileController::recharge(const QString &amountYuan)
 
     page_.setBusy(true);
     page_.showMessage(QStringLiteral("正在充值…"));
+    pendingPaymentAmountCents_ = 0;
     pendingAction_ = PendingAction::Recharge;
     pendingRequestId_ = api_.recharge(*amountCents);
 }
@@ -190,12 +191,14 @@ void ProfileController::handleRechargeCompleted(const RechargeResult &result)
     }
 
     if (!result.ok() || !result.payload.has_value()) {
+        pendingPaymentAmountCents_ = 0;
         finishRequest();
         showFailure(result.response);
         return;
     }
 
     page_.setBalance(result.payload->balanceCents);
+    rechargedBalanceCents_ = result.payload->balanceCents;
     page_.showMessage(QStringLiteral("充值成功，正在检查待支付订单…"));
     pendingAction_ = PendingAction::RechargeCheckCurrentOrder;
     pendingRequestId_ = api_.getCurrentOrder();
@@ -221,16 +224,23 @@ void ProfileController::handleRechargeCurrentOrder(const CurrentOrderResult &res
                     result.response,
                     QStringLiteral("未能检查待支付订单，请前往订单页手动核对"))),
             true);
+        emit rechargeNeedsAttention(
+            rechargedBalanceCents_,
+            QStringLiteral("充值已到账，但未能检查待支付订单，请前往订单页核对。"),
+            false);
         return;
     }
 
     if (!result.payload->order.has_value()
         || result.payload->order->status != protocol::OrderStatus::PendingPayment) {
+        pendingPaymentAmountCents_ = 0;
         finishRequest();
         page_.showMessage(QStringLiteral("充值成功，余额已刷新"));
+        emit rechargeSucceeded(rechargedBalanceCents_);
         return;
     }
 
+    pendingPaymentAmountCents_ = result.payload->order->amountCents;
     page_.showMessage(QStringLiteral("充值成功，正在自动结算待支付订单…"));
     pendingAction_ = PendingAction::RechargePayPendingOrder;
     pendingRequestId_ = api_.payOrder(result.payload->order->orderId);
@@ -244,6 +254,8 @@ void ProfileController::handleRechargePayment(const PaymentResult &result)
         return;
     }
 
+    const qint64 pendingPaymentAmountCents = pendingPaymentAmountCents_;
+    pendingPaymentAmountCents_ = 0;
     finishRequest();
     if (!result.ok() || !result.payload.has_value()) {
         if (result.response.code == protocol::ErrorCode::InvalidSession) {
@@ -258,6 +270,19 @@ void ProfileController::handleRechargePayment(const PaymentResult &result)
             QStringLiteral("充值成功；%1")
                 .arg(apiErrorMessage(result.response, fallback)),
             true);
+        emit rechargeNeedsAttention(
+            rechargedBalanceCents_,
+            result.response.code == protocol::ErrorCode::InsufficientBalance
+                ? QStringLiteral("充值已到账，但余额仍不足，待支付订单尚未结算，还需充值 ¥%1。")
+                      .arg(qMax<qint64>(pendingPaymentAmountCents
+                                           - rechargedBalanceCents_,
+                                       0)
+                               / 100.0,
+                           0,
+                           'f',
+                           2)
+                : QStringLiteral("充值已到账，但自动结算未完成，请前往订单页核对。"),
+            result.response.code == protocol::ErrorCode::InsufficientBalance);
         return;
     }
 
@@ -336,6 +361,8 @@ void ProfileController::reset()
 {
     finishRequest();
     currentAvatarKey_.clear();
+    rechargedBalanceCents_ = 0;
+    pendingPaymentAmountCents_ = 0;
     page_.setUser(protocol::UserDto{});
     page_.setAvatarPath({});
     page_.showMessage({});

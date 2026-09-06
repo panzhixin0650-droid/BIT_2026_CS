@@ -21,6 +21,7 @@ public:
     void refreshStations();
     void navigateToStation(qint64 stationId);
     void synchronizeChargingStop(const ChargingStopPayload &result);
+    void synchronizePendingOrderSettlement(const PaymentPayload &result);
 
     // Forget UI requests from the previous authenticated session.
     void reset();
