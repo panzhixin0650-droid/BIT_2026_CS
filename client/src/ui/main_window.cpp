@@ -413,6 +413,13 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
             this, openReservationScan);
     connect(orderPage_, &OrderPage::reservationScanRequested,
             this, openReservationScan);
+    connect(homePage_,
+            &StationBrowserPage::directChargingRequested,
+            this,
+            [this](const QString &pileCode) {
+                scanPage_->prepareDirectPileCode(pileCode);
+                mainTabs_->setCurrentWidget(scanPage_);
+            });
     connect(scanController_,
             &ScanController::authenticationRequired,
             this,
@@ -420,6 +427,7 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
     connect(scanController_, &ScanController::chargingStarted,
             this, [this](const protocol::OrderDto &order) {
                 showChargingStartedNotice(this, order);
+                homePage_->showListPage();
                 mainTabs_->setCurrentWidget(homePage_);
                 homePage_->showListMessage(QStringLiteral("充电已开始"));
                 stationBrowserController_->refreshStations();

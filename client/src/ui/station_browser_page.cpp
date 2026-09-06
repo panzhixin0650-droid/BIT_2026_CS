@@ -782,6 +782,10 @@ void StationBrowserPage::setReservationBusy(bool busy)
         const bool canReserve = button->property("canReserve").toBool();
         button->setDisabled(busy || !canReserve);
     }
+    for (QPushButton *button : directChargingButtons_) {
+        const bool canStart = button->property("canStart").toBool();
+        button->setDisabled(busy || !canStart);
+    }
 }
 
 void StationBrowserPage::showStations(const QList<protocol::StationDto> &stations)
@@ -908,6 +912,8 @@ void StationBrowserPage::showListMessage(const QString &message, bool error)
 void StationBrowserPage::showCurrentOrder(
     const std::optional<protocol::OrderDto> &order)
 {
+    currentOrder_ = order;
+    updateDirectChargingButtons();
     if (!order.has_value()) {
         currentOrderCard_->hide();
         return;
@@ -1009,13 +1015,26 @@ void StationBrowserPage::showStationDetail(const StationDetailPayload &detail)
             emit reservationRequested(pile.pileCode);
         });
         reservationButtons_.append(reserveButton);
+        auto *directChargingButton = new QPushButton(card);
+        directChargingButton->setObjectName(
+            QStringLiteral("directChargeButton_%1").arg(pile.pileCode));
+        directChargingButton->setProperty("role", "primary");
+        directChargingButton->setProperty("pileCode", pile.pileCode);
+        directChargingButton->setProperty("pileIdle", canReserve);
+        connect(directChargingButton,
+                &QPushButton::clicked,
+                this,
+                [this, pile]() { emit directChargingRequested(pile.pileCode); });
+        directChargingButtons_.append(directChargingButton);
         auto *rightLayout = new QVBoxLayout();
         rightLayout->addWidget(status, 0, Qt::AlignRight);
         rightLayout->addWidget(reserveButton, 0, Qt::AlignRight);
+        rightLayout->addWidget(directChargingButton, 0, Qt::AlignRight);
         layout->addWidget(description, 1);
         layout->addLayout(rightLayout);
         pileListLayout_->addWidget(card);
     }
+    updateDirectChargingButtons();
     detailContent_->show();
     pages_->setCurrentWidget(detailPage_);
 }
@@ -1164,6 +1183,7 @@ void StationBrowserPage::reset()
     listMessageLabel_->hide();
     actionMessageLabel_->hide();
     currentOrderCard_->hide();
+    currentOrder_.reset();
     detailMessageLabel_->hide();
     locationMessageLabel_->hide();
     routeMessageLabel_->hide();
@@ -1188,9 +1208,34 @@ void StationBrowserPage::clearStationCards()
 void StationBrowserPage::clearPileCards()
 {
     reservationButtons_.clear();
+    directChargingButtons_.clear();
     while (QLayoutItem *item = pileListLayout_->takeAt(0)) {
         delete item->widget();
         delete item;
+    }
+}
+
+void StationBrowserPage::updateDirectChargingButtons()
+{
+    for (QPushButton *button : directChargingButtons_) {
+        const QString pileCode = button->property("pileCode").toString();
+        const bool ownReservation = currentOrder_.has_value()
+            && currentOrder_->status == protocol::OrderStatus::Reserved
+            && currentOrder_->pileCode == pileCode;
+        const bool canStart = button->property("pileIdle").toBool()
+            || ownReservation;
+        button->setProperty("canStart", canStart);
+        button->setText(ownReservation ? QStringLiteral("开始充电")
+                                       : canStart ? QStringLiteral("直接充电")
+                                                  : QStringLiteral("不可充电"));
+        button->setAccessibleName(
+            canStart ? QStringLiteral("使用%1开始充电").arg(pileCode)
+                     : QStringLiteral("%1当前不可开始充电").arg(pileCode));
+        button->setToolTip(
+            ownReservation ? QStringLiteral("前往扫一扫并开始已预约的充电桩")
+                           : canStart ? QStringLiteral("前往扫一扫并预填充电桩编号")
+                                      : QStringLiteral("只有闲置或本人已预约的充电桩可以开始充电"));
+        button->setDisabled(reservationBusy_ || !canStart);
     }
 }
 

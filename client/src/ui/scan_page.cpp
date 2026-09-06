@@ -115,6 +115,13 @@ void ScanPage::preparePileCode(const QString &pileCode)
     showMessage(QStringLiteral("已填入预约充电桩，请到桩后确认开始充电"));
 }
 
+void ScanPage::prepareDirectPileCode(const QString &pileCode)
+{
+    pileCodeInput_->setText(pileCode.trimmed());
+    pileCodeInput_->setFocus();
+    showMessage(QStringLiteral("已填入充电桩编号，请在桩旁确认开始充电"));
+}
+
 void ScanPage::setLoading(bool loading)
 {
     pileCodeInput_->setDisabled(loading);

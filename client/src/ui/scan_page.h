@@ -15,6 +15,7 @@ public:
     explicit ScanPage(QWidget *parent = nullptr);
 
     void preparePileCode(const QString &pileCode);
+    void prepareDirectPileCode(const QString &pileCode);
     void setLoading(bool loading);
     void showMessage(const QString &message, bool error = false);
     void reset();
