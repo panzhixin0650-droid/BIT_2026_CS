@@ -210,6 +210,16 @@ if(BUILD_TESTING)
 
     add_test(NAME charging_client_tcp_api_tests COMMAND charging_client_tcp_api_tests)
 
+    add_executable(charging_client_tcp_settlement_ui_tests tests/tcp_settlement_ui_tests.cpp)
+    target_link_libraries(charging_client_tcp_settlement_ui_tests PRIVATE
+        charging_client_ui Qt6::Test)
+    target_compile_definitions(charging_client_tcp_settlement_ui_tests PRIVATE
+        SETTLEMENT_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../contracts/examples")
+    add_test(NAME charging_client_tcp_settlement_ui_tests
+        COMMAND charging_client_tcp_settlement_ui_tests)
+    set_tests_properties(charging_client_tcp_settlement_ui_tests PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     add_executable(charging_client_avatar_storage_tests
         tests/avatar_storage_tests.cpp
     )

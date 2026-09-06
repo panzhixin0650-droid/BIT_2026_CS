@@ -483,7 +483,7 @@ void TcpChargingApi::handleReadyRead()
         }
 
         auto pending = pending_.find(response.requestId);
-        if (pending == pending_.end()) {
+        if (pending == pending_.end() || pending->responseReceived) {
             qWarning().noquote()
                 << QStringLiteral("Ignoring unmatched response %1/%2")
                        .arg(response.type, response.requestId);
@@ -497,10 +497,22 @@ void TcpChargingApi::handleReadyRead()
         if (pending->timer != nullptr) {
             pending->timer->stop();
             pending->timer->deleteLater();
+            pending->timer = nullptr;
         }
-        pending_.erase(pending);
+        pending->responseReceived = true;
         sendQueue_.removeAll(response.requestId);
-        handleResponse(response);
+
+        // Completion slots can open a modal dialog. readyRead is not emitted
+        // recursively, so finish draining this batch (and stop its timers)
+        // before notifying controllers from a separate event-loop turn.
+        QTimer::singleShot(0, this, [this, response]() {
+            // A transport failure may have completed this request while the
+            // notification was queued. Do not emit twice or restore a stale token.
+            if (pending_.remove(response.requestId) == 0) {
+                return;
+            }
+            handleResponse(response);
+        });
     }
 }
 
