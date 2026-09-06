@@ -5,6 +5,7 @@
 #include "charging/protocol/frame_codec.h"
 #include "charging/protocol/protocol_constants.h"
 
+#include <QEventLoop>
 #include <QJsonArray>
 #include <QPointer>
 #include <QSignalSpy>
@@ -85,6 +86,20 @@ public:
                 guardedSocket->write(remainder);
             }
         });
+    }
+
+    void writeFrames(const QByteArray &frames)
+    {
+        if (socket_ != nullptr) {
+            socket_->write(frames);
+        }
+    }
+
+    void disconnectClient()
+    {
+        if (socket_ != nullptr) {
+            socket_->disconnectFromHost();
+        }
     }
 
     QList<protocol::RequestEnvelope> requests;
@@ -205,6 +220,12 @@ private slots:
     void initTestCase();
     void loginProfileAndStationRoundTrip();
     void mapsEveryOrderResponse();
+    void refreshContinuesDuringSettlementNotice_data();
+    void refreshContinuesDuringSettlementNotice();
+    void coalescedResponsesCompleteDuringNotice();
+    void queuedLoginIsCancelledByInvalidFrame();
+    void realTransportFailureClearsSession_data();
+    void realTransportFailureClearsSession();
     void propagatesBusinessAndTransportFailuresExactlyOnce();
     void validatesInputsBeforeSending();
 };
@@ -434,6 +455,227 @@ void TcpChargingApiTests::mapsEveryOrderResponse()
     QCOMPARE(server.requests.at(5).data.value(
                  QStringLiteral("reservationOrderId")).toInteger(),
              qint64{1001});
+}
+
+void TcpChargingApiTests::refreshContinuesDuringSettlementNotice_data()
+{
+    QTest::addColumn<bool>("splitFrame");
+    QTest::newRow("whole-responses") << false;
+    QTest::newRow("fragmented-responses") << true;
+}
+
+void TcpChargingApiTests::refreshContinuesDuringSettlementNotice()
+{
+    QFETCH(bool, splitFrame);
+    TestTcpServer server;
+    QVERIFY(server.listen());
+    server.setHandler([&server, splitFrame](const protocol::RequestEnvelope &request) {
+        if (request.type == QString::fromLatin1(protocol::MessageType::AuthUserLogin)) {
+            server.reply(request, protocol::ErrorCode::Ok, loginData());
+            return;
+        }
+        if (request.token != QStringLiteral("tcp-token")) {
+            server.reply(request, protocol::ErrorCode::InvalidSession, {});
+            return;
+        }
+        if (request.type == QString::fromLatin1(protocol::MessageType::OrderStop)) {
+            auto order = fixtureOrder();
+            order.status = protocol::OrderStatus::Completed;
+            server.reply(request, protocol::ErrorCode::Ok,
+                         {{QStringLiteral("order"), protocol::toJson(order)},
+                          {QStringLiteral("paid"), true},
+                          {QStringLiteral("balanceCents"), 19662}});
+            return;
+        }
+        if (request.type == QString::fromLatin1(protocol::MessageType::StationList)) {
+            // Keep frame bytes ordered: finish this reply before fragmenting
+            // the following current-order reply on the same TCP stream.
+            server.reply(request, protocol::ErrorCode::Ok,
+                         {{QStringLiteral("items"), QJsonArray{}}});
+            return;
+        }
+        // Let the settlement callback open its nested dialog event loop first.
+        QTimer::singleShot(10, &server, [&server, request, splitFrame]() {
+            QJsonObject data;
+            if (request.type == QString::fromLatin1(protocol::MessageType::OrderCurrent)) {
+                data.insert(QStringLiteral("order"), QJsonValue::Null);
+            } else {
+                data.insert(QStringLiteral("user"), protocol::toJson(fixtureUser()));
+            }
+            server.reply(request, protocol::ErrorCode::Ok, data,
+                         QStringLiteral("OK"), splitFrame);
+        });
+    });
+
+    constexpr int timeoutMs = 250;
+    client::TcpChargingApi api(QStringLiteral("127.0.0.1"), server.port(), timeoutMs);
+    QSignalSpy loginSpy(&api, &client::IChargingApi::loginCompleted);
+    (void)api.loginUser(QStringLiteral("13800000001"));
+    QTRY_COMPARE(loginSpy.count(), 1);
+    QVERIFY(qvariant_cast<client::LoginResult>(loginSpy.first().at(0)).ok());
+
+    QSignalSpy stationSpy(&api, &client::IChargingApi::stationListCompleted);
+    QSignalSpy currentSpy(&api, &client::IChargingApi::currentOrderCompleted);
+    QSignalSpy stopSpy(&api, &client::IChargingApi::chargingStopCompleted);
+    bool noticeClosed = false;
+    connect(&api, &client::IChargingApi::chargingStopCompleted, &api,
+            [&](const client::ChargingStopResult &result) {
+        if (!result.ok()) {
+            return;
+        }
+        // Same ordering as synchronizeChargingStop() followed by QMessageBox::exec().
+        (void)api.listStations({});
+        (void)api.getCurrentOrder();
+        QEventLoop notice;
+        QTimer::singleShot(timeoutMs * 2, &notice, &QEventLoop::quit);
+        notice.exec();
+        noticeClosed = true;
+    });
+    (void)api.stopCharging(1001);
+    QTRY_VERIFY(noticeClosed);
+    QCOMPARE(stopSpy.count(), 1);
+    QCOMPARE(stationSpy.count(), 1);
+    QCOMPARE(currentSpy.count(), 1);
+
+    QSignalSpy profileSpy(&api, &client::IChargingApi::profileCompleted);
+    (void)api.getProfile();
+    QTRY_COMPARE(profileSpy.count(), 1);
+    // Refreshing after closing the notice must still carry the original login token.
+    QCOMPARE(qvariant_cast<client::UserResult>(profileSpy.first().at(0)).response.code,
+             protocol::ErrorCode::Ok);
+    QCOMPARE(qvariant_cast<client::StationListResult>(stationSpy.first().at(0)).response.code,
+             protocol::ErrorCode::Ok);
+    QCOMPARE(qvariant_cast<client::CurrentOrderResult>(currentSpy.first().at(0)).response.code,
+             protocol::ErrorCode::Ok);
+    QCOMPARE(server.requests.size(), 5);
+    QCOMPARE(server.error, QString{});
+}
+
+void TcpChargingApiTests::coalescedResponsesCompleteDuringNotice()
+{
+    TestTcpServer server;
+    QVERIFY(server.listen());
+    QByteArray responses;
+    server.setHandler([&](const protocol::RequestEnvelope &request) {
+        protocol::ResponseEnvelope response;
+        response.type = request.type;
+        response.requestId = request.requestId;
+        response.code = protocol::ErrorCode::Ok;
+        response.message = QStringLiteral("OK");
+        response.data = {{QStringLiteral("order"), QJsonValue::Null}};
+        responses.append(protocol::encodeFrame(response.toJson()));
+        if (server.requests.size() == 2) {
+            // Two replies and a duplicate in a single write exercise frame batching.
+            responses.append(protocol::encodeFrame(response.toJson()));
+            server.writeFrames(responses);
+        }
+    });
+    constexpr int timeoutMs = 250;
+    client::TcpChargingApi api(QStringLiteral("127.0.0.1"), server.port(), timeoutMs);
+    QSignalSpy spy(&api, &client::IChargingApi::currentOrderCompleted);
+    bool noticeClosed = false;
+    bool noticeOpened = false;
+    connect(&api, &client::IChargingApi::currentOrderCompleted, &api,
+            [&](const client::CurrentOrderResult &result) {
+        if (noticeOpened || !result.ok()) {
+            return;
+        }
+        noticeOpened = true;
+        QEventLoop notice;
+        QTimer::singleShot(timeoutMs * 2, &notice, &QEventLoop::quit);
+        notice.exec();
+        noticeClosed = true;
+    });
+    const QString firstId = api.getCurrentOrder();
+    const QString secondId = api.getCurrentOrder();
+    QTRY_VERIFY(noticeClosed);
+    QCOMPARE(spy.count(), 2);
+    const auto first = qvariant_cast<client::CurrentOrderResult>(spy.at(0).at(0));
+    const auto second = qvariant_cast<client::CurrentOrderResult>(spy.at(1).at(0));
+    QCOMPARE(first.response.requestId, firstId);
+    QCOMPARE(second.response.requestId, secondId);
+    QCOMPARE(first.response.code, protocol::ErrorCode::Ok);
+    QCOMPARE(second.response.code, protocol::ErrorCode::Ok);
+    QTest::qWait(50);
+    QCOMPARE(spy.count(), 2);
+}
+
+void TcpChargingApiTests::queuedLoginIsCancelledByInvalidFrame()
+{
+    TestTcpServer server;
+    QVERIFY(server.listen());
+    server.setHandler([&](const protocol::RequestEnvelope &request) {
+        if (request.type == QString::fromLatin1(protocol::MessageType::AuthUserLogin)) {
+            protocol::ResponseEnvelope response;
+            response.type = request.type;
+            response.requestId = request.requestId;
+            response.code = protocol::ErrorCode::Ok;
+            response.message = QStringLiteral("OK");
+            response.data = loginData();
+            server.writeFrames(protocol::encodeFrame(response.toJson())
+                               + protocol::encodeFrame(QJsonObject{}));
+        } else {
+            server.reply(request, protocol::ErrorCode::InvalidSession, {});
+        }
+    });
+    client::TcpChargingApi api(QStringLiteral("127.0.0.1"), server.port(), 1000);
+    QSignalSpy loginSpy(&api, &client::IChargingApi::loginCompleted);
+    (void)api.loginUser(QStringLiteral("13800000001"));
+    QTRY_COMPARE(loginSpy.count(), 1);
+    QCOMPARE(qvariant_cast<client::LoginResult>(loginSpy.first().at(0)).response.code,
+             protocol::ErrorCode::ServiceUnavailable);
+    QTest::qWait(50);
+    QCOMPARE(loginSpy.count(), 1);
+
+    QSignalSpy profileSpy(&api, &client::IChargingApi::profileCompleted);
+    (void)api.getProfile();
+    QTRY_COMPARE(profileSpy.count(), 1);
+    QVERIFY(!server.requests.last().token.has_value());
+}
+
+void TcpChargingApiTests::realTransportFailureClearsSession_data()
+{
+    QTest::addColumn<bool>("disconnect");
+    QTest::newRow("timeout") << false;
+    QTest::newRow("disconnect") << true;
+}
+
+void TcpChargingApiTests::realTransportFailureClearsSession()
+{
+    QFETCH(bool, disconnect);
+    TestTcpServer server;
+    QVERIFY(server.listen());
+    server.setHandler([&](const protocol::RequestEnvelope &request) {
+        if (request.type == QString::fromLatin1(protocol::MessageType::AuthUserLogin)) {
+            server.reply(request, protocol::ErrorCode::Ok, loginData());
+        } else if (request.type == QString::fromLatin1(protocol::MessageType::OrderStop)) {
+            if (disconnect) {
+                server.disconnectClient();
+            }
+            // No response: the operation result is genuinely unknown.
+        } else {
+            server.reply(request, protocol::ErrorCode::InvalidSession, {});
+        }
+    });
+    client::TcpChargingApi api(QStringLiteral("127.0.0.1"), server.port(), 250);
+    QSignalSpy loginSpy(&api, &client::IChargingApi::loginCompleted);
+    (void)api.loginUser(QStringLiteral("13800000001"));
+    QTRY_COMPARE(loginSpy.count(), 1);
+    QSignalSpy stopSpy(&api, &client::IChargingApi::chargingStopCompleted);
+    (void)api.stopCharging(1001);
+    QTRY_COMPARE(stopSpy.count(), 1);
+    QCOMPARE(qvariant_cast<client::ChargingStopResult>(stopSpy.first().at(0)).response.code,
+             protocol::ErrorCode::ServiceUnavailable);
+
+    QSignalSpy profileSpy(&api, &client::IChargingApi::profileCompleted);
+    (void)api.getProfile();
+    QTRY_COMPARE(profileSpy.count(), 1);
+    QCOMPARE(qvariant_cast<client::UserResult>(profileSpy.first().at(0)).response.code,
+             protocol::ErrorCode::InvalidSession);
+    QVERIFY(!server.requests.last().token.has_value());
+    QTest::qWait(100);
+    QCOMPARE(stopSpy.count(), 1);
+    QCOMPARE(server.requests.size(), 3); // No automatic replay of order.stop.
 }
 
 void TcpChargingApiTests::propagatesBusinessAndTransportFailuresExactlyOnce()

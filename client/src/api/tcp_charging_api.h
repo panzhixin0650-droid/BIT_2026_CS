@@ -51,6 +51,7 @@ private:
         QString type;
         QByteArray frame;
         QTimer *timer = nullptr;
+        bool responseReceived = false;
     };
 
     [[nodiscard]] QString nextRequestId();
