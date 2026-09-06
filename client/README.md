@@ -216,6 +216,9 @@ export TENCENT_MAP_KEY='你的本地腾讯地图Key'
 `Projects → Run → Run Environment` 并新增一行：变量名填写
 `TENCENT_MAP_KEY`，Value 只填写 Key 本身，不要带引号，也不要重复填写
 `TENCENT_MAP_KEY=`；Command line arguments 设为 `--api mock --map tencent`。
+腾讯 WebService 适配器只为自身的 HTTPS 请求使用直连，避免 GNOME 空 PAC/WPAD
+自动探测导致驾车、步行、公交和骑行首次规划额外等待；它不修改系统代理，也不影响
+充电业务 TCP 连接。
 该 Key 需要在腾讯位置服务控制台同时启用 WebService API 和 JavaScript API GL：
 地址解析与步行路线由 WebService 提供，步行折线由 JavaScript API GL 在内嵌页面中
 绘制。当前客户端 Demo 不保存用于服务端签名的 SK；如果 Key 强制签名校验，应改用
@@ -370,6 +373,8 @@ Fcitx/Fcitx5、当前 Qt 6 安装缺少 Fcitx 插件但提供 IBus 插件，程�
   获取站点坐标仍使用原有 `station.detail`。路线方式不会上传为订单字段，也不改变计费。
 - 没有路线或分段数据无效时提示失败；API 数据与地图 SDK 分别处理错误，不用网页加载
   成功冒充路线可用。路线说明是纯文本，不执行远端 HTML。本版不保证实时班次、不购票。
+- 腾讯公交返回状态码 `348` 表示当前起终点没有可用公交方案，客户端提示更换起点或
+  出行方式，不将它误报为 Key 权限问题；近距离站点可改用步行或驾车。
 
 手工验收：启动 `--api mock --map tencent`，以已知有公交/地铁连接的沈阳市地址为起点，
 选站点并生成公共交通路线，确认页内出现公交换乘方案或明确的无路线提示；再切换驾车、步行
