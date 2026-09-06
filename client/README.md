@@ -144,6 +144,36 @@ Qt Creator 中联调 TCP 时，先在终端启动上述服务端，再打开 `Pr
 [`server/服务端网络接口.md`](../server/服务端网络接口.md) 为准；尚未开放的订单消息
 会返回服务端的业务失败，不会回退到 Mock。
 
+### 结算提示与 TCP 联调回归
+
+TCP 适配器先解析整批回包、停止对应请求的超时计时，再在同一 Qt 线程的后续
+事件中通知 Controller。这样结算提示框等待用户确认时，首页的 `station.list`
+和 `order.current` 仍能正常完成；已收到的响应不会因为弹窗停留而超时。
+重复响应只完成一次，断线前尚未派发的结果也不会在断线后恢复旧 token。
+
+此前在 `readyRead` 回调内直接通知界面，结束充电后先刷新首页、再执行模态
+提示框的 `exec()`，会让后续收包通知无法递归触发；超过默认 5 秒后，客户端
+误判请求超时并清空 token，下一次刷新就显示登录失效。这在本机 TCP 也能
+复现，并非只有远程联调才可能发生。Qt 对该行为的说明见
+[readyRead](https://doc.qt.io/qt-6/qiodevice.html#readyRead) 和
+[QDialog::exec](https://doc.qt.io/qt-6/qdialog.html#exec)。
+
+本修复不改变 V1 信封、计费、订单状态或真实断线后的重新登录规则，也不自动
+重发充值、停止或支付请求。新增测试使用 C++ / Qt Test：
+
+```bash
+ctest --test-dir build/client --output-on-failure \
+  -R 'charging_client_tcp_(api|settlement_ui)_tests'
+```
+
+- TCP 测试覆盖提示框的嵌套事件循环、分片/粘连/重复回包、失效的延迟通知，
+  以及真正超时和断线后的登录态清理；
+- 界面测试使用真实 TCP socket、正式客户端与既有契约 fixture，覆盖从首页和
+  订单页结束充电的余额足够/不足四种情况，故意让提示框停留超过测试超时，
+  再检查首页刷新、资料查询、钱包跳转和 token 均正常；不连接外部服务；
+- Tailscale 手动复测时，两端保持服务运行，结束充电后让结果提示框停留至少
+  6 秒再关闭，然后刷新首页并进入“我的”；余额不足时继续验证充值补付。
+
 ### 地图模式与腾讯地图依赖
 
 地图默认使用 Mock，普通客户端构建不强制 Qt WebEngine。需要构建可选的腾讯地图
