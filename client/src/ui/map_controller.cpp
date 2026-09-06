@@ -29,6 +29,8 @@ MapController::MapController(StationBrowserPage &page,
             this, &MapController::openNavigation);
     connect(&page_, &StationBrowserPage::routeRequested,
             this, &MapController::requestRoute);
+    connect(&page_, &StationBrowserPage::navigationClosed,
+            this, &MapController::cancelRoute);
     connect(&mapService_, &IMapService::geocodeCompleted,
             this, &MapController::handleGeocode);
     connect(&mapService_, &IMapService::routeCompleted,
@@ -37,6 +39,8 @@ MapController::MapController(StationBrowserPage &page,
 
 void MapController::reset()
 {
+    mapService_.cancel(pendingGeocodeRequestId_);
+    mapService_.cancel(pendingRouteRequestId_);
     pendingGeocodeRequestId_.clear();
     pendingRouteRequestId_.clear();
     geocodePurpose_ = GeocodePurpose::None;
@@ -56,8 +60,21 @@ void MapController::resolveLocation(const QString &address)
 
 void MapController::openNavigation(const protocol::StationDto &station)
 {
+    cancelRoute();
     routeDestination_ = {station.address, station.longitude, station.latitude};
     page_.showNavigation(station, page_.currentLocation());
+}
+
+void MapController::cancelRoute()
+{
+    mapService_.cancel(pendingRouteRequestId_);
+    pendingRouteRequestId_.clear();
+    if (geocodePurpose_ == GeocodePurpose::RouteStart) {
+        mapService_.cancel(pendingGeocodeRequestId_);
+        pendingGeocodeRequestId_.clear();
+        geocodePurpose_ = GeocodePurpose::None;
+    }
+    page_.setRouteBusy(false);
 }
 
 void MapController::requestRoute(const QString &startAddress, RouteMode mode)

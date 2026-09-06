@@ -34,6 +34,7 @@ private:
     void requestRoute(const QString &startAddress, RouteMode mode);
     void handleGeocode(const GeocodeResult &result);
     void handleRoute(const RouteResult &result);
+    void cancelRoute();
 
     StationBrowserPage &page_;
     IMapService &mapService_;

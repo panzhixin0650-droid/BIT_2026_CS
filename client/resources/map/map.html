@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html, body, #map { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body { background: #eef3ec; }
+  </style>
+</head>
+<body>
+<div id="map" aria-label="路线地图，可拖动和缩放"></div>
+<script>
+"use strict";
+// This document is loaded once. Only numeric route geometry crosses from Qt.
+window.bitMap = (() => {
+  let map, lines, markers, bounds, autoFit = true;
+  const state = { ready: false, error: false };
+  function fail() { state.ready = false; state.error = true; }
+  function fit() {
+    if (!map || !bounds) return false;
+    autoFit = true;
+    const padding = Math.max(12, Math.min(40, Math.min(innerWidth, innerHeight) * 0.12));
+    map.fitBounds(bounds, { padding });
+    return true;
+  }
+  function markerStyle(text, color) {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32">'
+      + '<circle cx="16" cy="16" r="14" fill="' + color + '" stroke="white" stroke-width="2"/>'
+      + '<text x="16" y="21" text-anchor="middle" font-family="sans-serif" font-size="15" fill="white">'
+      + text + '</text></svg>';
+    return new TMap.MarkerStyle({ width: 32, height: 32,
+      anchor: { x: 16, y: 16 }, src: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg) });
+  }
+  function init() {
+    try {
+      map = new TMap.Map(document.getElementById('map'), {
+        center: new TMap.LatLng(41.79, 123.4), zoom: 12,
+        minZoom: 3, maxZoom: 20, pitch: 0, rotation: 0, viewMode: '2D',
+        draggable: true, scrollable: true, doubleClickZoom: true
+      });
+      lines = new TMap.MultiPolyline({ map, geometries: [], styles: {
+        route: new TMap.PolylineStyle({ color: '#245b48', width: 7, borderWidth: 2,
+          borderColor: '#ffffff', lineCap: 'round' }),
+        walking: new TMap.PolylineStyle({ color: '#6485b8', width: 5, borderWidth: 1,
+          borderColor: '#ffffff', lineCap: 'round' })
+      }});
+      markers = new TMap.MultiMarker({ map, geometries: [],
+        styles: { start: markerStyle('起', '#245b48'), end: markerStyle('终', '#b55242') } });
+      state.ready = true;
+    } catch (_) { fail(); }
+  }
+  function clear() {
+    bounds = null;
+    if (lines) lines.setGeometries([]);
+    if (markers) markers.setGeometries([]);
+    return true;
+  }
+  function setRoute(paths) {
+    try {
+      if (!state.ready || !paths.length) return false;
+      bounds = new TMap.LatLngBounds();
+      const geometries = paths.map((leg, index) => {
+        const points = leg.points.map(point => new TMap.LatLng(point[0], point[1]));
+        points.forEach(point => bounds.extend(point));
+        return { id: String(index), styleId: leg.walking ? 'walking' : 'route', paths: points };
+      });
+      lines.setGeometries(geometries);
+      const first = geometries[0].paths[0];
+      const lastLeg = geometries[geometries.length - 1].paths;
+      markers.setGeometries([
+        { id: 'start', styleId: 'start', position: first },
+        { id: 'end', styleId: 'end', position: lastLeg[lastLeg.length - 1] }
+      ]);
+      return fit();
+    } catch (_) { fail(); return false; }
+  }
+  function zoom(delta) {
+    if (!state.ready) return false;
+    autoFit = false;
+    map.setZoom(Math.max(3, Math.min(20, map.getZoom() + delta)));
+    return true;
+  }
+  document.getElementById('map').addEventListener('wheel', () => { autoFit = false; }, { passive: true });
+  document.getElementById('map').addEventListener('pointerdown', () => { autoFit = false; }, { passive: true });
+  let resizeFrame;
+  new ResizeObserver(() => {
+    cancelAnimationFrame(resizeFrame);
+    resizeFrame = requestAnimationFrame(() => {
+      if (!state.ready) return;
+      if (typeof map.resize === 'function') map.resize();
+      if (autoFit && bounds) fit();
+    });
+  }).observe(document.getElementById('map'));
+  return { state, init, fail, setRoute, clear, zoom, fit };
+})();
+</script>
+<script src="__MAP_SCRIPT_URL__" onload="bitMap.init()" onerror="bitMap.fail()"></script>
+</body>
+</html>

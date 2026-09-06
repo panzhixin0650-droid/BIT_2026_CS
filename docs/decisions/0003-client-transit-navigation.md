@@ -11,6 +11,9 @@
 
 ## 决策
 
+> 后续更新：驾车/公交完整 URI 页面已由 [ADR-0006](0006-client-api-map-navigation.md)
+> 的 API 数据与自有交互地图方案取代。以下保留原始决策背景。
+
 本地 `IMapService.openRoute` 的 `RouteMode` 兼容增加 `TRANSIT`。
 腾讯官方 [Web 路线规划文档](https://lbs.qq.com/webApi/uriV1/uriGuide/uriWebRoute)
 支持 `routeplan?type=bus`；复用驾车使用的 URI 页面与 `QWebEngineView`，传入

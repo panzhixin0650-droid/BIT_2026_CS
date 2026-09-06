@@ -76,7 +76,7 @@ QString MockMapService::openRoute(const MapLocation &start,
             result.message = QStringLiteral("Mock 路线已生成");
             result.summary = QStringLiteral("%1\n从：%2\n到：%3\n"
                                             "当前为离线 Mock 路线；安装 WebEngine 并配置腾讯地图后，"
-                                            "此区域将加载真实路线页面。")
+                                            "此区域将绘制真实路线，支持拖动和缩放。")
                                  .arg(mode == RouteMode::Driving
                                           ? QStringLiteral("驾车路线")
                                           : mode == RouteMode::Walking ? QStringLiteral("步行路线")

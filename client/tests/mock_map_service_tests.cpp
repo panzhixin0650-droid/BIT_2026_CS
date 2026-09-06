@@ -7,6 +7,7 @@
 #include <QTimer>
 #include <cstring>
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QUrlQuery>
 #include <QtTest>
@@ -18,19 +19,19 @@ namespace {
 class MemoryReply final : public QNetworkReply {
 public:
     MemoryReply(const QNetworkRequest &request, QByteArray body,
-                NetworkError error, QObject *parent)
-        : QNetworkReply(parent), body_(std::move(body))
+                NetworkError error, int delayMs, int *abortCount, QObject *parent)
+        : QNetworkReply(parent), body_(std::move(body)), abortCount_(abortCount)
     {
         setRequest(request);
         setUrl(request.url());
         open(QIODevice::ReadOnly);
-        QTimer::singleShot(0, this, [this, error]() {
+        QTimer::singleShot(delayMs, this, [this, error]() {
             if (error != NoError) setError(error, QStringLiteral("Simulated network failure"));
             setFinished(true);
             emit finished();
         });
     }
-    void abort() override {}
+    void abort() override { ++*abortCount_; }
     qint64 bytesAvailable() const override { return body_.size() - offset_ + QNetworkReply::bytesAvailable(); }
 protected:
     qint64 readData(char *data, qint64 maxSize) override {
@@ -43,6 +44,7 @@ protected:
 private:
     QByteArray body_;
     qint64 offset_ = 0;
+    int *abortCount_;
 };
 
 class MemoryNetwork final : public QNetworkAccessManager {
@@ -50,10 +52,12 @@ public:
     QByteArray body;
     QNetworkReply::NetworkError error = QNetworkReply::NoError;
     QList<QUrl> urls;
+    int replyDelayMs = 0;
+    int abortCount = 0;
 protected:
     QNetworkReply *createRequest(Operation, const QNetworkRequest &request, QIODevice *) override {
         urls.append(request.url());
-        return new MemoryReply(request, body, error, this);
+        return new MemoryReply(request, body, error, replyDelayMs, &abortCount, this);
     }
 };
 
@@ -73,6 +77,8 @@ private slots:
     void rejectsInvalidTransitInputs();
     void cyclingAndWalkingResponses_data();
     void cyclingAndWalkingResponses();
+    void cancelsPendingRequests();
+    void drivingAndTransitFailures();
 };
 
 void MockMapServiceTests::initTestCase()
@@ -150,7 +156,7 @@ void MockMapServiceTests::opensDrivingAndWalkingRoutes()
     QVERIFY(result.success);
     QVERIFY(result.summary.contains(QStringLiteral("公共交通路线")));
     QVERIFY(result.summary.contains(QStringLiteral("离线 Mock")));
-    QVERIFY(result.routeUrl.isEmpty());
+    QVERIFY(result.mapScriptUrl.isEmpty());
 
     (void)service.openRoute(start, end, client::RouteMode::Cycling);
     QTRY_COMPARE(spy.count(), 1);
@@ -167,32 +173,27 @@ void MockMapServiceTests::opensDrivingAndWalkingRoutes()
 
 void MockMapServiceTests::tencentRouteUsesEditableEndpoints()
 {
-    client::TencentMapService service(QStringLiteral("test-browser-key"));
+    MemoryNetwork network;
+    network.body = R"({"status":0,"result":{"routes":[{"distance":180,"duration":2.1,"polyline":[41.79,123.4,1000,1000],"steps":[{"instruction":"沿演示道路前行"}]}]}})";
+    client::TencentMapService service(QStringLiteral("test-browser-key"), 5000, nullptr, &network);
     QSignalSpy spy(&service, &client::IMapService::routeCompleted);
-    const client::MapLocation start{
-        QStringLiteral("临时修改的起点"), 123.401234, 41.791234};
-    const client::MapLocation end{
-        QStringLiteral("和平演示充电站"), 123.40, 41.79};
-
-    const QString requestId =
-        service.openRoute(start, end, client::RouteMode::Driving);
+    const client::MapLocation start{QStringLiteral("临时修改的起点"), 123.401234, 41.791234};
+    const client::MapLocation end{QStringLiteral("和平演示充电站"), 123.40, 41.79};
+    const QString requestId = service.openRoute(start, end, client::RouteMode::Driving);
     QTRY_COMPARE(spy.count(), 1);
-    const auto result =
-        qvariant_cast<client::RouteResult>(spy.takeFirst().at(0));
+    const auto result = qvariant_cast<client::RouteResult>(spy.takeFirst().at(0));
     QCOMPARE(result.requestId, requestId);
     QVERIFY(result.success);
-    QCOMPARE(result.routeUrl.host(), QStringLiteral("apis.map.qq.com"));
-    QCOMPARE(result.routeUrl.path(), QStringLiteral("/uri/v1/routeplan"));
-    const QUrlQuery query(result.routeUrl);
-    QCOMPARE(query.queryItemValue(QStringLiteral("type")), QStringLiteral("drive"));
-    QCOMPARE(query.queryItemValue(QStringLiteral("from")),
-             QStringLiteral("临时修改的起点"));
-    QCOMPARE(query.queryItemValue(QStringLiteral("fromcoord")),
-             QStringLiteral("41.791234,123.401234"));
-    QCOMPARE(query.queryItemValue(QStringLiteral("to")),
-             QStringLiteral("和平演示充电站"));
-    QCOMPARE(query.queryItemValue(QStringLiteral("referer")),
-             QStringLiteral("test-browser-key"));
+    QCOMPARE(network.urls.size(), 1);
+    QCOMPARE(network.urls.first().path(), QStringLiteral("/ws/direction/v1/driving/"));
+    const QUrlQuery query(network.urls.first());
+    QCOMPARE(query.queryItemValue(QStringLiteral("from")), QStringLiteral("41.791234,123.401234"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("to")), QStringLiteral("41.790000,123.400000"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("key")), QStringLiteral("test-browser-key"));
+    QCOMPARE(result.summary, QStringLiteral("驾车约 180 米 · 3 分钟"));
+    QCOMPARE(result.paths.size(), 1);
+    QCOMPARE(result.instructions, QStringList{QStringLiteral("沿演示道路前行")});
+    QCOMPARE(result.mapScriptUrl.path(), QStringLiteral("/api/gljs"));
 }
 
 void MockMapServiceTests::tencentAdapterRejectsMissingConfiguration()
@@ -242,7 +243,9 @@ void MockMapServiceTests::transitMatchesLocalFixture()
     };
     const auto start = location(root.value(QStringLiteral("start")).toObject());
     const auto end = location(root.value(QStringLiteral("end")).toObject());
-    client::TencentMapService service(QStringLiteral("test-browser-key"));
+    MemoryNetwork network;
+    network.body = QJsonDocument(root.value(QStringLiteral("tencentResponse")).toObject()).toJson();
+    client::TencentMapService service(QStringLiteral("test-browser-key"), 5000, nullptr, &network);
     QSignalSpy spy(&service, &client::IMapService::routeCompleted);
     const auto requestId = service.openRoute(start, end, client::RouteMode::Transit);
     QTRY_COMPARE(spy.count(), 1);
@@ -250,17 +253,16 @@ void MockMapServiceTests::transitMatchesLocalFixture()
     QCOMPARE(result.requestId, requestId);
     QVERIFY(result.success);
     QVERIFY(result.summary.contains(QStringLiteral("公共交通")));
-    QCOMPARE(result.routeUrl.scheme(), QStringLiteral("https"));
-    QCOMPARE(result.routeUrl.host(), QStringLiteral("apis.map.qq.com"));
-    QCOMPARE(result.routeUrl.path(), QStringLiteral("/uri/v1/routeplan"));
-    const QUrlQuery query(result.routeUrl);
-    QCOMPARE(query.queryItemValue(QStringLiteral("type")),
-             root.value(QStringLiteral("tencentRouteType")).toString());
-    QCOMPARE(query.queryItemValue(QStringLiteral("from")), start.address);
-    QCOMPARE(query.queryItemValue(QStringLiteral("to")), end.address);
-    QCOMPARE(query.queryItemValue(QStringLiteral("fromcoord")), QStringLiteral("41.790000,123.400000"));
-    QCOMPARE(query.queryItemValue(QStringLiteral("tocoord")), QStringLiteral("41.710000,123.430000"));
-    QVERIFY(!query.hasQueryItem(QStringLiteral("policy")));
+    QCOMPARE(network.urls.size(), 1);
+    QCOMPARE(network.urls.first().path(), root.value(QStringLiteral("tencentEndpoint")).toString());
+    const QUrlQuery query(network.urls.first());
+    QCOMPARE(query.queryItemValue(QStringLiteral("from")), QStringLiteral("41.790000,123.400000"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("to")), QStringLiteral("41.710000,123.430000"));
+    QCOMPARE(result.paths.size(), 3);
+    QVERIFY(result.paths.first().toObject().value(QStringLiteral("walking")).toBool());
+    QVERIFY(!result.paths.at(1).toObject().value(QStringLiteral("walking")).toBool());
+    QVERIFY(result.instructions.join(QLatin1Char('\n')).contains(QStringLiteral("演示上车站")));
+    QCOMPARE(result.summary, QStringLiteral("公共交通约 1.2 公里 · 9 分钟"));
 }
 
 void MockMapServiceTests::rejectsInvalidTransitInputs()
@@ -284,7 +286,7 @@ void MockMapServiceTests::rejectsInvalidTransitInputs()
         QTRY_COMPARE(spy.count(), 1);
         auto result = qvariant_cast<client::RouteResult>(spy.takeFirst().at(0));
         QVERIFY(!result.success);
-        QVERIFY(result.routeUrl.isEmpty());
+        QVERIFY(result.mapScriptUrl.isEmpty());
         (void)service->openRoute(start, end, static_cast<client::RouteMode>(999));
         QTRY_COMPARE(spy.count(), 1);
         result = qvariant_cast<client::RouteResult>(spy.takeFirst().at(0));
@@ -340,16 +342,70 @@ void MockMapServiceTests::cyclingAndWalkingResponses()
     const QString label = cycling ? QStringLiteral("骑行") : QStringLiteral("步行");
     if (success) {
         QVERIFY(result.summary.contains(label));
-        QVERIFY(result.routeHtml.contains(label + QStringLiteral("约 180 米 · 2 分钟")));
-        QVERIFY(result.routeHtml.contains(QStringLiteral("41.791")));
-        QVERIFY(result.routeHtml.contains(QStringLiteral("123.401")));
+        QCOMPARE(result.summary, label + QStringLiteral("约 180 米 · 2 分钟"));
+        const auto points = result.paths.first().toObject().value(QStringLiteral("points")).toArray();
+        QCOMPARE(points.last().toArray().first().toDouble(), 41.791);
+        QCOMPARE(points.last().toArray().last().toDouble(), 123.401);
     } else {
         QVERIFY(result.message.contains(label));
-        QVERIFY(result.routeHtml.isEmpty());
-        QVERIFY(result.routeUrl.isEmpty());
+        QVERIFY(result.paths.isEmpty());
+        QVERIFY(result.mapScriptUrl.isEmpty());
     }
     QCoreApplication::processEvents();
     QCOMPARE(spy.count(), 1);
+}
+
+
+void MockMapServiceTests::cancelsPendingRequests()
+{
+    MemoryNetwork network;
+    client::TencentMapService service(QStringLiteral("test-key"), 5000, nullptr, &network);
+    QSignalSpy routeSpy(&service, &client::IMapService::routeCompleted);
+    const auto id = service.openRoute({QStringLiteral("起点"), 123.4, 41.79},
+                                     {QStringLiteral("终点"), 123.43, 41.71}, client::RouteMode::Driving);
+    service.cancel(id);
+    QTest::qWait(20);
+    QVERIFY(network.urls.isEmpty());
+    QVERIFY(routeSpy.isEmpty());
+    network.replyDelayMs = 200;
+    const auto inFlight = service.openRoute({QStringLiteral("起点"), 123.4, 41.79},
+                                           {QStringLiteral("终点"), 123.43, 41.71}, client::RouteMode::Transit);
+    QTRY_COMPARE(network.urls.size(), 1);
+    service.cancel(inFlight);
+    QCOMPARE(network.abortCount, 1);
+    QTest::qWait(220);
+    QVERIFY(routeSpy.isEmpty());
+    QSignalSpy geocodeSpy(&service, &client::IMapService::geocodeCompleted);
+    const auto geocodeId = service.geocode(QStringLiteral("沈阳市"));
+    service.cancel(geocodeId);
+    QTest::qWait(20);
+    QVERIFY(geocodeSpy.isEmpty());
+}
+
+void MockMapServiceTests::drivingAndTransitFailures()
+{
+    const QList<QByteArray> invalid = {
+        R"({"status":0,"result":{"routes":[]}})",
+        R"({"status":311,"message":"Key rejected"})",
+        R"({"status":0,"result":{"routes":[{"distance":-1,"duration":2,"polyline":[41,123,1,1]}]}})",
+        R"({"status":0,"result":{"routes":[{"distance":100,"duration":2,"steps":[{"mode":"TRANSIT","lines":[]}]}]}})"
+    };
+    for (auto mode : {client::RouteMode::Driving, client::RouteMode::Transit}) {
+        for (const auto &body : invalid) {
+            MemoryNetwork network;
+            network.body = body;
+            client::TencentMapService service(QStringLiteral("test-key"), 5000, nullptr, &network);
+            QSignalSpy spy(&service, &client::IMapService::routeCompleted);
+            (void)service.openRoute({QStringLiteral("起点"), 123.4, 41.79},
+                                    {QStringLiteral("终点"), 123.43, 41.71}, mode);
+            QTRY_COMPARE(spy.count(), 1);
+            const auto result = qvariant_cast<client::RouteResult>(spy.first().at(0));
+            QVERIFY(!result.success);
+            QVERIFY(result.paths.isEmpty());
+            QVERIFY(result.mapScriptUrl.isEmpty());
+            QVERIFY(!result.message.isEmpty());
+        }
+    }
 }
 
 QTEST_GUILESS_MAIN(MockMapServiceTests)

@@ -1,7 +1,9 @@
 #pragma once
 
+#include <QJsonArray>
 #include <QMetaType>
 #include <QString>
+#include <QStringList>
 #include <QUrl>
 
 #include <optional>
@@ -33,8 +35,10 @@ struct RouteResult {
     bool success = false;
     QString message;
     QString summary;
-    QUrl routeUrl;
-    QString routeHtml;
+    // Client-local data only. No remote route page or route-dependent HTML.
+    QUrl mapScriptUrl;
+    QJsonArray paths;  // {points: [[latitude, longitude], ...], walking: bool}
+    QStringList instructions;
 };
 
 }  // namespace charging::client

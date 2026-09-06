@@ -18,6 +18,7 @@ public:
     [[nodiscard]] virtual QString openRoute(const MapLocation &start,
                                             const MapLocation &end,
                                             RouteMode mode) = 0;
+    virtual void cancel(const QString &requestId) { Q_UNUSED(requestId); }
 
 signals:
     void geocodeCompleted(const charging::client::GeocodeResult &result);

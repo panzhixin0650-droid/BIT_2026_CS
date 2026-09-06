@@ -46,6 +46,7 @@ target_link_libraries(charging_client_api
 
 add_library(charging_client_ui STATIC
     resources/assistant_resources.qrc
+    resources/map_resources.qrc
     src/assistant/assistant_config.cpp
     src/assistant/assistant_config.h
     src/assistant/assistant_service.cpp
@@ -78,6 +79,8 @@ add_library(charging_client_ui STATIC
     src/ui/login_page.h
     src/ui/map_controller.cpp
     src/ui/map_controller.h
+    src/ui/route_map_view.cpp
+    src/ui/route_map_view.h
     src/ui/main_window.cpp
     src/ui/main_window.h
     src/ui/order_controller.cpp
@@ -130,6 +133,12 @@ target_link_libraries(user-client
 
 if(BUILD_TESTING)
     find_package(Qt6 6.2 REQUIRED COMPONENTS Test)
+
+    add_executable(charging_client_navigation_tests tests/navigation_tests.cpp)
+    target_link_libraries(charging_client_navigation_tests PRIVATE charging_client_ui Qt6::Test)
+    add_test(NAME charging_client_navigation_tests COMMAND charging_client_navigation_tests)
+    set_tests_properties(charging_client_navigation_tests PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     add_executable(charging_client_assistant_tests tests/assistant_tests.cpp)
     target_link_libraries(charging_client_assistant_tests PRIVATE charging_client_ui Qt6::Test)

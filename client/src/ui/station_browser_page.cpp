@@ -3,6 +3,9 @@
 #include "ui/charging_stop_dialog.h"
 #include "ui/charging_art.h"
 #include "ui/client_theme.h"
+#include "ui/route_map_view.h"
+#include <QHideEvent>
+#include <QPlainTextEdit>
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -18,9 +21,7 @@
 #include <QSizePolicy>
 #include <QStackedWidget>
 #include <QVBoxLayout>
-#ifdef CHARGING_CLIENT_HAS_WEBENGINE
-#include <QWebEngineView>
-#endif
+
 
 #include <functional>
 #include <utility>
@@ -526,6 +527,8 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     routeDestinationLabel_ = new QLabel(routeControlsCard);
     routeDestinationLabel_->setObjectName(QStringLiteral("routeDestination"));
     routeDestinationLabel_->setWordWrap(true);
+    routeDestinationLabel_->setTextFormat(Qt::PlainText);
+    routeDestinationLabel_->setMaximumHeight(44);
     routeDestinationLabel_->setStyleSheet(QStringLiteral("color: #536553;"));
     auto *routeDestinationRow = new QHBoxLayout();
     routeDestinationRow->setSpacing(8);
@@ -558,13 +561,16 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     routeMessageLabel_ = new QLabel(navigationPage_);
     routeMessageLabel_->setObjectName(QStringLiteral("routeMessage"));
     routeMessageLabel_->setWordWrap(true);
+    routeMessageLabel_->setTextFormat(Qt::PlainText);
+    routeMessageLabel_->setMaximumHeight(42);
     routeMessageLabel_->hide();
     routeDisplayLabel_ = new QLabel(
         QStringLiteral("选择出行方式后点击“开始导航”"), navigationPage_);
     routeDisplayLabel_->setObjectName(QStringLiteral("routeDisplay"));
     routeDisplayLabel_->setAlignment(Qt::AlignCenter);
     routeDisplayLabel_->setWordWrap(true);
-    routeDisplayLabel_->setMinimumHeight(360);
+    routeDisplayLabel_->setTextFormat(Qt::PlainText);
+    routeDisplayLabel_->setMinimumHeight(120);
     routeDisplayLabel_->setSizePolicy(QSizePolicy::Expanding,
                                       QSizePolicy::Expanding);
     routeDisplayLabel_->setStyleSheet(QStringLiteral(
@@ -572,18 +578,82 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
         "color: #536553; padding: 16px;"));
     routeDisplayStack_ = new QStackedWidget(navigationPage_);
     routeDisplayStack_->setObjectName(QStringLiteral("routeDisplayStack"));
-    routeDisplayStack_->setMinimumHeight(360);
+    routeDisplayStack_->setMinimumHeight(120);
     routeDisplayStack_->setSizePolicy(QSizePolicy::Expanding,
                                       QSizePolicy::Expanding);
     routeDisplayStack_->addWidget(routeDisplayLabel_);
+    routeMapView_ = new RouteMapView(routeDisplayStack_);
+    routeDisplayStack_->addWidget(routeMapView_);
+    routeSummaryLabel_ = new QLabel(navigationPage_);
+    routeSummaryLabel_->setObjectName(QStringLiteral("routeSummary"));
+    routeSummaryLabel_->setTextFormat(Qt::PlainText);
+    routeSummaryLabel_->setWordWrap(true);
+    routeSummaryLabel_->hide();
+    routeDetails_ = new QPlainTextEdit(navigationPage_);
+    routeDetails_->setObjectName(QStringLiteral("routeDetails"));
+    routeDetails_->setReadOnly(true);
+    routeDetails_->setMinimumHeight(0);
+    routeDetails_->setMaximumHeight(88);
+    routeDetails_->hide();
+
+    auto *mapToolbar = new QHBoxLayout();
+    mapToolbar->setSpacing(6);
+    auto *zoomIn = new QPushButton(QStringLiteral("＋"), navigationPage_);
+    auto *zoomOut = new QPushButton(QStringLiteral("−"), navigationPage_);
+    auto *fitRoute = new QPushButton(QStringLiteral("显示全程"), navigationPage_);
+    routeDetailsButton_ = new QPushButton(QStringLiteral("详情"), navigationPage_);
+    zoomIn->setObjectName(QStringLiteral("mapZoomInButton"));
+    zoomOut->setObjectName(QStringLiteral("mapZoomOutButton"));
+    fitRoute->setObjectName(QStringLiteral("mapFitRouteButton"));
+    routeDetailsButton_->setObjectName(QStringLiteral("routeDetailsButton"));
+    zoomIn->setAccessibleName(QStringLiteral("放大地图"));
+    zoomOut->setAccessibleName(QStringLiteral("缩小地图"));
+    zoomIn->setToolTip(QStringLiteral("放大地图（也可使用鼠标滚轮）"));
+    zoomOut->setToolTip(QStringLiteral("缩小地图（也可使用鼠标滚轮）"));
+    fitRoute->setToolTip(QStringLiteral("调整地图视野，显示完整路线"));
+    for (auto *button : {zoomIn, zoomOut, fitRoute, routeDetailsButton_}) {
+        button->setStyleSheet(QStringLiteral("min-height: 30px; padding: 0 8px;"));
+        button->setEnabled(false);
+        mapToolbar->addWidget(button);
+    }
+    zoomIn->setFixedWidth(38);
+    zoomOut->setFixedWidth(38);
+    routeDetailsButton_->setCheckable(true);
+    mapToolbar->insertStretch(3);
+    connect(zoomIn, &QPushButton::clicked, routeMapView_, &RouteMapView::zoomIn);
+    connect(zoomOut, &QPushButton::clicked, routeMapView_, &RouteMapView::zoomOut);
+    connect(fitRoute, &QPushButton::clicked, routeMapView_, &RouteMapView::fitRoute);
+    connect(routeDetailsButton_, &QPushButton::toggled, routeDetails_, &QWidget::setVisible);
+    connect(routeMapView_, &RouteMapView::readyChanged, this,
+            [zoomIn, zoomOut, fitRoute](bool ready) {
+                for (auto *button : {zoomIn, zoomOut, fitRoute}) button->setEnabled(ready);
+            });
+    connect(routeMapView_, &RouteMapView::loadingChanged, this, [this](bool loading) {
+        mapLoading_ = loading;
+        updateRouteControls();
+    });
+    connect(routeMapView_, &RouteMapView::statusChanged, this,
+            [this](const QString &message, bool error) {
+                showRouteMessage(message, error);
+                if (error) {
+                    routeDisplayLabel_->setText(QStringLiteral("地图暂不可用，请检查配置后重新规划。\n已获取的路线说明可在“详情”中查看。"));
+                    routeDisplayStack_->setCurrentWidget(routeDisplayLabel_);
+                }
+            });
     navigationLayout->addLayout(navigationHeader);
     navigationLayout->addWidget(routeControlsCard);
     navigationLayout->addWidget(routeMessageLabel_);
+    navigationLayout->addWidget(routeSummaryLabel_);
+    navigationLayout->addLayout(mapToolbar);
     navigationLayout->addWidget(routeDisplayStack_, 1);
+    navigationLayout->addWidget(routeDetails_);
 
     pages_->addWidget(listPage_);
     pages_->addWidget(detailPage_);
     pages_->addWidget(navigationPage_);
+    connect(pages_, &QStackedWidget::currentChanged, this, [this]() {
+        if (pages_->currentWidget() != navigationPage_) emit navigationClosed();
+    });
     pages_->setCurrentWidget(listPage_);
 
     connect(refreshButton_, &QPushButton::clicked, this, &StationBrowserPage::refreshRequested);
@@ -622,11 +692,8 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
         emit navigationRequested(navigationStation_);
     });
     connect(navigationBackButton, &QPushButton::clicked, this, [this]() {
-#ifdef CHARGING_CLIENT_HAS_WEBENGINE
-        if (routeWebView_ != nullptr) {
-            routeWebView_->stop();
-        }
-#endif
+        routeMapView_->clearRoute();
+        emit navigationClosed();
         pages_->setCurrentWidget(navigationReturnPage_ != nullptr
                                      ? navigationReturnPage_
                                      : listPage_);
@@ -996,25 +1063,54 @@ void StationBrowserPage::showNavigation(const protocol::StationDto &station,
         QStringLiteral("%1 · %2").arg(station.name, station.address));
     routeDisplayLabel_->setText(QStringLiteral("选择出行方式后点击“开始导航”"));
     routeDisplayStack_->setCurrentWidget(routeDisplayLabel_);
-#ifdef CHARGING_CLIENT_HAS_WEBENGINE
-    if (routeWebView_ != nullptr) {
-        routeWebView_->stop();
-    }
-#endif
+    routeMapView_->clearRoute();
+    routeSummaryLabel_->hide();
+    routeDetailsButton_->setChecked(false);
+    routeDetailsButton_->setEnabled(false);
     routeMessageLabel_->hide();
     pages_->setCurrentWidget(navigationPage_);
 }
 
 void StationBrowserPage::setRouteBusy(bool busy)
 {
+    routeRequestBusy_ = busy;
+    if (busy) {
+        routeMapView_->clearRoute();
+        routeDisplayLabel_->setText(QStringLiteral("正在规划路线…"));
+        routeDisplayStack_->setCurrentWidget(routeDisplayLabel_);
+        routeSummaryLabel_->hide();
+        routeDetailsButton_->setChecked(false);
+        routeDetailsButton_->setEnabled(false);
+    }
+    updateRouteControls();
+}
+
+void StationBrowserPage::updateRouteControls()
+{
+    const bool busy = routeRequestBusy_ || mapLoading_;
     routeStartInput_->setDisabled(busy);
     routeModeCombo_->setDisabled(busy);
     routePlanButton_->setDisabled(busy);
+    routePlanButton_->setText(busy ? QStringLiteral("加载中…") : QStringLiteral("开始导航"));
+}
+
+void StationBrowserPage::hideEvent(QHideEvent *event)
+{
+    QWidget::hideEvent(event);
+    if (pages_->currentWidget() == navigationPage_) {
+        routeMapView_->clearRoute();
+        routeDisplayLabel_->setText(QStringLiteral("选择出行方式后点击“开始导航”"));
+        routeDisplayStack_->setCurrentWidget(routeDisplayLabel_);
+        routeSummaryLabel_->hide();
+        routeDetailsButton_->setChecked(false);
+        emit navigationClosed();
+    }
 }
 
 void StationBrowserPage::showRouteMessage(const QString &message, bool error)
 {
     routeMessageLabel_->setText(message);
+    routeMessageLabel_->setToolTip(message);
     routeMessageLabel_->setStyleSheet(error ? QStringLiteral("color: #c62828;")
                                              : QStringLiteral("color: #386a3c;"));
     routeMessageLabel_->setVisible(!message.isEmpty());
@@ -1024,45 +1120,18 @@ void StationBrowserPage::showRouteResult(const RouteResult &result)
 {
     showRouteMessage(result.message);
     routeDisplayLabel_->setText(result.summary);
-    const bool hasHtml = !result.routeHtml.isEmpty();
-    const bool hasUrl = result.routeUrl.isValid() && !result.routeUrl.isEmpty();
-    if (!hasHtml && !hasUrl) {
+    routeDetails_->setPlainText(result.instructions.isEmpty()
+        ? QStringLiteral("服务未返回分步说明，请参考地图路线。")
+        : result.instructions.join(QStringLiteral("\n\n")));
+    routeDetailsButton_->setEnabled(!result.instructions.isEmpty() || !result.paths.isEmpty());
+    if (result.paths.isEmpty()) {
         routeDisplayStack_->setCurrentWidget(routeDisplayLabel_);
         return;
     }
-
-#ifdef CHARGING_CLIENT_HAS_WEBENGINE
-    if (routeWebView_ == nullptr) {
-        routeWebView_ = new QWebEngineView(routeDisplayStack_);
-        routeWebView_->setObjectName(QStringLiteral("routeWebView"));
-        routeWebView_->setMinimumHeight(360);
-        routeWebView_->setSizePolicy(QSizePolicy::Expanding,
-                                     QSizePolicy::Expanding);
-        routeDisplayStack_->addWidget(routeWebView_);
-        connect(routeWebView_, &QWebEngineView::loadFinished, this,
-                [this](bool success) {
-                    if (success) {
-                        showRouteMessage(QStringLiteral("腾讯地图路线已加载"));
-                    } else {
-                        showRouteMessage(
-                            QStringLiteral("腾讯地图页面加载失败，请检查网络或 Key 配置"),
-                            true);
-                    }
-                });
-    }
-    routeDisplayStack_->setCurrentWidget(routeWebView_);
-    if (hasHtml) {
-        routeWebView_->setHtml(result.routeHtml,
-                               QUrl(QStringLiteral("https://map.qq.com/")));
-    } else {
-        routeWebView_->load(result.routeUrl);
-    }
-#else
-    routeDisplayStack_->setCurrentWidget(routeDisplayLabel_);
-    showRouteMessage(
-        QStringLiteral("当前构建未启用 Qt WebEngine，请使用 Mock 地图或重新配置客户端"),
-        true);
-#endif
+    routeSummaryLabel_->setText(result.summary);
+    routeSummaryLabel_->show();
+    routeDisplayStack_->setCurrentWidget(routeMapView_);
+    routeMapView_->setRoute(result);
 }
 
 void StationBrowserPage::reset()
@@ -1079,11 +1148,10 @@ void StationBrowserPage::reset()
     locationMessageLabel_->hide();
     routeMessageLabel_->hide();
     routeDisplayStack_->setCurrentWidget(routeDisplayLabel_);
-#ifdef CHARGING_CLIENT_HAS_WEBENGINE
-    if (routeWebView_ != nullptr) {
-        routeWebView_->stop();
-    }
-#endif
+    routeMapView_->clearRoute();
+    routeSummaryLabel_->hide();
+    routeDetailsButton_->setChecked(false);
+    routeDetailsButton_->setEnabled(false);
     setLocationBusy(false);
     setRouteBusy(false);
     pages_->setCurrentWidget(listPage_);

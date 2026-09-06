@@ -464,10 +464,10 @@ void MainWindowTests::locationCanResolveAndOpenMockRoute()
     QVERIFY(navigationPage->isVisible());
     QVERIFY(routeDisplayStack != nullptr);
     QVERIFY(routeControlsCard != nullptr);
-    QVERIFY(routeDisplayStack->minimumHeight() >= 360);
+    QVERIFY(routeDisplayStack->minimumHeight() <= 160);
     QCOMPARE(routeDisplayStack->sizePolicy().verticalPolicy(),
              QSizePolicy::Expanding);
-    QTRY_VERIFY(routeDisplayStack->height() >= 360);
+    QTRY_VERIFY(routeDisplayStack->height() >= 120);
     QVERIFY(routeDisplayStack->geometry().bottom()
             <= navigationPage->contentsRect().bottom());
     QCOMPARE(routeStart->text(), QStringLiteral("沈阳市和平区"));
