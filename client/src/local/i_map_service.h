@@ -14,6 +14,7 @@ public:
     using QObject::QObject;
     ~IMapService() override = default;
 
+    [[nodiscard]] virtual QUrl mapScriptUrl() const { return {}; }
     [[nodiscard]] virtual QString geocode(const QString &address) = 0;
     [[nodiscard]] virtual QString openRoute(const MapLocation &start,
                                             const MapLocation &end,

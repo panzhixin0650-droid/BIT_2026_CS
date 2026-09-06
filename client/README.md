@@ -219,6 +219,10 @@ export TENCENT_MAP_KEY='你的本地腾讯地图Key'
 腾讯 WebService 适配器只为自身的 HTTPS 请求使用直连，避免 GNOME 空 PAC/WPAD
 自动探测导致驾车、步行、公交和骑行首次规划额外等待；它不修改系统代理，也不影响
 充电业务 TCP 连接。
+腾讯模式会在登录窗口显示后异步下载并解析 JavaScript API GL；进入导航页时再用可见
+画布创建地图，让底图加载与路线请求并行，首条路线不再等待约 2.2 MB 的 SDK 下载。
+预加载不会请求路线、不会发送当前位置；失败时保持静默并在首次真实导航时重试。
+`--map mock` 不执行预加载，仍可完全离线开发。
 该 Key 需要在腾讯位置服务控制台同时启用 WebService API 和 JavaScript API GL：
 地址解析与步行路线由 WebService 提供，步行折线由 JavaScript API GL 在内嵌页面中
 绘制。当前客户端 Demo 不保存用于服务端签名的 SK；如果 Key 强制签名校验，应改用

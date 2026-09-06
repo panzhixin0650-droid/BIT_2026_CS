@@ -195,11 +195,15 @@ void MockMapServiceTests::tencentRouteUsesEditableEndpoints()
     QCOMPARE(result.paths.size(), 1);
     QCOMPARE(result.instructions, QStringList{QStringLiteral("沿演示道路前行")});
     QCOMPARE(result.mapScriptUrl.path(), QStringLiteral("/api/gljs"));
+    QCOMPARE(result.mapScriptUrl, service.mapScriptUrl());
+    QCOMPARE(QUrlQuery(service.mapScriptUrl()).queryItemValue(QStringLiteral("key")),
+             QStringLiteral("test-browser-key"));
 }
 
 void MockMapServiceTests::tencentAdapterRejectsMissingConfiguration()
 {
     client::TencentMapService service({});
+    QVERIFY(service.mapScriptUrl().isEmpty());
     QSignalSpy geocodeSpy(&service, &client::IMapService::geocodeCompleted);
     QSignalSpy routeSpy(&service, &client::IMapService::routeCompleted);
 
@@ -221,6 +225,7 @@ void MockMapServiceTests::tencentAdapterRejectsMissingConfiguration()
     QVERIFY(routeResult.message.contains(QStringLiteral("Key 未配置")));
 
     client::TencentMapService quotedService(QStringLiteral("'test-key'"));
+    QVERIFY(quotedService.mapScriptUrl().isEmpty());
     QSignalSpy quotedSpy(&quotedService,
                          &client::IMapService::geocodeCompleted);
     (void)quotedService.geocode(QStringLiteral("沈阳市和平区"));

@@ -15,8 +15,13 @@
 // This document is loaded once. Only numeric route geometry crosses from Qt.
 window.bitMap = (() => {
   let map, lines, markers, bounds, autoFit = true;
-  const state = { ready: false, error: false };
+  const state = { sdkReady: false, ready: false, error: false };
   function fail() { state.ready = false; state.error = true; }
+  function sdkLoaded() {
+    state.sdkReady = true;
+    state.error = false;
+    return true;
+  }
   function fit() {
     if (!map || !bounds) return false;
     autoFit = true;
@@ -33,6 +38,8 @@ window.bitMap = (() => {
       anchor: { x: 16, y: 16 }, src: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg) });
   }
   function init() {
+    if (state.ready) return true;
+    if (!state.sdkReady || typeof TMap === 'undefined') return false;
     try {
       map = new TMap.Map(document.getElementById('map'), {
         center: new TMap.LatLng(41.79, 123.4), zoom: 12,
@@ -48,7 +55,9 @@ window.bitMap = (() => {
       markers = new TMap.MultiMarker({ map, geometries: [],
         styles: { start: markerStyle('起', '#245b48'), end: markerStyle('终', '#b55242') } });
       state.ready = true;
-    } catch (_) { fail(); }
+      state.error = false;
+      return true;
+    } catch (_) { fail(); return false; }
   }
   function clear() {
     bounds = null;
@@ -58,7 +67,7 @@ window.bitMap = (() => {
   }
   function setRoute(paths) {
     try {
-      if (!state.ready || !paths.length) return false;
+      if ((!state.ready && !init()) || !paths.length) return false;
       bounds = new TMap.LatLngBounds();
       const geometries = paths.map((leg, index) => {
         const points = leg.points.map(point => new TMap.LatLng(point[0], point[1]));
@@ -92,9 +101,9 @@ window.bitMap = (() => {
       if (autoFit && bounds) fit();
     });
   }).observe(document.getElementById('map'));
-  return { state, init, fail, setRoute, clear, zoom, fit };
+  return { state, sdkLoaded, init, fail, setRoute, clear, zoom, fit };
 })();
 </script>
-<script src="__MAP_SCRIPT_URL__" onload="bitMap.init()" onerror="bitMap.fail()"></script>
+<script src="__MAP_SCRIPT_URL__" onload="bitMap.sdkLoaded()" onerror="bitMap.fail()"></script>
 </body>
 </html>

@@ -212,6 +212,18 @@ TencentMapService::~TencentMapService()
     for (const auto &id : requests) cancel(id);
 }
 
+QUrl TencentMapService::mapScriptUrl() const
+{
+    if (!apiKeyConfigurationError(apiKey_).isEmpty()) return {};
+
+    QUrl url(QStringLiteral("https://map.qq.com/api/gljs"));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("v"), QStringLiteral("1.exp"));
+    query.addQueryItem(QStringLiteral("key"), apiKey_);
+    url.setQuery(query);
+    return url;
+}
+
 QString TencentMapService::geocode(const QString &address)
 {
     const QString requestId = nextRequestId();
@@ -363,11 +375,7 @@ QString TencentMapService::openRoute(const MapLocation &start, const MapLocation
             } else {
                 result.success = true;
                 result.message = QStringLiteral("腾讯地图%1路线规划成功").arg(label);
-                result.mapScriptUrl = QUrl(QStringLiteral("https://map.qq.com/api/gljs"));
-                QUrlQuery sdkQuery;
-                sdkQuery.addQueryItem(QStringLiteral("v"), QStringLiteral("1.exp"));
-                sdkQuery.addQueryItem(QStringLiteral("key"), apiKey_);
-                result.mapScriptUrl.setQuery(sdkQuery);
+                result.mapScriptUrl = mapScriptUrl();
             }
             emit routeCompleted(result);
         });

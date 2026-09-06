@@ -14,6 +14,9 @@ class RouteMapView final : public QWidget {
 public:
     explicit RouteMapView(QWidget *parent = nullptr);
     ~RouteMapView() override;
+    [[nodiscard]] bool isPreloaded() const { return sdkLoaded_; }
+    void preload(const QUrl &scriptUrl);
+    void prepareMap();
     void setRoute(const RouteResult &route);
     void clearRoute();
     void zoomIn();
@@ -21,6 +24,7 @@ public:
     void fitRoute();
 
 signals:
+    void preloadReady();
     void loadingChanged(bool loading);
     void readyChanged(bool ready);
     void statusChanged(const QString &message, bool error);
@@ -30,8 +34,9 @@ protected:
     void showEvent(QShowEvent *event) override;
 
 private:
+    void initialize(const QUrl &scriptUrl, bool reportFailure);
     void applyRoute();
-    void fail();
+    void fail(bool reportFailure);
     void command(const QString &script);
 
     QWebEngineView *view_ = nullptr;
@@ -39,7 +44,11 @@ private:
     QUrl scriptUrl_;
     QJsonArray paths_;
     quint64 generation_ = 0;
+    bool sdkLoaded_ = false;
     bool initialized_ = false;
+    bool initializing_ = false;
+    bool routePending_ = false;
+    bool reportInitializationFailure_ = false;
 };
 
 }  // namespace charging::client
