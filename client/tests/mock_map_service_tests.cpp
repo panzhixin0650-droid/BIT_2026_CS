@@ -74,6 +74,7 @@ private slots:
     void tencentRouteUsesEditableEndpoints();
     void tencentAdapterRejectsMissingConfiguration();
     void transitMatchesLocalFixture();
+    void transitNoRouteStatusIsActionable();
     void rejectsInvalidTransitInputs();
     void cyclingAndWalkingResponses_data();
     void cyclingAndWalkingResponses();
@@ -194,11 +195,15 @@ void MockMapServiceTests::tencentRouteUsesEditableEndpoints()
     QCOMPARE(result.paths.size(), 1);
     QCOMPARE(result.instructions, QStringList{QStringLiteral("沿演示道路前行")});
     QCOMPARE(result.mapScriptUrl.path(), QStringLiteral("/api/gljs"));
+    QCOMPARE(result.mapScriptUrl, service.mapScriptUrl());
+    QCOMPARE(QUrlQuery(service.mapScriptUrl()).queryItemValue(QStringLiteral("key")),
+             QStringLiteral("test-browser-key"));
 }
 
 void MockMapServiceTests::tencentAdapterRejectsMissingConfiguration()
 {
     client::TencentMapService service({});
+    QVERIFY(service.mapScriptUrl().isEmpty());
     QSignalSpy geocodeSpy(&service, &client::IMapService::geocodeCompleted);
     QSignalSpy routeSpy(&service, &client::IMapService::routeCompleted);
 
@@ -220,6 +225,7 @@ void MockMapServiceTests::tencentAdapterRejectsMissingConfiguration()
     QVERIFY(routeResult.message.contains(QStringLiteral("Key 未配置")));
 
     client::TencentMapService quotedService(QStringLiteral("'test-key'"));
+    QVERIFY(quotedService.mapScriptUrl().isEmpty());
     QSignalSpy quotedSpy(&quotedService,
                          &client::IMapService::geocodeCompleted);
     (void)quotedService.geocode(QStringLiteral("沈阳市和平区"));
@@ -263,6 +269,30 @@ void MockMapServiceTests::transitMatchesLocalFixture()
     QVERIFY(!result.paths.at(1).toObject().value(QStringLiteral("walking")).toBool());
     QVERIFY(result.instructions.join(QLatin1Char('\n')).contains(QStringLiteral("演示上车站")));
     QCOMPARE(result.summary, QStringLiteral("公共交通约 1.2 公里 · 9 分钟"));
+}
+
+void MockMapServiceTests::transitNoRouteStatusIsActionable()
+{
+    MemoryNetwork network;
+    network.body = R"({"status":348,"message":"参数错误，没有可达火车路线"})";
+    client::TencentMapService service(
+        QStringLiteral("test-browser-key"), 5000, nullptr, &network);
+    QSignalSpy spy(&service, &client::IMapService::routeCompleted);
+
+    (void)service.openRoute(
+        {QStringLiteral("演示位置"), 123.42, 41.70},
+        {QStringLiteral("浑南演示充电站"), 123.43, 41.71},
+        client::RouteMode::Transit);
+
+    QTRY_COMPARE(spy.count(), 1);
+    const auto result =
+        qvariant_cast<client::RouteResult>(spy.takeFirst().at(0));
+    QVERIFY(!result.success);
+    QVERIFY(result.message.contains(QStringLiteral("未找到可用的公共交通路线")));
+    QVERIFY(result.message.contains(QStringLiteral("更换起点或出行方式")));
+    QVERIFY(!result.message.contains(QStringLiteral("Key 权限")));
+    QVERIFY(result.paths.isEmpty());
+    QVERIFY(result.mapScriptUrl.isEmpty());
 }
 
 void MockMapServiceTests::rejectsInvalidTransitInputs()

@@ -45,6 +45,7 @@ public:
     void showLocationMessage(const QString &message, bool error = false);
     void showNavigation(const protocol::StationDto &station,
                         const MapLocation &start);
+    void preloadMap(const QUrl &scriptUrl);
     void setRouteBusy(bool busy);
     void showRouteMessage(const QString &message, bool error = false);
     void showRouteResult(const RouteResult &result);

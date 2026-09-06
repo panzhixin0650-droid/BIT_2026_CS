@@ -5,6 +5,7 @@
 #include <QJsonObject>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QNetworkProxy>
 #include <QTimer>
 #include <QUrlQuery>
 #include <QVector>
@@ -197,12 +198,30 @@ TencentMapService::TencentMapService(QString apiKey,
     , requestTimeoutMs_(qMax(1, requestTimeoutMs))
     , networkAccess_(networkAccess ? networkAccess : &network_)
 {
+    if (!networkAccess) {
+        // This adapter talks directly to Tencent. Explicitly bypass desktop
+        // WPAD/PAC discovery, which can stall each cold request for tens of
+        // seconds when GNOME is set to an empty automatic-proxy profile.
+        network_.setProxy(QNetworkProxy(QNetworkProxy::NoProxy));
+    }
 }
 
 TencentMapService::~TencentMapService()
 {
     const auto requests = activeRequests_.values();
     for (const auto &id : requests) cancel(id);
+}
+
+QUrl TencentMapService::mapScriptUrl() const
+{
+    if (!apiKeyConfigurationError(apiKey_).isEmpty()) return {};
+
+    QUrl url(QStringLiteral("https://map.qq.com/api/gljs"));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("v"), QStringLiteral("1.exp"));
+    query.addQueryItem(QStringLiteral("key"), apiKey_);
+    url.setQuery(query);
+    return url;
 }
 
 QString TencentMapService::geocode(const QString &address)
@@ -341,6 +360,9 @@ QString TencentMapService::openRoute(const MapLocation &start, const MapLocation
                 result.message = QStringLiteral("腾讯地图%1路线请求失败或超时，请检查网络后重试").arg(label);
             } else if (!document.isObject()) {
                 result.message = QStringLiteral("腾讯地图返回了无法识别的%1路线数据").arg(label);
+            } else if (mode == RouteMode::Transit && status == 348) {
+                result.message = QStringLiteral(
+                    "未找到可用的公共交通路线（腾讯状态码 348），请更换起点或出行方式");
             } else if (status != 0) {
                 result.message = QStringLiteral("腾讯地图%1路线请求失败（状态码 %2），请检查 Key 权限、配额及起终点")
                     .arg(label).arg(status);
@@ -353,11 +375,7 @@ QString TencentMapService::openRoute(const MapLocation &start, const MapLocation
             } else {
                 result.success = true;
                 result.message = QStringLiteral("腾讯地图%1路线规划成功").arg(label);
-                result.mapScriptUrl = QUrl(QStringLiteral("https://map.qq.com/api/gljs"));
-                QUrlQuery sdkQuery;
-                sdkQuery.addQueryItem(QStringLiteral("v"), QStringLiteral("1.exp"));
-                sdkQuery.addQueryItem(QStringLiteral("key"), apiKey_);
-                result.mapScriptUrl.setQuery(sdkQuery);
+                result.mapScriptUrl = mapScriptUrl();
             }
             emit routeCompleted(result);
         });

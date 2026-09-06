@@ -18,6 +18,7 @@ public:
                                QNetworkAccessManager *networkAccess = nullptr);
     ~TencentMapService() override;
 
+    [[nodiscard]] QUrl mapScriptUrl() const override;
     [[nodiscard]] QString geocode(const QString &address) override;
     [[nodiscard]] QString openRoute(const MapLocation &start,
                                     const MapLocation &end,

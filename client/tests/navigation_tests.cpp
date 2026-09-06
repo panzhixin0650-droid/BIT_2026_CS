@@ -18,6 +18,7 @@
 #include <QtTest>
 #include <memory>
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
+#include <QWebEnginePage>
 #include <QWebEngineView>
 #endif
 
@@ -26,12 +27,14 @@ using namespace charging::client;
 namespace {
 class DeferredMap final : public IMapService {
 public:
+    QUrl mapScriptUrl() const override { return preloadUrl; }
     QString geocode(const QString &) override { return QStringLiteral("geo-%1").arg(++sequence); }
     QString openRoute(const MapLocation &, const MapLocation &, RouteMode) override
     { return QStringLiteral("route-%1").arg(++sequence); }
     void cancel(const QString &id) override { if (!id.isEmpty()) cancelled.append(id); }
     int sequence = 0;
     QStringList cancelled;
+    QUrl preloadUrl;
 };
 
 charging::protocol::StationDto station(const QString &name = QStringLiteral("演示站"))
@@ -57,6 +60,7 @@ void login(MainWindow &window)
 class ScriptServer final : public QTcpServer {
 public:
     bool respond = true;
+    int sdkRequestCount = 0;
     QByteArray script = R"JS(
       window.sdkCounts = {initializations:0, fits:0, zoom:12};
       class Map {
@@ -77,10 +81,11 @@ public:
             while (hasPendingConnections()) {
                 auto *socket = nextPendingConnection();
                 connect(socket, &QTcpSocket::readyRead, socket, [this, socket]() {
-                    socket->readAll();
+                    const QByteArray request = socket->readAll();
                     if (!respond) return;
                     if (socket->property("replied").toBool()) return;
                     socket->setProperty("replied", true);
+                    if (request.startsWith("GET /sdk.js ")) ++sdkRequestCount;
                     socket->write("HTTP/1.1 200 OK\r\nContent-Type: application/javascript\r\nContent-Length: "
                                   + QByteArray::number(script.size()) + "\r\nConnection: close\r\n\r\n" + script);
                     socket->disconnectFromHost();
@@ -125,6 +130,9 @@ private slots:
     void smallWindowFitsWithDetails();
     void leavingRejectsStaleRoutesAndGeocodes();
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
+    void startupPreloadReusesMapForFirstRoute();
+    void failedPreloadIsSilentAndRetries();
+    void mockModeDoesNotPreloadMap();
     void zoomFitAndRepeatedRoutesReuseMap();
     void failedSdkReleasesBusyState();
     void mapTimeoutReleasesBusyState();
@@ -202,6 +210,74 @@ void NavigationTests::leavingRejectsStaleRoutesAndGeocodes()
 }
 
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
+void NavigationTests::startupPreloadReusesMapForFirstRoute()
+{
+    ScriptServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    MockChargingApi api;
+    DeferredMap service;
+    service.preloadUrl = server.url();
+    MainWindow window(api, service);
+    window.show();
+
+    QTRY_COMPARE_WITH_TIMEOUT(server.sdkRequestCount, 1, 10000);
+    auto *view = window.findChild<QWebEngineView *>(QStringLiteral("routeWebView"));
+    QVERIFY(view);
+    QTRY_VERIFY_WITH_TIMEOUT(
+        evaluate(view, QStringLiteral("!!(window.bitMap && bitMap.state.sdkReady && typeof TMap !== 'undefined')")).toBool(),
+        10000);
+    QCOMPARE(evaluate(view, QStringLiteral("sdkCounts.initializations")).toInt(), 0);
+    QCOMPARE(view->page()->lifecycleState(), QWebEnginePage::LifecycleState::Active);
+    QSignalSpy loads(view, &QWebEngineView::loadStarted);
+
+    login(window);
+    auto *page = window.findChild<StationBrowserPage *>();
+    page->showNavigation(station(), {QStringLiteral("起点"), 123.4, 41.79});
+    QCOMPARE(page->findChild<QStackedWidget *>(QStringLiteral("routeDisplayStack"))->currentWidget(),
+             page->findChild<RouteMapView *>());
+    QTRY_COMPARE(evaluate(view, QStringLiteral("sdkCounts.initializations")).toInt(), 1);
+    page->showRouteResult(realRoute(server.url()));
+    auto *plus = page->findChild<QPushButton *>(QStringLiteral("mapZoomInButton"));
+    QTRY_VERIFY_WITH_TIMEOUT(plus->isEnabled(), 10000);
+    QCOMPARE(page->findChild<QWebEngineView *>(QStringLiteral("routeWebView")), view);
+    QCOMPARE(loads.count(), 0);
+    QCOMPARE(server.sdkRequestCount, 1);
+    QCOMPARE(evaluate(view, QStringLiteral("sdkCounts.initializations")).toInt(), 1);
+}
+
+void NavigationTests::failedPreloadIsSilentAndRetries()
+{
+    ScriptServer server;
+    const QByteArray workingScript = server.script;
+    server.script = "/* SDK failed: TMap is unavailable */";
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    StationBrowserPage page;
+    page.show();
+    page.preloadMap(server.url());
+
+    QTRY_COMPARE_WITH_TIMEOUT(server.sdkRequestCount, 1, 10000);
+    QTRY_VERIFY_WITH_TIMEOUT(
+        !page.findChild<QWebEngineView *>(QStringLiteral("routeWebView")), 10000);
+    QCOMPARE(page.findChild<QLabel *>(QStringLiteral("routeMessage"))->text(), QString{});
+
+    server.script = workingScript;
+    page.showNavigation(station(), {QStringLiteral("起点"), 123.4, 41.79});
+    page.showRouteResult(realRoute(server.url()));
+    QTRY_VERIFY_WITH_TIMEOUT(
+        page.findChild<QPushButton *>(QStringLiteral("mapZoomInButton"))->isEnabled(),
+        10000);
+    QCOMPARE(server.sdkRequestCount, 2);
+}
+
+void NavigationTests::mockModeDoesNotPreloadMap()
+{
+    MockChargingApi api;
+    MainWindow window(api);
+    window.show();
+    QTest::qWait(400);
+    QVERIFY(!window.findChild<QWebEngineView *>(QStringLiteral("routeWebView")));
+}
+
 void NavigationTests::zoomFitAndRepeatedRoutesReuseMap()
 {
     ScriptServer server;

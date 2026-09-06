@@ -536,12 +536,17 @@ IScanner.scan() -> pileCode
 - 真实适配器统一调用 WebService `driving/walking/transit/bicycling`，返回本地结构化
   折线、距离用时摘要和路线说明，不再加载腾讯完整 URI 导航页面。
   Qt 自行展示表单、路线详情和缩放操作，本地 JavaScript API GL 画布复用地图实例；
+  腾讯模式在应用窗口出现后可异步下载并解析 SDK，进入导航页后才在可见画布创建地图，
+  使底图初始化与路线请求并行；它不预先请求路线或发送当前位置。预加载失败保持静默并
+  在真实导航时重试，Mock 模式不创建 WebEngine 或访问网络；
   公共交通采用腾讯默认推荐方案，分段绘制步行和公交/地铁路线，展示服务返回的
   线路、上下车站及运营警告，不自行生成班次或票价；
 - 路线查询由客户端直接访问腾讯，不新增项目服务端接口或数据库字段。从订单进入导航时，
   仍通过既有 `station.detail` 获取站点地址与坐标；路线结果不改变订单状态或计费；
 - Mock 公共交通和骑行只返回明确标注的离线摘要，不伪造公交线路、班次或票价。
   缺少 Key、无网络或页面加载失败时显示错误，不回退为成功 Mock；
+- 腾讯明确返回无可用路线（如公共交通状态码 `348`）时，客户端显示可操作的无路线
+  提示，不将其归类为 Key 权限失败；
 - 决策与边界见 [ADR-0003](../docs/decisions/0003-client-transit-navigation.md)，
   骑行增量见 [ADR-0004](../docs/decisions/0004-client-cycling-navigation.md)，
   API 统一与交互地图见 [ADR-0006](../docs/decisions/0006-client-api-map-navigation.md)。本地输入示例见
