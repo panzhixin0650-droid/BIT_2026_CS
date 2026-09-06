@@ -175,6 +175,43 @@ void showAutomaticSettlementNotice(QWidget *parent,
     notice.exec();
 }
 
+void showRechargeSuccessNotice(QWidget *parent, qint64 balanceCents)
+{
+    QMessageBox notice(
+        QMessageBox::Information,
+        QStringLiteral("充值成功"),
+        QStringLiteral("充值已到账，当前余额 ¥%1。")
+            .arg(balanceCents / 100.0, 0, 'f', 2),
+        QMessageBox::Ok,
+        parent);
+    notice.setObjectName(QStringLiteral("rechargeSuccessDialog"));
+    notice.button(QMessageBox::Ok)->setText(QStringLiteral("知道了"));
+    notice.exec();
+}
+
+void showRechargeAttentionNotice(QWidget *parent,
+                                 qint64 balanceCents,
+                                 const QString &message,
+                                 bool insufficientBalance)
+{
+    QMessageBox notice(
+        QMessageBox::Warning,
+        insufficientBalance ? QStringLiteral("充值成功，余额仍不足")
+                            : QStringLiteral("充值成功，请核对订单"),
+        QStringLiteral("%1\n当前余额 ¥%2。")
+            .arg(message)
+            .arg(balanceCents / 100.0, 0, 'f', 2),
+        QMessageBox::Ok,
+        parent);
+    notice.setObjectName(insufficientBalance
+                             ? QStringLiteral("rechargeInsufficientDialog")
+                             : QStringLiteral("rechargeAttentionDialog"));
+    notice.button(QMessageBox::Ok)->setText(
+        insufficientBalance ? QStringLiteral("继续充值")
+                            : QStringLiteral("知道了"));
+    notice.exec();
+}
+
 }  // namespace
 
 MainWindow::MainWindow(IChargingApi &api, QWidget *parent)
@@ -289,11 +326,30 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
                 homePage_->setGreetingNickname(user.nickname);
             });
     connect(profileController_,
+            &ProfileController::rechargeSucceeded,
+            this,
+            [this](qint64 balanceCents) {
+                showRechargeSuccessNotice(this, balanceCents);
+            });
+    connect(profileController_,
+            &ProfileController::rechargeNeedsAttention,
+            this,
+            [this](qint64 balanceCents,
+                   const QString &message,
+                   bool insufficientBalance) {
+                showRechargeAttentionNotice(
+                    this, balanceCents, message, insufficientBalance);
+            });
+    connect(profileController_,
             &ProfileController::pendingOrderSettled,
             this,
             [this](const PaymentPayload &result) {
                 showAutomaticSettlementNotice(this, result);
             });
+    connect(profileController_,
+            &ProfileController::pendingOrderSettled,
+            stationBrowserController_,
+            &StationBrowserController::synchronizePendingOrderSettlement);
     connect(stationBrowserController_,
             &StationBrowserController::authenticationRequired,
             this,

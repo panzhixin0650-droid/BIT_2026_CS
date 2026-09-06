@@ -1178,7 +1178,33 @@ void MainWindowTests::pendingOrderLinksRechargeAndCanBeSettled()
     auto *profileMessage =
         window.findChild<QLabel *>(QStringLiteral("profileMessageLabel"));
     QTRY_VERIFY(rechargeButton->isEnabled());
-    rechargeInput->setText(QStringLiteral("1.00"));
+    rechargeInput->setText(QStringLiteral("0.01"));
+    bool rechargeInsufficientDialogSeen = false;
+    QString rechargeInsufficientTitle;
+    QString rechargeInsufficientText;
+    QString rechargeInsufficientButtonText;
+    handleDialogWhenShown(
+        window,
+        QStringLiteral("rechargeInsufficientDialog"),
+        [&rechargeInsufficientDialogSeen,
+         &rechargeInsufficientTitle,
+         &rechargeInsufficientText,
+         &rechargeInsufficientButtonText](QMessageBox *dialog) {
+        rechargeInsufficientTitle = dialog->windowTitle();
+        rechargeInsufficientText = dialog->text();
+        rechargeInsufficientButtonText = dialog->button(QMessageBox::Ok)->text();
+        rechargeInsufficientDialogSeen = true;
+        dialog->button(QMessageBox::Ok)->click();
+    });
+    QTest::mouseClick(rechargeButton, Qt::LeftButton);
+    QTRY_VERIFY(rechargeInsufficientDialogSeen);
+    QCOMPARE(rechargeInsufficientTitle, QStringLiteral("充值成功，余额仍不足"));
+    QVERIFY(rechargeInsufficientText.contains(QStringLiteral("待支付订单尚未结算")));
+    QVERIFY(rechargeInsufficientText.contains(QStringLiteral("还需充值 ¥")));
+    QVERIFY(rechargeInsufficientText.contains(QStringLiteral("当前余额 ¥0.01")));
+    QCOMPARE(rechargeInsufficientButtonText, QStringLiteral("继续充值"));
+
+    rechargeInput->setText(QStringLiteral("0.99"));
     bool automaticSettlementDialogSeen = false;
     handleDialogWhenShown(
         window,
@@ -1194,6 +1220,13 @@ void MainWindowTests::pendingOrderLinksRechargeAndCanBeSettled()
     QTest::mouseClick(rechargeButton, Qt::LeftButton);
     QTRY_VERIFY(automaticSettlementDialogSeen);
     QTRY_VERIFY(profileMessage->text().contains(QStringLiteral("自动结算")));
+
+    navigation->setCurrentIndex(0);
+    auto *stationActionMessage =
+        window.findChild<QLabel *>(QStringLiteral("stationActionMessage"));
+    QTRY_VERIFY(stationActionMessage->text().contains(QStringLiteral("已自动结算")));
+    QVERIFY(!stationActionMessage->text().contains(QStringLiteral("余额不足")));
+    QTRY_VERIFY(!currentOrderCard->isVisible());
 
     navigation->setCurrentIndex(1);
     orderRefreshButton =
@@ -1244,7 +1277,20 @@ void MainWindowTests::profileCanRefreshUpdateNicknameAndRecharge()
     QTRY_COMPARE(messageLabel->text(), QStringLiteral("资料已刷新"));
 
     amountInput->setText(QStringLiteral("10"));
+    bool rechargeSuccessDialogSeen = false;
+    handleDialogWhenShown(
+        window,
+        QStringLiteral("rechargeSuccessDialog"),
+        [&rechargeSuccessDialogSeen](QMessageBox *dialog) {
+        QCOMPARE(dialog->windowTitle(), QStringLiteral("充值成功"));
+        QVERIFY(dialog->text().contains(QStringLiteral("当前余额 ¥210.00")));
+        QCOMPARE(dialog->button(QMessageBox::Ok)->text(),
+                 QStringLiteral("知道了"));
+        rechargeSuccessDialogSeen = true;
+        dialog->button(QMessageBox::Ok)->click();
+    });
     QTest::mouseClick(rechargeButton, Qt::LeftButton);
+    QTRY_VERIFY(rechargeSuccessDialogSeen);
     QTRY_COMPARE(messageLabel->text(), QStringLiteral("充值成功，余额已刷新"));
     QCOMPARE(balanceLabel->text(), QStringLiteral("¥210.00"));
 }

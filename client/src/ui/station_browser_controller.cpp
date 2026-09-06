@@ -381,6 +381,15 @@ void StationBrowserController::synchronizeChargingStop(
     refreshStations();
 }
 
+void StationBrowserController::synchronizePendingOrderSettlement(
+    const PaymentPayload &result)
+{
+    page_.showListMessage(
+        QStringLiteral("待支付订单已自动结算，实付 ¥%1")
+            .arg(result.order.amountCents / 100.0, 0, 'f', 2));
+    refreshStations();
+}
+
 bool StationBrowserController::handleAuthenticationFailure(int code)
 {
     if (code != protocol::ErrorCode::InvalidSession) {
