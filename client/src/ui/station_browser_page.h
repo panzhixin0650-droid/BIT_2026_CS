@@ -62,6 +62,7 @@ signals:
     void reservationRequested(const QString &pileCode);
     void cancellationRequested(qint64 orderId);
     void reservationScanRequested(const QString &pileCode);
+    void directChargingRequested(const QString &pileCode);
     void progressRequested(qint64 orderId);
     void stopRequested(qint64 orderId);
     void detailBackRequested();
@@ -73,6 +74,7 @@ protected:
 private:
     void clearStationCards();
     void clearPileCards();
+    void updateDirectChargingButtons();
     void updateLocationSummary();
     void updateRouteControls();
 
@@ -130,6 +132,8 @@ private:
     bool routeRequestBusy_ = false;
     bool mapLoading_ = false;
     QList<QPushButton *> reservationButtons_;
+    QList<QPushButton *> directChargingButtons_;
+    std::optional<protocol::OrderDto> currentOrder_;
     MapLocation currentLocation_{QStringLiteral("演示位置"), 123.42, 41.70};
     protocol::StationDto navigationStation_;
     bool reservationBusy_ = false;

@@ -34,6 +34,8 @@ private slots:
     void clientUsesConsistentVisualTheme();
     void stationFiltersExpandAndPreserveQuery();
     void chargingHomeListsFiltersAndOpensStationDetail();
+    void stationDetailCanPrepareDirectCharging();
+    void chargingStartLeavesNavigationForHomeOverview();
     void locationCanResolveAndOpenMockRoute();
     void reservationAppearsOnHomeAndCanBeCancelled();
     void ordersPageShowsHistoryDetailAndReservationChanges();
@@ -392,6 +394,111 @@ void MainWindowTests::chargingHomeListsFiltersAndOpensStationDetail()
     QVERIFY(message->isVisible());
 }
 
+void MainWindowTests::stationDetailCanPrepareDirectCharging()
+{
+    MockChargingApi api;
+    MainWindow window(api);
+    window.show();
+    loginFixtureUser(window);
+
+    QTRY_VERIFY(window.findChild<QWidget *>(
+                    QStringLiteral("stationCard_1")) != nullptr);
+    QTest::mouseClick(
+        window.findChild<QWidget *>(QStringLiteral("stationCard_1")),
+        Qt::LeftButton,
+        Qt::NoModifier,
+        QPoint(12, 12));
+
+    QTRY_VERIFY(window.findChild<QPushButton *>(
+                    QStringLiteral("directChargeButton_PILE-A-01")) != nullptr);
+    auto *idleDirectButton = window.findChild<QPushButton *>(
+        QStringLiteral("directChargeButton_PILE-A-01"));
+    auto *chargingDirectButton = window.findChild<QPushButton *>(
+        QStringLiteral("directChargeButton_PILE-A-02"));
+    QVERIFY(chargingDirectButton != nullptr);
+    QCOMPARE(idleDirectButton->text(), QStringLiteral("直接充电"));
+    QVERIFY(idleDirectButton->isEnabled());
+    QCOMPARE(idleDirectButton->property("role").toString(),
+             QStringLiteral("primary"));
+    QCOMPARE(chargingDirectButton->text(), QStringLiteral("不可充电"));
+    QVERIFY(!chargingDirectButton->isEnabled());
+
+    QTest::mouseClick(idleDirectButton, Qt::LeftButton);
+    auto *navigation =
+        window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
+    auto *pileCodeInput =
+        window.findChild<QLineEdit *>(QStringLiteral("scanPileCodeInput"));
+    auto *scanMessage =
+        window.findChild<QLabel *>(QStringLiteral("scanMessage"));
+    QCOMPARE(navigation->currentIndex(), 2);
+    QCOMPARE(pileCodeInput->text(), QStringLiteral("PILE-A-01"));
+    QCOMPARE(scanMessage->text(),
+             QStringLiteral("已填入充电桩编号，请在桩旁确认开始充电"));
+
+    bool chargingStartedDialogSeen = false;
+    handleDialogWhenShown(
+        window,
+        QStringLiteral("chargingStartedDialog"),
+        [&chargingStartedDialogSeen](QMessageBox *dialog) {
+        chargingStartedDialogSeen = true;
+        dialog->button(QMessageBox::Ok)->click();
+    });
+    QTest::mouseClick(
+        window.findChild<QPushButton *>(QStringLiteral("scanStartButton")),
+        Qt::LeftButton);
+    QTRY_VERIFY(chargingStartedDialogSeen);
+    QTRY_VERIFY(window.findChild<QWidget *>(
+                    QStringLiteral("stationListPage"))->isVisible());
+    auto *currentOrderSummary =
+        window.findChild<QLabel *>(QStringLiteral("currentOrderSummary"));
+    QTRY_VERIFY(currentOrderSummary->text().contains(QStringLiteral("充电中")));
+}
+
+void MainWindowTests::chargingStartLeavesNavigationForHomeOverview()
+{
+    MockChargingApi api;
+    MainWindow window(api);
+    window.show();
+    loginFixtureUser(window);
+
+    QTRY_VERIFY(window.findChild<QWidget *>(
+                    QStringLiteral("stationCard_1")) != nullptr);
+    QTest::mouseClick(
+        window.findChild<QWidget *>(QStringLiteral("stationCard_1")),
+        Qt::LeftButton,
+        Qt::NoModifier,
+        QPoint(12, 12));
+    auto *detailNavigationButton = window.findChild<QPushButton *>(
+        QStringLiteral("stationDetailNavigationButton"));
+    QTRY_VERIFY(detailNavigationButton->isVisible());
+    QTest::mouseClick(detailNavigationButton, Qt::LeftButton);
+    QTRY_VERIFY(window.findChild<QWidget *>(
+                    QStringLiteral("stationNavigationPage"))->isVisible());
+
+    auto *navigation =
+        window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
+    navigation->setCurrentIndex(2);
+    auto *pileCodeInput =
+        window.findChild<QLineEdit *>(QStringLiteral("scanPileCodeInput"));
+    pileCodeInput->setText(QStringLiteral("PILE-A-01"));
+    bool chargingStartedDialogSeen = false;
+    handleDialogWhenShown(
+        window,
+        QStringLiteral("chargingStartedDialog"),
+        [&chargingStartedDialogSeen](QMessageBox *dialog) {
+        chargingStartedDialogSeen = true;
+        dialog->button(QMessageBox::Ok)->click();
+    });
+    QTest::mouseClick(
+        window.findChild<QPushButton *>(QStringLiteral("scanStartButton")),
+        Qt::LeftButton);
+
+    QTRY_VERIFY(chargingStartedDialogSeen);
+    QCOMPARE(navigation->currentIndex(), 0);
+    QTRY_VERIFY(window.findChild<QWidget *>(
+                    QStringLiteral("stationListPage"))->isVisible());
+}
+
 void MainWindowTests::locationCanResolveAndOpenMockRoute()
 {
     MockChargingApi api;
@@ -550,6 +657,31 @@ void MainWindowTests::reservationAppearsOnHomeAndCanBeCancelled()
     QVERIFY(currentOrderSummary->text().contains(QStringLiteral("PILE-A-01")));
     QVERIFY(currentOrderSummary->text().contains(QStringLiteral("预约中")));
     QCOMPARE(actionMessage->text(), QStringLiteral("预约成功"));
+
+    QTRY_VERIFY(window.findChild<QWidget *>(
+                    QStringLiteral("stationCard_1")) != nullptr);
+    QTest::mouseClick(
+        window.findChild<QWidget *>(QStringLiteral("stationCard_1")),
+        Qt::LeftButton,
+        Qt::NoModifier,
+        QPoint(12, 12));
+    QTRY_VERIFY(window.findChild<QPushButton *>(
+                    QStringLiteral("directChargeButton_PILE-A-01")) != nullptr);
+    QTRY_COMPARE(window.findChild<QLabel *>(
+                     QStringLiteral("pileStatus_PILE-A-01"))->text(),
+                 QStringLiteral("已预约"));
+    auto *reservedDirectButton = window.findChild<QPushButton *>(
+        QStringLiteral("directChargeButton_PILE-A-01"));
+    auto *reservedReserveButton = window.findChild<QPushButton *>(
+        QStringLiteral("reserveButton_PILE-A-01"));
+    QCOMPARE(reservedDirectButton->text(), QStringLiteral("开始充电"));
+    QVERIFY(reservedDirectButton->isEnabled());
+    QCOMPARE(reservedReserveButton->text(), QStringLiteral("不可预约"));
+    QVERIFY(!reservedReserveButton->isEnabled());
+    QTest::mouseClick(
+        window.findChild<QPushButton *>(QStringLiteral("stationDetailBackButton")),
+        Qt::LeftButton);
+    QTRY_VERIFY(currentOrderCard->isVisible());
 
     auto *currentOrderNavigate = window.findChild<QPushButton *>(
         QStringLiteral("currentOrderNavigationButton"));
