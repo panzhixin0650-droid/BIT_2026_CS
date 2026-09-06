@@ -11,11 +11,13 @@ class QComboBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
+class QPlainTextEdit;
 class QStackedWidget;
 class QVBoxLayout;
-class QWebEngineView;
 
 namespace charging::client {
+
+class RouteMapView;
 
 class StationBrowserPage final : public QWidget {
     Q_OBJECT
@@ -62,11 +64,16 @@ signals:
     void progressRequested(qint64 orderId);
     void stopRequested(qint64 orderId);
     void detailBackRequested();
+    void navigationClosed();
+
+protected:
+    void hideEvent(QHideEvent *event) override;
 
 private:
     void clearStationCards();
     void clearPileCards();
     void updateLocationSummary();
+    void updateRouteControls();
 
     QStackedWidget *pages_ = nullptr;
     QWidget *listPage_ = nullptr;
@@ -115,7 +122,12 @@ private:
     QLabel *routeMessageLabel_ = nullptr;
     QStackedWidget *routeDisplayStack_ = nullptr;
     QLabel *routeDisplayLabel_ = nullptr;
-    QWebEngineView *routeWebView_ = nullptr;
+    RouteMapView *routeMapView_ = nullptr;
+    QLabel *routeSummaryLabel_ = nullptr;
+    QPlainTextEdit *routeDetails_ = nullptr;
+    QPushButton *routeDetailsButton_ = nullptr;
+    bool routeRequestBusy_ = false;
+    bool mapLoading_ = false;
     QList<QPushButton *> reservationButtons_;
     MapLocation currentLocation_{QStringLiteral("演示位置"), 123.42, 41.70};
     protocol::StationDto navigationStation_;

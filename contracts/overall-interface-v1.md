@@ -533,16 +533,18 @@ IScanner.scan() -> pileCode
 - 有腾讯地图 Key 和网络时切到真实适配器；
 - 客户端本地 `RouteMode` 接受 `DRIVING`、`WALKING`、`TRANSIT`（公共交通）、`CYCLING`（自行车骑行）；
   它不出现在 TCP 信封或共享业务 DTO 中。`TRANSIT/CYCLING` 是兼容增加，既有驾车/步行含义不变；
-- 真实适配器在 `QWebEngineView` 中展示腾讯地图路线：驾车使用 URI `type=drive`，
-  公共交通使用 `type=bus`；步行和骑行分别使用 WebService `walking/bicycling`，
-  在 JavaScript 地图中绘制返回的压缩折线，展示服务返回的米数和预估分钟数。
-  公共交通采用腾讯默认策略，公交/地铁换乘和无可用路线提示由腾讯页面提供；
+- 真实适配器统一调用 WebService `driving/walking/transit/bicycling`，返回本地结构化
+  折线、距离用时摘要和路线说明，不再加载腾讯完整 URI 导航页面。
+  Qt 自行展示表单、路线详情和缩放操作，本地 JavaScript API GL 画布复用地图实例；
+  公共交通采用腾讯默认推荐方案，分段绘制步行和公交/地铁路线，展示服务返回的
+  线路、上下车站及运营警告，不自行生成班次或票价；
 - 路线查询由客户端直接访问腾讯，不新增项目服务端接口或数据库字段。从订单进入导航时，
   仍通过既有 `station.detail` 获取站点地址与坐标；路线结果不改变订单状态或计费；
 - Mock 公共交通和骑行只返回明确标注的离线摘要，不伪造公交线路、班次或票价。
   缺少 Key、无网络或页面加载失败时显示错误，不回退为成功 Mock；
 - 决策与边界见 [ADR-0003](../docs/decisions/0003-client-transit-navigation.md)，
-  骑行增量见 [ADR-0004](../docs/decisions/0004-client-cycling-navigation.md)。本地输入示例见
+  骑行增量见 [ADR-0004](../docs/decisions/0004-client-cycling-navigation.md)，
+  API 统一与交互地图见 [ADR-0006](../docs/decisions/0006-client-api-map-navigation.md)。本地输入示例见
   [公共交通](examples/map-route.transit.local.json)和[骑行](examples/map-route.cycling.local.json)（均非 TCP 消息）；
 - 扫码不可用时允许手输 `pileCode`；
 - Key 从环境或本地配置读取，不写数据库和接口 fixture。

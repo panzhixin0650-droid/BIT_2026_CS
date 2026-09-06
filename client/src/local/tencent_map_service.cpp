@@ -56,7 +56,7 @@ QString apiKeyConfigurationError(const QString &apiKey)
 
 std::optional<QJsonArray> decodeRoutePolyline(const QJsonArray &encoded)
 {
-    if (encoded.size() < 4 || encoded.size() % 2 != 0) {
+    if (encoded.size() < 4 || encoded.size() % 2 != 0 || encoded.size() > 100000) {
         return std::nullopt;
     }
 
@@ -88,70 +88,102 @@ std::optional<QJsonArray> decodeRoutePolyline(const QJsonArray &encoded)
     return points;
 }
 
-QString routeHtml(const QString &apiKey,
-                         const QJsonArray &points,
-                         int distanceMeters,
-                         int durationMinutes,
-                         const QString &modeLabel)
+QString routeModeLabel(RouteMode mode)
 {
-    QUrl scriptUrl(QStringLiteral("https://map.qq.com/api/gljs"));
-    QUrlQuery scriptQuery;
-    scriptQuery.addQueryItem(QStringLiteral("v"), QStringLiteral("1.exp"));
-    scriptQuery.addQueryItem(QStringLiteral("key"), apiKey);
-    scriptUrl.setQuery(scriptQuery);
-
-    const QString pointsJson = QString::fromUtf8(
-        QJsonDocument(points).toJson(QJsonDocument::Compact));
-    const QString distanceText = distanceMeters >= 1000
-        ? QStringLiteral("%1 公里").arg(distanceMeters / 1000.0, 0, 'f', 1)
-        : QStringLiteral("%1 米").arg(distanceMeters);
-    const QString summary = QStringLiteral("%1约 %2 · %3 分钟")
-                                .arg(modeLabel, distanceText)
-                                .arg(durationMinutes);
-
-    return QStringLiteral(R"HTML(<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    html, body, #map { width: 100%; height: 100%; margin: 0; }
-    #summary {
-      position: absolute; z-index: 2; left: 12px; top: 12px;
-      padding: 9px 13px; border-radius: 8px; background: rgba(255,255,255,.94);
-      color: #202124; font: 14px sans-serif; box-shadow: 0 2px 8px rgba(0,0,0,.2);
+    switch (mode) {
+    case RouteMode::Driving: return QStringLiteral("驾车");
+    case RouteMode::Walking: return QStringLiteral("步行");
+    case RouteMode::Transit: return QStringLiteral("公共交通");
+    case RouteMode::Cycling: return QStringLiteral("骑行");
     }
-  </style>
-  <script src="%1"></script>
-</head>
-<body>
-  <div id="summary">%2</div>
-  <div id="map"></div>
-  <script>
-    const coordinates = %3;
-    const path = coordinates.map(point => new TMap.LatLng(point[0], point[1]));
-    const map = new TMap.Map(document.getElementById('map'), {
-      center: path[0], zoom: 15
-    });
-    new TMap.MultiPolyline({
-      map: map,
-      styles: {
-        route: new TMap.PolylineStyle({
-          color: '#2b7de9', width: 7, borderWidth: 2,
-          borderColor: '#ffffff', lineCap: 'round'
-        })
-      },
-      geometries: [{ id: 'route', styleId: 'route', paths: path }]
-    });
-    const bounds = new TMap.LatLngBounds();
-    path.forEach(point => bounds.extend(point));
-    map.fitBounds(bounds, { padding: 52 });
-  </script>
-</body>
-</html>)HTML")
-        .arg(scriptUrl.toString(QUrl::FullyEncoded).toHtmlEscaped(),
-             summary.toHtmlEscaped(),
-             pointsJson);
+    return {};
+}
+
+QString routeEndpoint(RouteMode mode)
+{
+    switch (mode) {
+    case RouteMode::Driving: return QStringLiteral("driving");
+    case RouteMode::Walking: return QStringLiteral("walking");
+    case RouteMode::Transit: return QStringLiteral("transit");
+    case RouteMode::Cycling: return QStringLiteral("bicycling");
+    }
+    return {};
+}
+
+QString distanceText(double meters)
+{
+    return meters >= 1000 ? QStringLiteral("%1 公里").arg(meters / 1000, 0, 'f', 1)
+                          : QStringLiteral("%1 米").arg(qRound(meters));
+}
+
+bool appendPath(const QJsonArray &encoded, bool walking, RouteResult &result)
+{
+    const auto points = decodeRoutePolyline(encoded);
+    if (!points) return false;
+    result.paths.append(QJsonObject{{QStringLiteral("points"), *points},
+                                   {QStringLiteral("walking"), walking}});
+    return true;
+}
+
+bool parseRoute(const QJsonObject &route, RouteMode mode, RouteResult &result)
+{
+    const auto distance = route.value(QStringLiteral("distance"));
+    const auto duration = route.value(QStringLiteral("duration"));
+    if (!distance.isDouble() || !duration.isDouble()
+        || !std::isfinite(distance.toDouble()) || !std::isfinite(duration.toDouble())
+        || distance.toDouble() < 0 || duration.toDouble() < 0
+        || distance.toDouble() > 50000000 || duration.toDouble() > 1000000)
+        return false;
+    const auto steps = route.value(QStringLiteral("steps")).toArray();
+    if (mode != RouteMode::Transit) {
+        if (!appendPath(route.value(QStringLiteral("polyline")).toArray(),
+                        mode == RouteMode::Walking, result)) return false;
+        for (const auto &step : steps) {
+            const QString instruction = step.toObject().value(QStringLiteral("instruction")).toString().trimmed();
+            if (!instruction.isEmpty()) result.instructions.append(instruction);
+        }
+    } else {
+        if (steps.isEmpty() || steps.size() > 100) return false;
+        for (const auto &value : steps) {
+            const auto step = value.toObject();
+            const QString legMode = step.value(QStringLiteral("mode")).toString();
+            if (legMode == QStringLiteral("WALKING")) {
+                const auto polyline = step.value(QStringLiteral("polyline")).toArray();
+                // A zero-length transfer may have no geometry.
+                if (polyline.isEmpty() && step.value(QStringLiteral("distance")).isDouble()
+                    && step.value(QStringLiteral("distance")).toDouble() == 0) continue;
+                if (!appendPath(polyline, true, result)) return false;
+                const auto legDistance = step.value(QStringLiteral("distance"));
+                result.instructions.append(legDistance.isDouble() && legDistance.toDouble() >= 0
+                    ? QStringLiteral("步行 %1").arg(distanceText(legDistance.toDouble()))
+                    : QStringLiteral("步行换乘"));
+            } else if (legMode == QStringLiteral("TRANSIT")) {
+                const auto lines = step.value(QStringLiteral("lines")).toArray();
+                if (lines.isEmpty()) return false;
+                // Alternative lines share stops; the first has complete geometry.
+                const auto line = lines.first().toObject();
+                if (!appendPath(line.value(QStringLiteral("polyline")).toArray(), false, result)) return false;
+                const QString title = line.value(QStringLiteral("title")).toString();
+                const QString geton = line.value(QStringLiteral("geton")).toObject().value(QStringLiteral("title")).toString();
+                const QString getoff = line.value(QStringLiteral("getoff")).toObject().value(QStringLiteral("title")).toString();
+                if (title.isEmpty() || geton.isEmpty() || getoff.isEmpty()) return false;
+                result.instructions.append(QStringLiteral("%1：%2 上车 → %3 下车").arg(title, geton, getoff));
+                switch (line.value(QStringLiteral("running_status")).toInt()) {
+                case 301: result.instructions.append(QStringLiteral("注意：可能错过末班车")); break;
+                case 302: result.instructions.append(QStringLiteral("注意：首班车还未发出")); break;
+                case 303: result.instructions.append(QStringLiteral("注意：该线路停运，请重新选择出行方式")); break;
+                default: break;
+                }
+            } else {
+                return false;
+            }
+        }
+    }
+    if (result.paths.isEmpty()) return false;
+    result.summary = QStringLiteral("%1约 %2 · %3 分钟")
+        .arg(routeModeLabel(mode), distanceText(distance.toDouble()))
+        .arg(static_cast<int>(std::ceil(duration.toDouble())));
+    return true;
 }
 
 }  // namespace
@@ -167,9 +199,16 @@ TencentMapService::TencentMapService(QString apiKey,
 {
 }
 
+TencentMapService::~TencentMapService()
+{
+    const auto requests = activeRequests_.values();
+    for (const auto &id : requests) cancel(id);
+}
+
 QString TencentMapService::geocode(const QString &address)
 {
     const QString requestId = nextRequestId();
+    activeRequests_.insert(requestId);
     const QString normalizedAddress = address.trimmed();
     if (normalizedAddress.isEmpty()) {
         emitGeocodeFailure(requestId, QStringLiteral("请输入要定位的地址"));
@@ -192,8 +231,11 @@ QString TencentMapService::geocode(const QString &address)
                       QStringLiteral("BIT-ChargingClient/1.0"));
     request.setTransferTimeout(requestTimeoutMs_);
     QNetworkReply *reply = networkAccess_->get(request);
+    replies_.insert(requestId, reply);
     connect(reply, &QNetworkReply::finished, this,
             [this, reply, requestId, normalizedAddress]() {
+                replies_.remove(requestId);
+                if (!activeRequests_.remove(requestId)) { reply->deleteLater(); return; }
                 GeocodeResult result;
                 result.requestId = requestId;
                 if (reply->error() != QNetworkReply::NoError) {
@@ -252,137 +294,85 @@ QString TencentMapService::geocode(const QString &address)
     return requestId;
 }
 
-QString TencentMapService::openRoute(const MapLocation &start,
-                                     const MapLocation &end,
-                                     RouteMode mode)
+QString TencentMapService::openRoute(const MapLocation &start, const MapLocation &end, RouteMode mode)
 {
     const QString requestId = nextRequestId();
+    activeRequests_.insert(requestId);
     QTimer::singleShot(0, this, [this, requestId, start, end, mode]() {
+        if (!activeRequests_.contains(requestId)) return;
         RouteResult result;
         result.requestId = requestId;
-        const QString configurationError = apiKeyConfigurationError(apiKey_);
-        if (!configurationError.isEmpty()) {
-            result.message = configurationError;
-        } else if (start.address.trimmed().isEmpty()
-                   || end.address.trimmed().isEmpty()
-                   || !validCoordinate(start) || !validCoordinate(end)) {
+        result.message = apiKeyConfigurationError(apiKey_);
+        if (result.message.isEmpty() && (start.address.trimmed().isEmpty()
+            || end.address.trimmed().isEmpty() || !validCoordinate(start) || !validCoordinate(end)))
             result.message = QStringLiteral("路线起点或终点无效");
-        } else if (mode != RouteMode::Driving && mode != RouteMode::Walking
-                   && mode != RouteMode::Transit && mode != RouteMode::Cycling) {
+        if (result.message.isEmpty() && routeEndpoint(mode).isEmpty())
             result.message = QStringLiteral("不支持的出行方式");
-        } else if (mode == RouteMode::Driving || mode == RouteMode::Transit) {
-            QUrl url(QStringLiteral("https://apis.map.qq.com/uri/v1/routeplan"));
-            QUrlQuery query;
-            query.addQueryItem(QStringLiteral("type"),
-                               mode == RouteMode::Transit ? QStringLiteral("bus")
-                                                          : QStringLiteral("drive"));
-            query.addQueryItem(QStringLiteral("from"), start.address);
-            query.addQueryItem(QStringLiteral("fromcoord"), coordinateText(start));
-            query.addQueryItem(QStringLiteral("to"), end.address);
-            query.addQueryItem(QStringLiteral("tocoord"), coordinateText(end));
-            query.addQueryItem(QStringLiteral("referer"), apiKey_);
-            url.setQuery(query);
-
-            result.success = true;
-            result.message = QStringLiteral("正在加载腾讯地图路线…");
-            result.summary = QStringLiteral("%1：%2 → %3")
-                                 .arg(mode == RouteMode::Transit ? QStringLiteral("公共交通")
-                                                                : QStringLiteral("驾车"),
-                                      start.address, end.address);
-            result.routeUrl = url;
-        } else {
-            const QString modeLabel = mode == RouteMode::Cycling
-                ? QStringLiteral("骑行") : QStringLiteral("步行");
-            QUrl url(mode == RouteMode::Cycling
-                ? QStringLiteral("https://apis.map.qq.com/ws/direction/v1/bicycling/")
-                : QStringLiteral("https://apis.map.qq.com/ws/direction/v1/walking/"));
-            QUrlQuery query;
-            query.addQueryItem(QStringLiteral("from"), coordinateText(start));
-            query.addQueryItem(QStringLiteral("to"), coordinateText(end));
-            query.addQueryItem(QStringLiteral("key"), apiKey_);
-            url.setQuery(query);
-
-            QNetworkRequest request(url);
-            request.setHeader(QNetworkRequest::UserAgentHeader,
-                              QStringLiteral("BIT-ChargingClient/1.0"));
-            request.setTransferTimeout(requestTimeoutMs_);
-            QNetworkReply *reply = networkAccess_->get(request);
-            connect(reply, &QNetworkReply::finished, this,
-                    [this, reply, requestId, start, end, modeLabel]() {
-                        RouteResult routeResult;
-                        routeResult.requestId = requestId;
-                        if (reply->error() != QNetworkReply::NoError) {
-                            routeResult.message = QStringLiteral(
-                                "腾讯地图%1路线规划失败，请检查网络后重试").arg(modeLabel);
-                            reply->deleteLater();
-                            emit routeCompleted(routeResult);
-                            return;
-                        }
-
-                        QJsonParseError parseError;
-                        const QJsonDocument document = QJsonDocument::fromJson(
-                            reply->readAll(), &parseError);
-                        reply->deleteLater();
-                        if (parseError.error != QJsonParseError::NoError
-                            || !document.isObject()) {
-                            routeResult.message = QStringLiteral(
-                                "腾讯地图返回了无法识别的%1路线数据").arg(modeLabel);
-                            emit routeCompleted(routeResult);
-                            return;
-                        }
-
-                        const QJsonObject root = document.object();
-                        const int status =
-                            root.value(QStringLiteral("status")).toInt(-1);
-                        const QJsonArray routes = root.value(QStringLiteral("result"))
-                                                      .toObject()
-                                                      .value(QStringLiteral("routes"))
-                                                      .toArray();
-                        if (status != 0 || routes.isEmpty()
-                            || !routes.first().isObject()) {
-                            const QString serviceMessage =
-                                root.value(QStringLiteral("message"))
-                                    .toString()
-                                    .trimmed();
-                            routeResult.message = serviceMessage.isEmpty()
-                                ? QStringLiteral("腾讯地图%1路线规划失败（状态码 %2）")
-                                      .arg(modeLabel).arg(status)
-                                : QStringLiteral(
-                                      "腾讯地图%1路线规划失败（状态码 %2）：%3")
-                                      .arg(modeLabel).arg(status)
-                                      .arg(serviceMessage);
-                            emit routeCompleted(routeResult);
-                            return;
-                        }
-
-                        const QJsonObject route = routes.first().toObject();
-                        const auto points = decodeRoutePolyline(
-                            route.value(QStringLiteral("polyline")).toArray());
-                        if (!points.has_value()) {
-                            routeResult.message =
-                                QStringLiteral("腾讯地图返回的%1路线坐标无效").arg(modeLabel);
-                            emit routeCompleted(routeResult);
-                            return;
-                        }
-
-                        const int distance =
-                            route.value(QStringLiteral("distance")).toInt();
-                        const int duration =
-                            route.value(QStringLiteral("duration")).toInt();
-                        routeResult.success = true;
-                        routeResult.message =
-                            QStringLiteral("腾讯地图%1路线规划成功").arg(modeLabel);
-                        routeResult.summary = QStringLiteral("%1：%2 → %3")
-                                                    .arg(modeLabel, start.address, end.address);
-                        routeResult.routeHtml = routeHtml(
-                            apiKey_, *points, distance, duration, modeLabel);
-                        emit routeCompleted(routeResult);
-                    });
+        if (!result.message.isEmpty()) {
+            activeRequests_.remove(requestId);
+            emit routeCompleted(result);
             return;
         }
-        emit routeCompleted(result);
+        QUrl url(QStringLiteral("https://apis.map.qq.com/ws/direction/v1/%1/").arg(routeEndpoint(mode)));
+        QUrlQuery query;
+        query.addQueryItem(QStringLiteral("from"), coordinateText(start));
+        query.addQueryItem(QStringLiteral("to"), coordinateText(end));
+        query.addQueryItem(QStringLiteral("key"), apiKey_);
+        url.setQuery(query);
+        QNetworkRequest request(url);
+        request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("BIT-ChargingClient/1.0"));
+        request.setTransferTimeout(requestTimeoutMs_);
+        auto *reply = networkAccess_->get(request);
+        replies_.insert(requestId, reply);
+        connect(reply, &QNetworkReply::finished, this, [this, reply, requestId, mode]() {
+            replies_.remove(requestId);
+            reply->deleteLater();
+            if (!activeRequests_.remove(requestId)) return;
+            RouteResult result;
+            result.requestId = requestId;
+            const QString label = routeModeLabel(mode);
+            const QByteArray body = reply->readAll();
+            const auto document = body.size() <= 8 * 1024 * 1024
+                ? QJsonDocument::fromJson(body) : QJsonDocument();
+            const auto root = document.object();
+            const int status = root.value(QStringLiteral("status")).toInt(-1);
+            const auto routes = root.value(QStringLiteral("result")).toObject().value(QStringLiteral("routes")).toArray();
+            if (reply->error() != QNetworkReply::NoError) {
+                result.message = QStringLiteral("腾讯地图%1路线请求失败或超时，请检查网络后重试").arg(label);
+            } else if (!document.isObject()) {
+                result.message = QStringLiteral("腾讯地图返回了无法识别的%1路线数据").arg(label);
+            } else if (status != 0) {
+                result.message = QStringLiteral("腾讯地图%1路线请求失败（状态码 %2），请检查 Key 权限、配额及起终点")
+                    .arg(label).arg(status);
+            } else if (routes.isEmpty()) {
+                result.message = QStringLiteral("未找到可用的%1路线，请修改起点或出行方式").arg(label);
+            } else if (!parseRoute(routes.first().toObject(), mode, result)) {
+                result.paths = {};
+                result.instructions.clear();
+                result.message = QStringLiteral("腾讯地图返回的%1路线坐标或详情无效").arg(label);
+            } else {
+                result.success = true;
+                result.message = QStringLiteral("腾讯地图%1路线规划成功").arg(label);
+                result.mapScriptUrl = QUrl(QStringLiteral("https://map.qq.com/api/gljs"));
+                QUrlQuery sdkQuery;
+                sdkQuery.addQueryItem(QStringLiteral("v"), QStringLiteral("1.exp"));
+                sdkQuery.addQueryItem(QStringLiteral("key"), apiKey_);
+                result.mapScriptUrl.setQuery(sdkQuery);
+            }
+            emit routeCompleted(result);
+        });
     });
     return requestId;
+}
+
+void TencentMapService::cancel(const QString &requestId)
+{
+    activeRequests_.remove(requestId);
+    if (auto *reply = replies_.take(requestId)) {
+        reply->disconnect(this);
+        reply->abort();
+        reply->deleteLater();
+    }
 }
 
 QString TencentMapService::nextRequestId()
@@ -394,7 +384,8 @@ void TencentMapService::emitGeocodeFailure(const QString &requestId,
                                            const QString &message)
 {
     QTimer::singleShot(0, this, [this, requestId, message]() {
-        emit geocodeCompleted(GeocodeResult{requestId, false, message, std::nullopt});
+        if (activeRequests_.remove(requestId))
+            emit geocodeCompleted(GeocodeResult{requestId, false, message, std::nullopt});
     });
 }
 

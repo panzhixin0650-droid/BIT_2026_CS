@@ -3,5 +3,24 @@
   "mode": "TRANSIT",
   "start": {"address": "沈阳市和平区", "longitude": 123.4, "latitude": 41.79},
   "end": {"address": "浑南演示充电站", "longitude": 123.43, "latitude": 41.71},
-  "tencentRouteType": "bus"
+  "tencentEndpoint": "/ws/direction/v1/transit/",
+  "note": "Synthetic offline fixture, not an actual timetable or live route",
+  "tencentResponse": {
+    "status": 0,
+    "result": {
+      "routes": [{
+        "distance": 1200,
+        "duration": 8.2,
+        "steps": [
+          {"mode": "WALKING", "distance": 100, "polyline": [41.79, 123.4, 1000, 1000]},
+          {"mode": "TRANSIT", "lines": [{
+            "vehicle": "SUBWAY", "title": "演示地铁线路", "running_status": 300,
+            "geton": {"title": "演示上车站"}, "getoff": {"title": "演示下车站"},
+            "polyline": [41.791, 123.401, -80000, 28000]
+          }]},
+          {"mode": "WALKING", "distance": 100, "polyline": [41.711, 123.429, -1000, 1000]}
+        ]
+      }]
+    }
+  }
 }

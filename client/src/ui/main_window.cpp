@@ -378,7 +378,13 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
             });
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow()
+{
+    // Child pages emit navigationClosed while the window is being hidden.
+    // Disconnect their controller before ownedMapService_ is destroyed.
+    delete mapController_;
+    mapController_ = nullptr;
+}
 
 void MainWindow::showAuthenticatedHome(const protocol::UserDto &user, bool isNewUser)
 {
