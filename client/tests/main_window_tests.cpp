@@ -6,6 +6,8 @@
 #include <QAbstractButton>
 #include <QApplication>
 #include <QComboBox>
+#include <QDir>
+#include <QFrame>
 #include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
@@ -33,6 +35,7 @@ private slots:
     void invalidPhoneStaysOnLoginPage();
     void verificationCodeRowFitsSmallWindow();
     void authenticatedShellHasFiveBottomEntries();
+    void floatingNavigationResizesAndKeepsEntriesClickable();
     void clientUsesConsistentVisualTheme();
     void stationFiltersExpandAndPreserveQuery();
     void chargingHomeListsFiltersAndOpensStationDetail();
@@ -271,6 +274,75 @@ void MainWindowTests::authenticatedShellHasFiveBottomEntries()
     }
     QVERIFY(occupiedWidth >= tabBar->width() - 2);
     QVERIFY(maximumTabWidth - minimumTabWidth <= 1);
+}
+
+void MainWindowTests::floatingNavigationResizesAndKeepsEntriesClickable()
+{
+    MockChargingApi api;
+    MainWindow window(api);
+    window.show();
+    loginFixtureUser(window);
+
+    auto *navigation = window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
+    auto *container = window.findChild<QFrame *>(QStringLiteral("navigationContainer"));
+    QVERIFY(navigation && container);
+    auto *bar = navigation->tabBar();
+    QVERIFY(container->testAttribute(Qt::WA_TransparentForMouseEvents));
+    QVERIFY(container->graphicsEffect() != nullptr);
+
+    // Resize the same shell back to narrow width to catch stale frame geometry.
+    for (const QSize size : {QSize(360, 640), QSize(480, 860),
+                             QSize(900, 760), QSize(360, 640)}) {
+        window.resize(size);
+        QTRY_COMPARE(window.size(), size);
+        QTRY_VERIFY(container->isVisible());
+        QTRY_VERIFY(navigation->rect().contains(container->geometry()));
+        QTRY_VERIFY(navigation->rect().contains(bar->geometry()));
+        QTRY_VERIFY(qAbs(container->geometry().center().x()
+                         - navigation->rect().center().x()) <= 1);
+        QVERIFY(container->x() > 0);
+        QVERIFY(container->geometry().right() < navigation->width() - 1);
+        QCOMPARE(container->y(), bar->y());
+        QCOMPARE(bar->x() - container->x(),
+                 container->geometry().right() - bar->geometry().right());
+        QVERIFY(container->geometry().bottom() < navigation->height() - 1);
+
+        int occupiedWidth = 0;
+        const int firstWidth = bar->tabRect(0).width();
+        for (int index = 0; index < bar->count(); ++index) {
+            const QRect hitArea = bar->tabRect(index);
+            occupiedWidth += hitArea.width();
+            QVERIFY(qAbs(hitArea.width() - firstWidth) <= 1);
+            QVERIFY(bar->rect().contains(hitArea));
+            // The full equal-width area remains clickable, not just the painted tile.
+            const QPoint clickPoint(hitArea.left() + 1, hitArea.center().y());
+            QCOMPARE(navigation->childAt(bar->mapTo(navigation, clickPoint)), bar);
+            QTest::mouseClick(bar, Qt::LeftButton, Qt::NoModifier, clickPoint);
+            QTRY_COMPARE(navigation->currentIndex(), index);
+            auto *page = navigation->currentWidget();
+            QVERIFY(page->isVisible());
+            const QRect pageRect(page->mapTo(navigation, QPoint()), page->size());
+            QVERIFY(pageRect.bottom() < container->y());
+        }
+        QVERIFY(occupiedWidth >= bar->width() - 2);
+        bar->setFocus();
+        QTest::keyClick(bar, Qt::Key_Left);
+        QCOMPARE(navigation->currentIndex(), 3);
+        QTest::keyClick(bar, Qt::Key_Right);
+        QCOMPARE(navigation->currentIndex(), 4);
+
+        const auto screenshots = qEnvironmentVariable("CHARGING_NAVIGATION_SCREENSHOTS");
+        if (!screenshots.isEmpty()) {
+            const auto name = QStringLiteral("floating-nav-%1x%2.png")
+                                  .arg(size.width()).arg(size.height());
+            QVERIFY(window.grab().save(QDir(screenshots).filePath(name)));
+        }
+    }
+    auto *logout = window.findChild<QPushButton *>(QStringLiteral("logoutButton"));
+    QTRY_VERIFY(logout->isEnabled());
+    QTest::mouseClick(logout, Qt::LeftButton);
+    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("loginPage"))->isVisible());
+    QVERIFY(!container->isVisible());
 }
 
 void MainWindowTests::clientUsesConsistentVisualTheme()
