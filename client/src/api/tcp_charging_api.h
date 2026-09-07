@@ -45,6 +45,9 @@ public:
     [[nodiscard]] QString getChargingProgress(qint64 orderId) override;
     [[nodiscard]] QString stopCharging(qint64 orderId) override;
     [[nodiscard]] QString payOrder(qint64 orderId) override;
+    [[nodiscard]] QString createSupportTicket(const protocol::SupportTicketDraft &draft) override;
+    [[nodiscard]] QString listSupportTickets(std::optional<qint64> beforeId = {}) override;
+    [[nodiscard]] QString getSupportTicket(qint64 ticketId) override;
 
 private:
     struct PendingRequest {

@@ -181,6 +181,17 @@ SupportPage::SupportPage(AssistantService &service, QWidget *parent)
     messagesLayout_->addStretch(1);
     scroll_->setWidget(canvas_);
     layout->addWidget(scroll_, 1);
+    deskEntry_ = new QPushButton(QStringLiteral("真人\n客服"), scroll_->viewport());
+    deskEntry_->setObjectName(QStringLiteral("supportDeskEntry"));
+    deskEntry_->setFixedSize(58, 58);
+    deskEntry_->setAccessibleName(QStringLiteral("转接课程演示客服与工单"));
+    deskEntry_->setToolTip(QStringLiteral("课程演示 · AI 模拟真人客服与工单"));
+    deskEntry_->setStyleSheet(QStringLiteral(
+        "QPushButton { background:#245c45; color:white; border:2px solid #d7e5ca;"
+        "border-radius:29px; font-size:12px; font-weight:600; padding:0; }"
+        "QPushButton:hover { background:#357358; }"));
+    scroll_->viewport()->installEventFilter(this);
+    connect(deskEntry_, &QPushButton::clicked, this, &SupportPage::supportDeskRequested);
 
     auto *composer = new QFrame(this);
     composer->setObjectName(QStringLiteral("assistantComposer"));
@@ -396,6 +407,16 @@ void SupportPage::resetConversation()
     stickToBottom_ = true;
     updateControls();
     if (isVisible()) { input_->setFocus(); }
+}
+
+bool SupportPage::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == scroll_->viewport() && event->type() == QEvent::Resize && deskEntry_) {
+        deskEntry_->move(qMax(4, scroll_->viewport()->width() - 68),
+                          qMax(4, scroll_->viewport()->height() - 68));
+        deskEntry_->raise();
+    }
+    return QWidget::eventFilter(watched, event);
 }
 
 }  // namespace charging::client

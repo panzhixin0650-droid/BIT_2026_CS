@@ -49,6 +49,10 @@ tests/               服务端单元测试
 - `charging_admin_ui_tests`：覆盖登录失败后的输入保留、焦点与布局稳定、重试成功，以及焦点切换、错误提示和窗口缩放后的实际屏幕像素；
 - `charging_repository_tests`：在临时 SQLite 数据库中覆盖种子读取、派生聚合、持久化、结构拒绝、站点/电桩安全删除和事务回滚。
 - `charging_order_flow_tests`：对 SQLite 和内存替身验证预约、取消、直接/预约充电、实时读数、自动结算、充值补付、归属/状态校验和失败回滚，并用客户端 `TcpChargingApi` 对接真实 `TcpGateway`。
+- 客服工单：用户确认的摘要通过独立 V1 接口入库，管理员在“客服工单”页回复与更新状态。
+  需显式执行 [002 迁移](../database/README.md#启用客服工单扩展-schema-2)；schema 1 的原有业务仍可使用。
+- `charging_support_ticket_flow_tests`：覆盖创建去重、分页、跨用户隔离、冻结/会话校验、
+  管理员登录边界、回复持久化、失败回滚，以及真实客户端 TCP → SQLite → 管理端 → 客户端查询。
 
 `server-app` 默认使用包含基础种子和扩容种子的 SQLite 数据库，但不在运行时创建数据库或执行迁移。启动前按
 [`database/README.md`](../database/README.md) 初始化数据库；服务端会拒绝不存在的文件、未知 `user_version` 或缺少 Demo 表的数据库。该切换不改变 UI、TCP 和 ApplicationService 对外语义。
@@ -62,6 +66,8 @@ SQLite 作为 `server-app` 内的嵌入式数据库直接读写本地文件，�
 - `station.list`、`station.detail`；
 - `order.current`、`order.reserve`、`order.cancel`、`order.start`；
 - `order.progress`、`order.stop`、`order.pay`、`order.list`。
+- `support.ticket.create`、`support.ticket.list`、`support.ticket.detail`，见
+  [工单 V1 契约](../contracts/support-tickets-v1.md)。管理员处理接口仅在同进程开放，不开放用户 TCP 写路由。
 
 订单写操作由 `ApplicationService` 在同一事务中编排，SQLite 使用 `BEGIN IMMEDIATE`，任何中途失败均回滚订单、桩状态和余额。进度只在返回时读取 Mock，不逐次写库；开始时冻结站点单价，停止后冻结最终账单。重复停止/补支付返回 `40903`，不会再次扣款。
 

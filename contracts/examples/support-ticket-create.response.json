@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "type": "support.ticket.create",
+  "requestId": "ticket-create-1",
+  "code": 0,
+  "message": "OK",
+  "data": {
+    "ticket": {
+      "ticketId": 1,
+      "userId": 1,
+      "submissionId": "b758e849-0cd0-4eb6-8aee-35c5c98fd553",
+      "title": "充电结束后的页面提示需要核实",
+      "summary": "用户反馈结束充电后页面提示异常，希望管理员核对。已建议查看订单状态。实际结算结果待核实，不代表已退款或修改订单。",
+      "sourceModel": "gpt-5.6-sol",
+      "status": "OPEN",
+      "reply": "",
+      "createdAt": "2026-09-07T08:00:00Z",
+      "updatedAt": "2026-09-07T08:00:00Z"
+    }
+  }
+}

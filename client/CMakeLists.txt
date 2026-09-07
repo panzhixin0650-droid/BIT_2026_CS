@@ -55,6 +55,8 @@ add_library(charging_client_ui STATIC
     src/assistant/knowledge_base.h
     src/ui/support_page.cpp
     src/ui/support_page.h
+    src/ui/support_desk_dialog.cpp
+    src/ui/support_desk_dialog.h
     src/local/avatar_storage.cpp
     src/local/avatar_storage.h
     src/local/i_map_service.cpp
@@ -133,6 +135,11 @@ target_link_libraries(user-client
 
 if(BUILD_TESTING)
     find_package(Qt6 6.2 REQUIRED COMPONENTS Test)
+
+    add_executable(charging_client_support_desk_tests tests/support_desk_tests.cpp)
+    target_link_libraries(charging_client_support_desk_tests PRIVATE charging_client_ui Qt6::Test)
+    add_test(NAME charging_client_support_desk_tests COMMAND charging_client_support_desk_tests)
+    set_tests_properties(charging_client_support_desk_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     add_executable(charging_client_navigation_tests tests/navigation_tests.cpp)
     target_link_libraries(charging_client_navigation_tests PRIVATE charging_client_ui Qt6::Test)

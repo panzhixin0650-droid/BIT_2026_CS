@@ -18,6 +18,11 @@ class SupportPage final : public QWidget {
 public:
     explicit SupportPage(AssistantService &service, QWidget *parent = nullptr);
     void resetConversation();
+    QList<AssistantTurn> recentHistory() const { return history_; }
+signals:
+    void supportDeskRequested();
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     void submit(const QString &question);
@@ -38,6 +43,7 @@ private:
     QLabel *counter_ = nullptr;
     QPushButton *send_ = nullptr;
     QPushButton *stop_ = nullptr;
+    QPushButton *deskEntry_ = nullptr;
     QList<QPushButton *> suggestions_;
     QList<QWidget *> messages_;
     QList<AssistantTurn> history_;

@@ -1091,4 +1091,82 @@ protocol::OrderDto MockChargingApi::orderWithProgress(
     return order;
 }
 
+QString MockChargingApi::createSupportTicket(const protocol::SupportTicketDraft &draft)
+{
+    const auto id = nextRequestId();
+    TicketResult result{{id, protocol::MessageType::SupportTicketCreate, protocol::ErrorCode::Ok, QStringLiteral("OK")}, {}};
+    const auto user = authenticatedUser();
+    protocol::SupportTicketDraft parsed;
+    if (!user) result.response.code = protocol::ErrorCode::InvalidSession;
+    else if (user->status == protocol::UserStatus::Frozen) result.response.code = protocol::ErrorCode::Forbidden;
+    else if (!protocol::fromJson(protocol::toJson(draft), &parsed))
+        result.response.code = protocol::ErrorCode::InvalidRequest;
+    else {
+        for (const auto &ticket : tickets_) {
+            if (ticket.userId != user->userId || ticket.submissionId != draft.submissionId) continue;
+            if (protocol::toJson(static_cast<const protocol::SupportTicketDraft &>(ticket)) != protocol::toJson(draft))
+                result.response.code = protocol::ErrorCode::InvalidRequest;
+            else result.payload = TicketPayload{ticket};
+            break;
+        }
+        if (result.ok() && !result.payload) {
+            protocol::SupportTicketDto ticket;
+            static_cast<protocol::SupportTicketDraft &>(ticket) = draft;
+            ticket.ticketId = nextTicketId_++;
+            ticket.userId = user->userId;
+            ticket.createdAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+            ticket.updatedAt = ticket.createdAt;
+            tickets_.append(ticket);
+            result.payload = TicketPayload{ticket};
+        }
+    }
+    if (!result.ok()) result.response.message = QStringLiteral("工单提交失败");
+    QTimer::singleShot(0, this, [this, result] { emit supportTicketCreated(result); });
+    return id;
+}
+
+QString MockChargingApi::listSupportTickets(std::optional<qint64> beforeId)
+{
+    const auto id = nextRequestId();
+    TicketListResult result{{id, protocol::MessageType::SupportTicketList, protocol::ErrorCode::Ok, QStringLiteral("OK")}, {}};
+    const auto user = authenticatedUser();
+    qint64 validatedId = 0;
+    if (!user) result.response.code = protocol::ErrorCode::InvalidSession;
+    else if (user->status == protocol::UserStatus::Frozen) result.response.code = protocol::ErrorCode::Forbidden;
+    else if (beforeId && !protocol::positiveTicketId(QJsonValue(*beforeId), &validatedId))
+        result.response.code = protocol::ErrorCode::InvalidRequest;
+    else {
+        TicketListPayload page;
+        for (auto it = tickets_.crbegin(); it != tickets_.crend(); ++it) {
+            if (it->userId != user->userId || (beforeId && it->ticketId >= *beforeId)) continue;
+            if (page.items.size() == 10) { page.hasMore = true; break; }
+            page.items.append(*it);
+        }
+        result.payload = page;
+    }
+    if (!result.ok()) result.response.message = QStringLiteral("无法读取工单");
+    QTimer::singleShot(0, this, [this, result] { emit supportTicketsListed(result); });
+    return id;
+}
+
+QString MockChargingApi::getSupportTicket(qint64 ticketId)
+{
+    const auto id = nextRequestId();
+    TicketResult result{{id, protocol::MessageType::SupportTicketDetail, protocol::ErrorCode::Ok, QStringLiteral("OK")}, {}};
+    const auto user = authenticatedUser();
+    qint64 validatedId = 0;
+    if (!user) result.response.code = protocol::ErrorCode::InvalidSession;
+    else if (user->status == protocol::UserStatus::Frozen) result.response.code = protocol::ErrorCode::Forbidden;
+    else if (!protocol::positiveTicketId(QJsonValue(ticketId), &validatedId))
+        result.response.code = protocol::ErrorCode::InvalidRequest;
+    else {
+        for (const auto &ticket : tickets_)
+            if (ticket.ticketId == ticketId && ticket.userId == user->userId) result.payload = TicketPayload{ticket};
+        if (!result.payload) result.response.code = protocol::ErrorCode::NotFound;
+    }
+    if (!result.ok()) result.response.message = QStringLiteral("无法读取工单");
+    QTimer::singleShot(0, this, [this, result] { emit supportTicketDetailed(result); });
+    return id;
+}
+
 }  // namespace charging::client

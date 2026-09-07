@@ -1,6 +1,7 @@
 #pragma once
 
 #include "charging/protocol/dto.h"
+#include "charging/protocol/support_ticket.h"
 
 #include <QList>
 #include <QString>
@@ -31,6 +32,19 @@ enum class DeleteStationResult {
 class IRepository {
 public:
     virtual ~IRepository() = default;
+
+    // Optional additive capability; old adapters remain valid for old workflows.
+    [[nodiscard]] virtual bool supportsSupportTickets() const { return false; }
+    [[nodiscard]] virtual std::optional<charging::protocol::SupportTicketDto>
+    findSupportTicket(qint64) const { return std::nullopt; }
+    [[nodiscard]] virtual std::optional<charging::protocol::SupportTicketDto>
+    findSupportSubmission(qint64, const QString &) const { return std::nullopt; }
+    [[nodiscard]] virtual QList<charging::protocol::SupportTicketDto>
+    listSupportTickets(std::optional<qint64>, std::optional<qint64>, int) const { return {}; }
+    [[nodiscard]] virtual charging::protocol::SupportTicketDto
+    createSupportTicket(charging::protocol::SupportTicketDto) { return {}; }
+    [[nodiscard]] virtual bool
+    updateSupportTicket(const charging::protocol::SupportTicketDto &) { return false; }
 
     // Distinguishes an expected empty/not-found result from a storage failure.
     // Repositories update this flag for every operation; ApplicationService

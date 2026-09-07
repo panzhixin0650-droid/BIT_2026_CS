@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "type": "support.ticket.list",
+  "requestId": "ticket-list-1",
+  "code": 0,
+  "message": "OK",
+  "data": {
+    "items": [],
+    "hasMore": false
+  }
+}

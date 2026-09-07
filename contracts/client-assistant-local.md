@@ -3,6 +3,13 @@
 本文件是 [ADR 0005](../docs/decisions/0005-client-rag-assistant.md) 的外部接口说明，
 不是 V1 TCP 消息，不增加 `support.*`，不包含用户 token 或数据库写操作。
 
+以上是普通助理（Luna）的边界，保持兼容。后续独立模拟坐席和用户确认的工单扩展见
+[ADR 0008](../docs/decisions/0008-support-ticket-desk.md) 与
+[工单 V1](support-tickets-v1.md)：只有确认提交走业务 TCP，模型适配器仍无业务权限。
+可选 `supportModel` 默认 `gpt-5.6-sol`，模拟坐席与摘要复用普通助理的 `baseUrl`、Key
+和 Responses 请求格式，只切换模型名称与任务提示词。坐席在没有检索命中时也可澄清问题，
+不得编造知识。普通助理无命中不联网的规则不变。
+
 ## 输入与输出
 
 - 输入：1–1200 字符的问题、最近最多四组成功问答、本地/模型模式选择。

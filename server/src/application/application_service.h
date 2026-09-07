@@ -56,6 +56,13 @@ public:
     [[nodiscard]] ServiceResult stopOrder(const QString &token, const QJsonObject &input);
     [[nodiscard]] ServiceResult payOrder(const QString &token, const QJsonObject &input);
 
+    [[nodiscard]] ServiceResult createSupportTicket(const QString &token, const QJsonObject &input);
+    [[nodiscard]] ServiceResult listSupportTickets(const QString &token, const QJsonObject &input) const;
+    [[nodiscard]] ServiceResult getSupportTicket(const QString &token, const QJsonObject &input) const;
+    // Local administrator calls only; AdminFacade enforces its login boundary.
+    [[nodiscard]] ServiceResult listAdminSupportTickets(std::optional<qint64> beforeId = {}) const;
+    [[nodiscard]] ServiceResult updateAdminSupportTicket(const QJsonObject &input);
+
     [[nodiscard]] ServiceResult loginAdmin(const QString &username,
                                            const QString &password) const;
     [[nodiscard]] ServiceResult getDashboard(int days) const;

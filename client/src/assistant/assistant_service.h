@@ -18,6 +18,8 @@ struct AssistantTurn {
     QString answer;
 };
 
+enum class AssistantPurpose { General, SupportDesk, TicketSummary };
+
 struct AssistantResult {
     QString answer;
     QString error;
@@ -32,7 +34,8 @@ class AssistantService final : public QObject {
     Q_OBJECT
 public:
     explicit AssistantService(AssistantConfig config = {}, QObject *parent = nullptr,
-                              QNetworkAccessManager *network = nullptr);
+                              QNetworkAccessManager *network = nullptr,
+                              AssistantPurpose purpose = AssistantPurpose::General);
     ~AssistantService() override;
     const AssistantConfig &config() const { return config_; }
     const KnowledgeBase &knowledgeBase() const { return knowledge_; }
@@ -56,6 +59,7 @@ private:
     void finish(bool success, const QString &error = {}, bool cancelled = false);
 
     AssistantConfig config_;
+    AssistantPurpose purpose_ = AssistantPurpose::General;
     KnowledgeBase knowledge_;
     QNetworkAccessManager *network_ = nullptr;
     QPointer<QNetworkReply> reply_;
