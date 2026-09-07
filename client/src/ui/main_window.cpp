@@ -21,6 +21,7 @@
 
 #include <QAbstractButton>
 #include <QFrame>
+#include <QGraphicsDropShadowEffect>
 #include <QLabel>
 #include <QMessageBox>
 #include <QPaintEvent>
@@ -37,18 +38,31 @@ namespace charging::client {
 
 namespace {
 
+constexpr int navigationItemSize = 68;
+constexpr int navigationPadding = 12;
+constexpr int navigationBottomGap = 18;
+constexpr int navigationHeight = navigationItemSize + 2 * navigationPadding;
+
 class NavigationTabBar final : public QTabBar {
 public:
     explicit NavigationTabBar(QWidget *parent = nullptr)
         : QTabBar(parent)
     {
+        setElideMode(Qt::ElideNone);
     }
 
     QSize tabSizeHint(int index) const override
     {
         QSize size = QTabBar::tabSizeHint(index);
         size.setWidth(64);
-        size.setHeight(64);
+        size.setHeight(navigationHeight + navigationBottomGap);
+        return size;
+    }
+
+    QSize minimumTabSizeHint(int index) const override
+    {
+        QSize size = tabSizeHint(index);
+        size.setWidth(56);
         return size;
     }
 
@@ -62,15 +76,32 @@ protected:
         for (int index = 0; index < count(); ++index) {
             QStyleOptionTab option;
             initStyleOption(&option, index);
-            painter.drawControl(QStyle::CE_TabBarTabShape, option);
+            // Keep the full equal-width hit area; only the selected tile is square.
+            const int side = qMin(navigationItemSize, option.rect.width() - 4);
+            const int centerX = option.rect.center().x();
+            option.rect = QRect(centerX - side / 2,
+                                (navigationHeight - side) / 2, side, side);
 
             const bool selected = option.state.testFlag(QStyle::State_Selected);
             const bool hovered = option.state.testFlag(QStyle::State_MouseOver);
             const bool enabled = option.state.testFlag(QStyle::State_Enabled);
-            const QRect content = option.rect.adjusted(2, 5, -2, -4);
+            if (selected) {
+                painter.drawControl(QStyle::CE_TabBarTabShape, option);
+            }
+            const QRect content = option.rect.adjusted(2, 0, -2, 0);
             const QSize drawnIconSize(27, 27);
+            QFont labelFont = painter.font();
+            labelFont.setPointSize(9);
+            labelFont.setWeight(selected ? QFont::DemiBold : QFont::Medium);
+            painter.setFont(labelFont);
+            const int labelHeight = painter.fontMetrics().height();
+            constexpr int iconTextGap = 4;
+            const int groupHeight =
+                drawnIconSize.height() + iconTextGap + labelHeight;
+            const int groupTop =
+                content.top() + (content.height() - groupHeight) / 2;
             const QRect iconRect(content.center().x() - drawnIconSize.width() / 2,
-                                 content.top(),
+                                 groupTop,
                                  drawnIconSize.width(),
                                  drawnIconSize.height());
             const QIcon::Mode iconMode = !enabled ? QIcon::Disabled
@@ -83,17 +114,13 @@ protected:
                               QIcon::Off);
 
             const QRect textRect(content.left(),
-                                 iconRect.bottom() + 3,
+                                 iconRect.bottom() + iconTextGap,
                                  content.width(),
-                                 content.bottom() - iconRect.bottom() - 2);
+                                 labelHeight + 1);
             const QColor textColor = !enabled ? QColor(QStringLiteral("#96a18e"))
                 : selected ? QColor(QStringLiteral("#245c45"))
                            : hovered ? QColor(QStringLiteral("#245c45"))
                                      : QColor(QStringLiteral("#697969"));
-            QFont labelFont = painter.font();
-            labelFont.setPointSize(9);
-            labelFont.setWeight(selected ? QFont::DemiBold : QFont::Medium);
-            painter.setFont(labelFont);
             painter.setPen(textColor);
             painter.drawText(textRect,
                              Qt::AlignHCenter | Qt::AlignTop,
@@ -108,7 +135,42 @@ public:
         : QTabWidget(parent)
     {
         setTabBar(new NavigationTabBar(this));
+        navigationContainer_ = new QFrame(this);
+        navigationContainer_->setObjectName(QStringLiteral("navigationContainer"));
+        navigationContainer_->setAttribute(Qt::WA_TransparentForMouseEvents);
+        navigationContainer_->stackUnder(tabBar());
+
+        auto *shadow = new QGraphicsDropShadowEffect(navigationContainer_);
+        shadow->setBlurRadius(26.0);
+        shadow->setColor(QColor(32, 61, 48, 40));
+        shadow->setOffset(0.0, 3.0);
+        navigationContainer_->setGraphicsEffect(shadow);
+        tabBar()->installEventFilter(this);
     }
+
+protected:
+    void initStyleOption(QStyleOptionTabWidgetFrame *option) const override
+    {
+        QTabWidget::initStyleOption(option);
+        const int outerMargin = qBound(12, (width() - 240) / 10, 22);
+        option->tabBarSize.setWidth(
+            qMax(0, width() - 2 * (outerMargin + navigationPadding)));
+    }
+
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        if (watched == tabBar()
+            && (event->type() == QEvent::Move
+                || event->type() == QEvent::Resize
+                || event->type() == QEvent::Show)) {
+            navigationContainer_->setGeometry(tabBar()->geometry().adjusted(
+                -navigationPadding, 0, navigationPadding, -navigationBottomGap));
+        }
+        return QTabWidget::eventFilter(watched, event);
+    }
+
+private:
+    QFrame *navigationContainer_ = nullptr;
 };
 
 void showPendingPaymentNotice(QWidget *parent)
