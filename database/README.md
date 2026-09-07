@@ -2,9 +2,13 @@
 
 本目录提供当前课程 Demo 的 SQLite 五表实现。编号迁移是结构事实源，演示种子用于本地开发和联调；运行时数据库始终在仓库外或被忽略的 `build/` 下生成，不提交二进制数据库。
 
+2026-09-07 经用户授权新增可选的客服工单扩展（schema 2），只追加 `support_tickets`，
+不重写五表基线或种子。未执行扩展迁移的 schema 1 仍可运行原有业务。
+
 ## 目录
 
 - `migrations/001_initial_demo.sql`：从空库建立五张业务表、必要索引和约束；
+- `migrations/002_support_tickets.sql`：从 schema 1 增量启用客服工单；
 - `seeds/demo.sql`：可重复执行的课程演示数据；
 - `seeds/expansion_20_20_100_200.sql`：在基础演示数据上追加 20 个用户、20 个充电站、100 个电桩和 200 个订单；
 - `tests/`：独立迁移、播种、完整性、订单事务和失败分支验证；
@@ -13,6 +17,36 @@
 字段、单位、状态和事务边界以 [`docs/design/demo-database-design.md`](../docs/design/demo-database-design.md) 为准。开始实现后，编号 SQL 才成为数据库结构事实源。
 
 复杂参考文档中的 24 表 DDL 不能直接叠加到五表 Demo 库；应按功能拆成迁移并处理同名表字段差异。
+
+## 启用客服工单扩展 schema 2
+
+先完成下文的 schema 1 初始化及验证，或使用已有 schema 1 数据库。
+**停止服务端，备份实际数据库，再执行一次迁移**。以下路径以仓库默认路径为例，
+如果启动时指定了其他 `--database`，必须对同一个文件操作，不要另建空库：
+
+```bash
+(
+  set -e
+  test -f build/database/demo.db
+  test "$(sqlite3 build/database/demo.db 'PRAGMA user_version;')" = 1
+  # 每次创建独立备份目录，不覆盖已有备份；任一步失败则停止。
+  support_backup_dir="$(mktemp -d build/database/support-backup.XXXXXX)"
+  sqlite3 build/database/demo.db ".backup '$support_backup_dir/demo.db'"
+  sqlite3 -batch -bail build/database/demo.db < database/migrations/002_support_tickets.sql
+  sqlite3 build/database/demo.db 'PRAGMA user_version; PRAGMA integrity_check; PRAGMA foreign_key_check;'
+  # 应输出 2、ok，且无外键错误。
+  printf '备份保存在：%s/demo.db\n' "$support_backup_dir"
+)
+```
+
+迁移检查起始版本、使用事务、保留旧 ID 和数据。重复应用或向未知版本应用会失败，
+不要重跑 001、修改 `user_version` 绕过检查或删除旧库。服务端不自动执行迁移。
+新的服务端接受 schema 1 / 2；schema 1 仅在工单接口返回需要升级的提示。
+回退到只支持 schema 1 的旧服务端前需恢复备份，但备份之后的新数据不会随之保留；
+不要在仍有业务写入时直接覆盖数据库。
+
+工单字段、权限、去重与状态见 [工单契约](../contracts/support-tickets-v1.md)。
+`tests/run.sh` 在新临时库上同时验证原有基线、002、数据保留与约束。
 
 ## 独立初始化
 

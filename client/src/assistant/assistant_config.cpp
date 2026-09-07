@@ -5,6 +5,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStandardPaths>
+#include <QRegularExpression>
 
 namespace charging::client {
 
@@ -44,6 +45,8 @@ AssistantConfig AssistantConfig::load(const QString &explicitPath)
     config.baseUrl = object.value(QStringLiteral("baseUrl")).toString().trimmed();
     config.apiKey = object.value(QStringLiteral("apiKey")).toString().trimmed();
     config.model = object.value(QStringLiteral("model")).toString().trimmed();
+    if (object.contains(QStringLiteral("supportModel")))
+        config.supportModel = object.value(QStringLiteral("supportModel")).toString().trimmed();
     for (const auto &name : {QStringLiteral("timeoutMs"), QStringLiteral("maxOutputTokens")}) {
         if (!object.contains(name)) {
             continue;
@@ -101,6 +104,16 @@ QUrl AssistantConfig::endpoint() const
     }
     url.setPath(path);
     return url;
+}
+
+AssistantConfig AssistantConfig::forSupportDesk() const
+{
+    AssistantConfig copy = *this;
+    copy.model = supportModel; // Same provider, base URL, credentials and Responses adapter.
+    static const QRegularExpression validModel(QStringLiteral("^[A-Za-z0-9._:-]{1,120}\\z"));
+    if (!validModel.match(copy.model).hasMatch())
+        copy.loadError = QStringLiteral("客服模型名称无效，请检查 supportModel 配置。");
+    return copy;
 }
 
 }  // namespace charging::client

@@ -1,4 +1,5 @@
 #include "charging/protocol/dto.h"
+#include "charging/protocol/support_ticket.h"
 #include "charging/protocol/envelope.h"
 #include "charging/protocol/frame_codec.h"
 #include "charging/protocol/protocol_constants.h"
@@ -61,7 +62,51 @@ private slots:
     void dtoRoundTrips();
     void fixtureEnvelopesMatch();
     void progressFixturesAreMonotonicAndBillCorrectly();
+    void supportTicketContract();
 };
+
+void ProtocolTests::supportTicketContract()
+{
+    const auto request = loadObject(QStringLiteral("support-ticket-create.request.json"));
+    const auto draftJson = request.value("data").toObject();
+    SupportTicketDraft draft;
+    QVERIFY(fromJson(draftJson, &draft));
+    QCOMPARE(toJson(draft), draftJson);
+    SupportTicketDto ticket;
+    const auto response = loadObject(QStringLiteral("support-ticket-create.response.json"));
+    const auto ticketJson = response.value("data").toObject().value("ticket").toObject();
+    QVERIFY(fromJson(ticketJson, &ticket));
+    QCOMPARE(toJson(ticket), ticketJson);
+    for (const auto &change : QList<QPair<QString, QJsonValue>>{
+        {"userId", 5}, {"title", QString(81, 'a')}, {"summary", QString(4001, 'a')},
+        {"title", QStringLiteral(" \n ")}, {"summary", QString(QChar(0))},
+        {"sourceModel", QStringLiteral("bad/model")}, {"sourceModel", QStringLiteral("model\n")},
+        {"submissionId", QStringLiteral("BAD")}, {"summary", QString(QChar(0xd800))}}) {
+        auto invalid = draftJson;
+        invalid.insert(change.first, change.second);
+        QVERIFY(!fromJson(invalid, &draft));
+    }
+    for (const QJsonValue id : {QJsonValue(0), QJsonValue(-1), QJsonValue(1.5),
+                               QJsonValue(9007199254740992.0), QJsonValue("1")}) {
+        auto invalid = ticketJson; invalid.insert("ticketId", id);
+        QVERIFY(!fromJson(invalid, &ticket));
+    }
+    auto resolved = ticketJson;
+    resolved.insert("status", "RESOLVED");
+    QVERIFY(!fromJson(resolved, &ticket));
+    resolved.insert("reply", QStringLiteral("已核实"));
+    QVERIFY(fromJson(resolved, &ticket));
+    resolved.insert("updatedAt", "not-time");
+    QVERIFY(!fromJson(resolved, &ticket));
+    // Worst-case UTF-8 payload for a full page stays under the existing 256 KiB limit.
+    QVERIFY(fromJson(ticketJson, &ticket));
+    ticket.title = QString(80, QChar(0x4e2d));
+    ticket.summary = QString(4000, QChar(0x4e2d));
+    ticket.reply = QString(2000, QChar(0x4e2d));
+    QJsonArray items;
+    for (int i = 0; i < 10; ++i) items.append(toJson(ticket));
+    QVERIFY(!encodeFrame({{"items", items}, {"hasMore", true}}).isEmpty());
+}
 
 void ProtocolTests::encodeUsesBigEndianLength()
 {

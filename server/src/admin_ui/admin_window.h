@@ -21,6 +21,7 @@ class QTreeWidgetItem;
 namespace charging::server {
 
 class AdminFacade;
+class SupportTicketsPage;
 class RevenueChart;
 class PileStatusChart;
 
@@ -119,6 +120,7 @@ private:
     bool sqliteRepository_ = false;
     QStackedWidget *rootStack_ = nullptr;
     QStackedWidget *contentStack_ = nullptr;
+    SupportTicketsPage *supportTicketsPage_ = nullptr;
     QToolButton *backButton_ = nullptr;
     QToolButton *refreshButton_ = nullptr;
     QToolButton *forwardButton_ = nullptr;

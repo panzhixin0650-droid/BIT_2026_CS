@@ -1,5 +1,6 @@
 #include "admin_ui/admin_facade.h"
 #include "admin_ui/admin_window.h"
+#include "admin_ui/support_tickets_page.h"
 #include "application/application_service.h"
 #include "application/session_store.h"
 #include "adapters/mock_pile.h"
@@ -10,6 +11,9 @@
 #include <QImage>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
+#include <QPlainTextEdit>
+#include <QComboBox>
 #include <QPushButton>
 #include <QScreen>
 #include <QtTest>
@@ -107,7 +111,47 @@ private slots:
     void loginFailurePreservesInputAndAllowsRetry();
     void loginSurfaceSurvivesPartialRepaints_data();
     void loginSurfaceSurvivesPartialRepaints();
+    void supportTicketPageSavesAndLogoutClears();
 };
+
+void AdminUiTests::supportTicketPageSavesAndLogoutClears()
+{
+    LoginFixture fixture;
+    const auto token = fixture.service.loginUser({{"phone", "13800000001"}}).data.value("token").toString();
+    const auto result = fixture.service.createSupportTicket(token, {
+        {"submissionId", "b758e849-0cd0-4eb6-8aee-35c5c98fd553"},
+        {"title", "<script>test</script>"}, {"summary", QStringLiteral("用户确认的订单页面异常")},
+        {"sourceModel", "gpt-5.6-sol"}});
+    QVERIFY(result.ok());
+    fixture.window.show();
+    fixture.username->setText("admin"); fixture.password->setText("123456");
+    fixture.submit->click();
+    auto *navigation = fixture.window.findChild<QListWidget *>("navigation");
+    QVERIFY(navigation);
+    QCOMPARE(navigation->count(), 7);
+    navigation->setCurrentRow(6);
+    auto *page = fixture.window.findChild<QWidget *>("supportTicketsPage");
+    QVERIFY(page && page->isVisible());
+    auto *list = page->findChild<QListWidget *>("adminTicketList");
+    QCOMPARE(list->count(), 1);
+    QVERIFY(page->findChild<QPlainTextEdit *>("adminTicketSummary")->toPlainText().contains("<script>"));
+    auto *status = page->findChild<QComboBox *>("adminTicketStatus");
+    status->setCurrentIndex(status->findData("RESOLVED"));
+    page->findChild<QPushButton *>("adminTicketSave")->click();
+    QVERIFY(page->findChild<QLabel *>("adminTicketNotice")->text().contains(QStringLiteral("失败")));
+    page->findChild<QPlainTextEdit *>("adminTicketReply")->setPlainText(QStringLiteral("已核对，请刷新订单。"));
+    page->findChild<QPushButton *>("adminTicketSave")->click();
+    QVERIFY(page->findChild<QLabel *>("adminTicketNotice")->text().contains(QStringLiteral("已保存")));
+    const auto stored = fixture.service.getSupportTicket(token, {{"ticketId", 1}});
+    QCOMPARE(stored.data.value("ticket").toObject().value("status").toString(), QStringLiteral("RESOLVED"));
+    const QString directory = qEnvironmentVariable("CHARGING_UI_ARTIFACT_DIR");
+    if (!directory.isEmpty()) QVERIFY(fixture.window.grab().save(QDir(directory).filePath("admin-support-tickets.png")));
+    for (auto *button : fixture.window.findChildren<QPushButton *>()) {
+        if (button->text() == QStringLiteral("退出登录")) { button->click(); break; }
+    }
+    QCOMPARE(list->count(), 0);
+    QVERIFY(!fixture.facade.listSupportTickets().ok());
+}
 
 void AdminUiTests::loginFailurePreservesInputAndAllowsRetry()
 {

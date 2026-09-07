@@ -26,6 +26,9 @@ inline constexpr auto OrderProgress = "order.progress";
 inline constexpr auto OrderStop = "order.stop";
 inline constexpr auto OrderPay = "order.pay";
 inline constexpr auto OrderList = "order.list";
+inline constexpr auto SupportTicketCreate = "support.ticket.create";
+inline constexpr auto SupportTicketList = "support.ticket.list";
+inline constexpr auto SupportTicketDetail = "support.ticket.detail";
 
 }  // namespace MessageType
 

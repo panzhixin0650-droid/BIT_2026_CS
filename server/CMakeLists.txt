@@ -44,6 +44,8 @@ add_executable(server-app
     src/admin_ui/admin_facade.h
     src/admin_ui/admin_window.cpp
     src/admin_ui/admin_window.h
+    src/admin_ui/support_tickets_page.cpp
+    src/admin_ui/support_tickets_page.h
     src/admin_ui/pile_status_chart.cpp
     src/admin_ui/pile_status_chart.h
     src/admin_ui/revenue_chart.cpp
@@ -111,6 +113,7 @@ if(BUILD_TESTING)
 
     add_executable(charging_admin_ui_tests
         tests/admin_ui_tests.cpp
+        src/admin_ui/support_tickets_page.cpp
         src/admin_ui/admin_window.cpp
         src/admin_ui/admin_facade.cpp
         src/admin_ui/pile_status_chart.cpp
@@ -192,4 +195,30 @@ if(BUILD_TESTING)
         charging_protocol Qt6::Core Qt6::Network Qt6::Sql Qt6::Test
     )
     add_test(NAME charging_order_flow_tests COMMAND charging_order_flow_tests)
+
+    add_executable(charging_support_ticket_flow_tests
+        tests/support_ticket_flow_tests.cpp
+        src/application/application_service.cpp
+        src/application/order_service.cpp
+        src/application/session_store.cpp
+        src/persistence/repository.cpp
+        src/persistence/in_memory_repository.cpp
+        src/adapters/mock_pile.cpp
+        src/adapters/mock_prediction_provider.cpp
+        src/admin_ui/admin_facade.cpp
+        src/transport/request_router.cpp
+        src/transport/tcp_gateway.cpp
+        ../client/src/api/i_charging_api.cpp
+        ../client/src/api/tcp_charging_api.cpp
+    )
+    target_include_directories(charging_support_ticket_flow_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/../client/src)
+    target_compile_definitions(charging_support_ticket_flow_tests PRIVATE
+        CHARGING_SQLITE3_EXECUTABLE="${SQLITE3_EXECUTABLE}"
+        CHARGING_DATABASE_MIGRATION_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/migrations/001_initial_demo.sql"
+        CHARGING_DATABASE_SEED_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/seeds/demo.sql"
+        CHARGING_TICKET_MIGRATION_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/migrations/002_support_tickets.sql")
+    target_link_libraries(charging_support_ticket_flow_tests PRIVATE
+        charging_protocol Qt6::Core Qt6::Network Qt6::Sql Qt6::Test)
+    add_test(NAME charging_support_ticket_flow_tests COMMAND charging_support_ticket_flow_tests)
 endif()

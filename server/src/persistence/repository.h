@@ -22,6 +22,18 @@ public:
     void close();
     [[nodiscard]] bool isOpen() const noexcept;
     [[nodiscard]] bool lastOperationSucceeded() const noexcept override;
+    [[nodiscard]] bool supportsSupportTickets() const override;
+    [[nodiscard]] std::optional<charging::protocol::SupportTicketDto>
+    findSupportTicket(qint64 ticketId) const override;
+    [[nodiscard]] std::optional<charging::protocol::SupportTicketDto>
+    findSupportSubmission(qint64 userId, const QString &submissionId) const override;
+    [[nodiscard]] QList<charging::protocol::SupportTicketDto>
+    listSupportTickets(std::optional<qint64> userId, std::optional<qint64> beforeId,
+                       int limit) const override;
+    [[nodiscard]] charging::protocol::SupportTicketDto
+    createSupportTicket(charging::protocol::SupportTicketDto ticket) override;
+    [[nodiscard]] bool updateSupportTicket(
+        const charging::protocol::SupportTicketDto &ticket) override;
     [[nodiscard]] bool beginTransaction() override;
     [[nodiscard]] bool commitTransaction() override;
     void rollbackTransaction() override;
@@ -84,6 +96,7 @@ private:
     QString connectionName_;
     QSqlDatabase database_;
     bool transactionOpen_ = false;
+    bool supportTicketsAvailable_ = false;
     mutable bool lastOperationSucceeded_ = true;
 };
 

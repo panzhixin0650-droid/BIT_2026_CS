@@ -108,4 +108,16 @@ expect_sql_failure \
         '2026-09-03T00:00:00Z'
     );"
 
-echo 'database tests: OK'
+# Opt-in extension: baseline tests above still run against schema 1 unchanged.
+baseline_dump="$(sqlite3 "$test_database" '.dump users admins charging_stations charging_piles charging_orders')"
+sqlite3 -batch -bail "$test_database" < "$database_dir/migrations/002_support_tickets.sql"
+[[ "$(sqlite3 "$test_database" 'PRAGMA user_version')" == '2' ]]
+[[ "$(sqlite3 "$test_database" '.dump users admins charging_stations charging_piles charging_orders')" == "$baseline_dump" ]]
+sqlite3 -batch -bail "$test_database" < "$database_dir/tests/verify_support_tickets.sql"
+if sqlite3 -batch -bail "$test_database" < "$database_dir/migrations/002_support_tickets.sql" 2>/dev/null; then
+    echo 'FAIL: migration 002 must reject a non-v1 database' >&2
+    exit 1
+fi
+[[ "$(sqlite3 "$test_database" 'PRAGMA integrity_check')" == 'ok' ]]
+[[ -z "$(sqlite3 "$test_database" 'PRAGMA foreign_key_check')" ]]
+echo 'database tests: OK (schema 1 baseline + schema 2 tickets)'

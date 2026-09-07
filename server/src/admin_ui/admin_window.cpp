@@ -1,6 +1,7 @@
 #include "admin_window.h"
 
 #include "admin_facade.h"
+#include "support_tickets_page.h"
 #include "pile_status_chart.h"
 #include "revenue_chart.h"
 
@@ -594,7 +595,8 @@ QWidget *AdminWindow::buildApplicationPage()
     navigation_->setObjectName(QStringLiteral("navigation"));
     navigation_->addItems({QStringLiteral("◉  运营监控"), QStringLiteral("▥  营收统计"),
                            QStringLiteral("⌂  充电站管理"), QStringLiteral("ϟ  充电桩管理"),
-                           QStringLiteral("♙  用户管理"), QStringLiteral("≡  订单管理")});
+                           QStringLiteral("♙  用户管理"), QStringLiteral("≡  订单管理"),
+                           QStringLiteral("☏  客服工单")});
     sidebarLayout->addWidget(navigation_, 1);
     auto *accountPanel = new QFrame(sidebar);
     accountPanel->setStyleSheet(QStringLiteral(
@@ -608,6 +610,8 @@ QWidget *AdminWindow::buildApplicationPage()
     accountLayout->setSpacing(0);
     auto *logoutButton = new QPushButton(QStringLiteral("退出登录"), accountPanel);
     connect(logoutButton, &QPushButton::clicked, this, [this] {
+        facade_->logout();
+        supportTicketsPage_->clear();
         rootStack_->setCurrentIndex(0);
         passwordEdit_->clear();
         backHistory_.clear();
@@ -672,6 +676,8 @@ QWidget *AdminWindow::buildApplicationPage()
     contentStack_->addWidget(buildPilesPage());
     contentStack_->addWidget(buildUsersPage());
     contentStack_->addWidget(buildOrdersPage());
+    supportTicketsPage_ = new SupportTicketsPage(facade_, contentStack_);
+    contentStack_->addWidget(supportTicketsPage_);
     mainLayout->addWidget(contentStack_, 1);
     layout->addWidget(mainArea, 1);
     connect(navigation_, &QListWidget::currentRowChanged,
@@ -1213,7 +1219,8 @@ void AdminWindow::selectPage(int index)
     }
     static const QStringList titles{QStringLiteral("运营监控"), QStringLiteral("营收统计"),
                                     QStringLiteral("充电站管理"), QStringLiteral("充电桩管理"),
-                                    QStringLiteral("用户管理"), QStringLiteral("订单管理")};
+                                    QStringLiteral("用户管理"), QStringLiteral("订单管理"),
+                                    QStringLiteral("客服工单")};
     contentStack_->setCurrentIndex(index);
     {
         const QSignalBlocker navigationBlocker(navigation_);
@@ -1227,6 +1234,7 @@ void AdminWindow::selectPage(int index)
     case 3: refreshPiles(); break;
     case 4: refreshUsers(); break;
     case 5: refreshOrders(); break;
+    case 6: supportTicketsPage_->refresh(); break;
     default: break;
     }
     updateNavigationButtons();
@@ -1245,6 +1253,10 @@ void AdminWindow::refreshAll()
 void AdminWindow::refreshCurrentPage()
 {
     if (contentStack_ == nullptr) return;
+    if (contentStack_->currentIndex() == 6) {
+        supportTicketsPage_->refresh();
+        return;
+    }
 
     // This is a view refresh, not a data operation.  Reset all controls that
     // belong to the visible page while signals are blocked, then fetch that
