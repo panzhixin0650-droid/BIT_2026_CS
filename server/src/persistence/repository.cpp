@@ -15,38 +15,7 @@ namespace {
 
 using namespace charging::protocol;
 
-constexpr int kExpectedSchemaVersion = 2;
-
-QString adminSelectSql(const QString &whereClause = {})
-{
-    return QStringLiteral(
-               "SELECT admin_id, username, password_hash, password_algorithm, "
-               "display_name, role, status, must_change_password, last_login_at, "
-               "created_at, updated_at, version FROM admins ")
-        + whereClause;
-}
-
-bool readAdmin(const QSqlQuery &query, AdminRecord *admin)
-{
-    admin->adminId = query.value(0).toLongLong();
-    admin->username = query.value(1).toString();
-    admin->passwordHash = query.value(2).toString();
-    admin->passwordAlgorithm = query.value(3).toString();
-    admin->displayName = query.value(4).toString();
-    admin->role = query.value(5).toString();
-    admin->status = query.value(6).toString();
-    admin->mustChangePassword = query.value(7).toBool();
-    admin->lastLoginAt = query.value(8).toString();
-    admin->createdAt = query.value(9).toString();
-    admin->updatedAt = query.value(10).toString();
-    admin->version = query.value(11).toLongLong();
-    return admin->adminId > 0
-        && (admin->role == QStringLiteral("SYS_ADMIN")
-            || admin->role == QStringLiteral("STATION_ADMIN")
-            || admin->role == QStringLiteral("USER_ADMIN"))
-        && (admin->status == QStringLiteral("ACTIVE")
-            || admin->status == QStringLiteral("DISABLED"));
-}
+constexpr int kExpectedSchemaVersion = 1;
 
 bool parseUserStatus(const QString &text, UserStatus *status)
 {
@@ -368,13 +337,12 @@ bool Repository::open(const QString &databasePath, QString *error)
     QSqlQuery tables(database_);
     if (!tables.exec(QStringLiteral(
             "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' "
-            "AND name IN ('users', 'admins', 'admin_station_scopes', "
-            "'admin_audit_logs', 'charging_stations', 'charging_piles', "
-            "'charging_orders')"))
+            "AND name IN ('users', 'admins', 'charging_stations', "
+            "'charging_piles', 'charging_orders')"))
         || !tables.next()) {
         return reject(tables.lastError().text());
     }
-    if (tables.value(0).toInt() != 7) {
+    if (tables.value(0).toInt() != 5) {
         return reject(QStringLiteral("required Demo tables are missing"));
     }
 
@@ -438,7 +406,9 @@ std::optional<AdminRecord> Repository::findAdminByUsername(
     }
 
     QSqlQuery query(database_);
-    if (!query.prepare(adminSelectSql(QStringLiteral("WHERE username = :username")))) {
+    if (!query.prepare(QStringLiteral(
+            "SELECT admin_id, username, password_hash, display_name "
+            "FROM admins WHERE username = :username"))) {
         failOperation(operation, query.lastError().text());
         return std::nullopt;
     }
@@ -451,235 +421,12 @@ std::optional<AdminRecord> Repository::findAdminByUsername(
         return std::nullopt;
     }
 
-    AdminRecord admin;
-    if (!readAdmin(query, &admin)) {
-        failOperation(operation, QStringLiteral("invalid admin record in database"));
-        return std::nullopt;
-    }
-    QSqlQuery scopes(database_);
-    if (!scopes.prepare(QStringLiteral(
-            "SELECT station_id FROM admin_station_scopes "
-            "WHERE admin_id = :admin_id ORDER BY station_id"))) {
-        failOperation(operation, scopes.lastError().text());
-        return std::nullopt;
-    }
-    scopes.bindValue(QStringLiteral(":admin_id"), admin.adminId);
-    if (!scopes.exec()) {
-        failOperation(operation, scopes.lastError().text());
-        return std::nullopt;
-    }
-    while (scopes.next()) admin.stationIds.append(scopes.value(0).toLongLong());
-    return admin;
-}
-
-std::optional<AdminRecord> Repository::findAdminById(qint64 adminId) const
-{
-    beginOperation();
-    const QString operation = QStringLiteral("findAdminById");
-    if (!requireOpen(operation)) return std::nullopt;
-    QSqlQuery query(database_);
-    if (!query.prepare(adminSelectSql(QStringLiteral("WHERE admin_id = :admin_id")))) {
-        failOperation(operation, query.lastError().text());
-        return std::nullopt;
-    }
-    query.bindValue(QStringLiteral(":admin_id"), adminId);
-    if (!query.exec()) {
-        failOperation(operation, query.lastError().text());
-        return std::nullopt;
-    }
-    if (!query.next()) return std::nullopt;
-    AdminRecord admin;
-    if (!readAdmin(query, &admin)) {
-        failOperation(operation, QStringLiteral("invalid admin record in database"));
-        return std::nullopt;
-    }
-    QSqlQuery scopes(database_);
-    if (!scopes.prepare(QStringLiteral(
-            "SELECT station_id FROM admin_station_scopes "
-            "WHERE admin_id = :admin_id ORDER BY station_id"))) {
-        failOperation(operation, scopes.lastError().text());
-        return std::nullopt;
-    }
-    scopes.bindValue(QStringLiteral(":admin_id"), adminId);
-    if (!scopes.exec()) {
-        failOperation(operation, scopes.lastError().text());
-        return std::nullopt;
-    }
-    while (scopes.next()) admin.stationIds.append(scopes.value(0).toLongLong());
-    return admin;
-}
-
-QList<AdminRecord> Repository::listAdmins() const
-{
-    beginOperation();
-    const QString operation = QStringLiteral("listAdmins");
-    QList<AdminRecord> result;
-    if (!requireOpen(operation)) return result;
-    QSqlQuery query(database_);
-    if (!query.exec(adminSelectSql(QStringLiteral("ORDER BY admin_id")))) {
-        failOperation(operation, query.lastError().text());
-        return {};
-    }
-    while (query.next()) {
-        AdminRecord admin;
-        if (!readAdmin(query, &admin)) {
-            failOperation(operation, QStringLiteral("invalid admin record in database"));
-            return {};
-        }
-        result.append(admin);
-    }
-    QSqlQuery scopes(database_);
-    if (!scopes.exec(QStringLiteral(
-            "SELECT admin_id, station_id FROM admin_station_scopes "
-            "ORDER BY admin_id, station_id"))) {
-        failOperation(operation, scopes.lastError().text());
-        return {};
-    }
-    while (scopes.next()) {
-        const qint64 ownerId = scopes.value(0).toLongLong();
-        for (AdminRecord &admin : result) {
-            if (admin.adminId == ownerId) {
-                admin.stationIds.append(scopes.value(1).toLongLong());
-                break;
-            }
-        }
-    }
-    return result;
-}
-
-AdminRecord Repository::createAdmin(AdminRecord admin)
-{
-    beginOperation();
-    const QString operation = QStringLiteral("createAdmin");
-    if (!requireOpen(operation)) return {};
-    QSqlQuery query(database_);
-    if (!query.prepare(QStringLiteral(
-            "INSERT INTO admins (username, password_hash, password_algorithm, "
-            "display_name, role, status, must_change_password, last_login_at, "
-            "created_at, updated_at, version) VALUES (:username, :password_hash, "
-            ":password_algorithm, :display_name, :role, :status, "
-            ":must_change_password, NULL, :created_at, :updated_at, 0)"))) {
-        failOperation(operation, query.lastError().text());
-        return {};
-    }
-    query.bindValue(QStringLiteral(":username"), admin.username);
-    query.bindValue(QStringLiteral(":password_hash"), admin.passwordHash);
-    query.bindValue(QStringLiteral(":password_algorithm"), admin.passwordAlgorithm);
-    query.bindValue(QStringLiteral(":display_name"), admin.displayName);
-    query.bindValue(QStringLiteral(":role"), admin.role);
-    query.bindValue(QStringLiteral(":status"), admin.status);
-    query.bindValue(QStringLiteral(":must_change_password"), admin.mustChangePassword ? 1 : 0);
-    query.bindValue(QStringLiteral(":created_at"), admin.createdAt);
-    query.bindValue(QStringLiteral(":updated_at"), admin.updatedAt);
-    if (!query.exec()) {
-        failOperation(operation, query.lastError().text());
-        return {};
-    }
-    admin.adminId = query.lastInsertId().toLongLong();
-    return admin;
-}
-
-bool Repository::updateAdmin(const AdminRecord &admin)
-{
-    beginOperation();
-    const QString operation = QStringLiteral("updateAdmin");
-    if (!requireOpen(operation)) return false;
-    QSqlQuery query(database_);
-    if (!query.prepare(QStringLiteral(
-            "UPDATE admins SET password_hash = :password_hash, "
-            "password_algorithm = :password_algorithm, display_name = :display_name, "
-            "role = :role, status = :status, must_change_password = :must_change, "
-            "last_login_at = :last_login, updated_at = :updated_at, version = version + 1 "
-            "WHERE admin_id = :admin_id AND version = :version"))) {
-        failOperation(operation, query.lastError().text());
-        return false;
-    }
-    query.bindValue(QStringLiteral(":password_hash"), admin.passwordHash);
-    query.bindValue(QStringLiteral(":password_algorithm"), admin.passwordAlgorithm);
-    query.bindValue(QStringLiteral(":display_name"), admin.displayName);
-    query.bindValue(QStringLiteral(":role"), admin.role);
-    query.bindValue(QStringLiteral(":status"), admin.status);
-    query.bindValue(QStringLiteral(":must_change"), admin.mustChangePassword ? 1 : 0);
-    query.bindValue(QStringLiteral(":last_login"),
-                    admin.lastLoginAt.isEmpty() ? QVariant{} : QVariant(admin.lastLoginAt));
-    query.bindValue(QStringLiteral(":updated_at"), admin.updatedAt);
-    query.bindValue(QStringLiteral(":admin_id"), admin.adminId);
-    query.bindValue(QStringLiteral(":version"), admin.version);
-    if (!query.exec()) {
-        failOperation(operation, query.lastError().text());
-        return false;
-    }
-    if (query.numRowsAffected() != 1) return false;
-    return true;
-}
-
-bool Repository::replaceAdminStationScopes(qint64 adminId,
-                                           const QList<qint64> &stationIds,
-                                           qint64 grantedByAdminId,
-                                           const QString &grantedAt)
-{
-    beginOperation();
-    const QString operation = QStringLiteral("replaceAdminStationScopes");
-    if (!requireOpen(operation)) return false;
-    QSqlQuery remove(database_);
-    if (!remove.prepare(QStringLiteral(
-            "DELETE FROM admin_station_scopes WHERE admin_id = :admin_id"))) {
-        failOperation(operation, remove.lastError().text());
-        return false;
-    }
-    remove.bindValue(QStringLiteral(":admin_id"), adminId);
-    if (!remove.exec()) {
-        failOperation(operation, remove.lastError().text());
-        return false;
-    }
-    for (qint64 stationId : stationIds) {
-        QSqlQuery scope(database_);
-        if (!scope.prepare(QStringLiteral(
-                "INSERT INTO admin_station_scopes "
-                "(admin_id, station_id, granted_by_admin_id, granted_at) "
-                "VALUES (:admin_id, :station_id, :granted_by, :granted_at)"))) {
-            failOperation(operation, scope.lastError().text());
-            return false;
-        }
-        scope.bindValue(QStringLiteral(":admin_id"), adminId);
-        scope.bindValue(QStringLiteral(":station_id"), stationId);
-        scope.bindValue(QStringLiteral(":granted_by"), grantedByAdminId);
-        scope.bindValue(QStringLiteral(":granted_at"), grantedAt);
-        if (!scope.exec()) {
-            failOperation(operation, scope.lastError().text());
-            return false;
-        }
-    }
-    return true;
-}
-
-bool Repository::appendAdminAudit(qint64 actorAdminId,
-                                  const QString &action,
-                                  qint64 targetAdminId,
-                                  const QString &detailsJson,
-                                  const QString &createdAt)
-{
-    beginOperation();
-    const QString operation = QStringLiteral("appendAdminAudit");
-    if (!requireOpen(operation)) return false;
-    QSqlQuery query(database_);
-    if (!query.prepare(QStringLiteral(
-            "INSERT INTO admin_audit_logs "
-            "(actor_admin_id, action, target_admin_id, details_json, created_at) "
-            "VALUES (:actor, :action, :target, :details, :created_at)"))) {
-        failOperation(operation, query.lastError().text());
-        return false;
-    }
-    query.bindValue(QStringLiteral(":actor"), actorAdminId);
-    query.bindValue(QStringLiteral(":action"), action);
-    query.bindValue(QStringLiteral(":target"), targetAdminId);
-    query.bindValue(QStringLiteral(":details"), detailsJson);
-    query.bindValue(QStringLiteral(":created_at"), createdAt);
-    if (!query.exec()) {
-        failOperation(operation, query.lastError().text());
-        return false;
-    }
-    return true;
+    return AdminRecord{
+        query.value(0).toLongLong(),
+        query.value(1).toString(),
+        query.value(2).toString(),
+        query.value(3).toString(),
+    };
 }
 
 std::optional<UserDto> Repository::findUserByPhone(const QString &phone) const

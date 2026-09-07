@@ -28,14 +28,14 @@ INSERT INTO demo_assertion VALUES (
 );
 
 INSERT INTO demo_assertion VALUES (
-    'schema version is 2',
-    (SELECT user_version = 2 FROM pragma_user_version)
+    'schema version is 1',
+    (SELECT user_version = 1 FROM pragma_user_version)
 );
 
 INSERT INTO demo_assertion VALUES (
-    'exactly seven business tables',
+    'exactly five business tables',
     (
-        SELECT count(*) = 7
+        SELECT count(*) = 5
         FROM sqlite_schema
         WHERE type = 'table'
           AND name NOT LIKE 'sqlite_%'
@@ -44,11 +44,6 @@ INSERT INTO demo_assertion VALUES (
 
 INSERT INTO demo_assertion VALUES ('five demo users', (SELECT count(*) = 5 FROM users));
 INSERT INTO demo_assertion VALUES ('one demo admin', (SELECT count(*) = 1 FROM admins));
-INSERT INTO demo_assertion VALUES (
-    'demo admin has system role',
-    (SELECT count(*) = 1 FROM admins
-     WHERE username = 'admin' AND role = 'SYS_ADMIN' AND status = 'ACTIVE')
-);
 INSERT INTO demo_assertion VALUES (
     'three demo stations',
     (SELECT count(*) = 3 FROM charging_stations)

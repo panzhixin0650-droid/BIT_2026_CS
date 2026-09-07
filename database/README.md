@@ -1,11 +1,10 @@
 # 数据库责任区
 
-本目录提供当前课程 Demo 的 SQLite 五张核心业务表，以及管理员管理使用的两张附属表。编号迁移是结构事实源，演示种子用于本地开发和联调；运行时数据库始终在仓库外或被忽略的 `build/` 下生成，不提交二进制数据库。
+本目录提供当前课程 Demo 的 SQLite 五表实现。编号迁移是结构事实源，演示种子用于本地开发和联调；运行时数据库始终在仓库外或被忽略的 `build/` 下生成，不提交二进制数据库。
 
 ## 目录
 
 - `migrations/001_initial_demo.sql`：从空库建立五张业务表、必要索引和约束；
-- `migrations/002_admin_accounts.sql`：兼容升级管理员账号并增加站点授权、审计附属表；
 - `seeds/demo.sql`：可重复执行的课程演示数据；
 - `seeds/expansion_20_20_100_200.sql`：在基础演示数据上追加 20 个用户、20 个充电站、100 个电桩和 200 个订单；
 - `tests/`：独立迁移、播种、完整性、订单事务和失败分支验证；
@@ -29,7 +28,6 @@ sudo apt install -y sqlite3
 mkdir -p build/database
 demo_database=build/database/demo.db
 sqlite3 -batch -bail "$demo_database" < database/migrations/001_initial_demo.sql
-sqlite3 -batch -bail "$demo_database" < database/migrations/002_admin_accounts.sql
 sqlite3 -batch -bail "$demo_database" < database/seeds/demo.sql
 sqlite3 -batch -bail "$demo_database" < database/seeds/expansion_20_20_100_200.sql
 sqlite3 -batch -bail "$demo_database" < database/tests/verify_demo.sql
@@ -57,7 +55,7 @@ database/tests/run.sh
 
 - 服务端使用 Qt `QSQLITE` 打开迁移生成的数据库；每个新连接必须执行 `PRAGMA foreign_keys = ON` 并确认结果为 `1`。
 - Repository 是唯一 SQL 入口，所有外部输入使用 `QSqlQuery::prepare()` 和 `bindValue()`；UI、TCP Gateway、Web 和 Mock 不直接访问数据库。
-- `PRAGMA user_version` 当前为 `2`，服务端启动时拒绝未知结构版本；已有 V1 数据库先备份，再执行 `002_admin_accounts.sql`。不要把 SQLite 路径或 SQL 错误暴露到 TCP 响应。
+- `PRAGMA user_version` 当前为 `1`，可用于服务端启动时拒绝未知结构版本；不要把 SQLite 路径或 SQL 错误暴露到 TCP 响应。
 - 预约、开始、停止结算和补支付仍由 `ApplicationService` 按 V1 契约编排事务。部分唯一索引和检查约束只是防止错误写入，不能替代业务错误码判断。
 - 金额、能量和时间分别使用整数分、整数 Wh 和 UTC ISO 8601；营收查询按 `paid_at` 转换到 `Asia/Shanghai` 业务日。
 - `seeds/demo.sql` 仅用于开发/演示。服务端测试需要空状态时只执行迁移，不执行种子。

@@ -13,16 +13,7 @@ struct AdminRecord {
     qint64 adminId = 0;
     QString username;
     QString passwordHash;
-    QString passwordAlgorithm = QStringLiteral("PBKDF2_SHA256");
     QString displayName;
-    QString role = QStringLiteral("SYS_ADMIN");
-    QString status = QStringLiteral("ACTIVE");
-    bool mustChangePassword = false;
-    QString lastLoginAt;
-    QString createdAt;
-    QString updatedAt;
-    qint64 version = 0;
-    QList<qint64> stationIds;
 };
 
 enum class DeletePileResult { Deleted, NotFound, HasOrders, Busy, StorageError };
@@ -54,21 +45,6 @@ public:
 
     [[nodiscard]] virtual std::optional<AdminRecord>
     findAdminByUsername(const QString &username) const = 0;
-    [[nodiscard]] virtual std::optional<AdminRecord>
-    findAdminById(qint64 adminId) const = 0;
-    [[nodiscard]] virtual QList<AdminRecord> listAdmins() const = 0;
-    [[nodiscard]] virtual AdminRecord createAdmin(AdminRecord admin) = 0;
-    [[nodiscard]] virtual bool updateAdmin(const AdminRecord &admin) = 0;
-    [[nodiscard]] virtual bool replaceAdminStationScopes(
-        qint64 adminId,
-        const QList<qint64> &stationIds,
-        qint64 grantedByAdminId,
-        const QString &grantedAt) = 0;
-    [[nodiscard]] virtual bool appendAdminAudit(qint64 actorAdminId,
-                                                const QString &action,
-                                                qint64 targetAdminId,
-                                                const QString &detailsJson,
-                                                const QString &createdAt) = 0;
 
     [[nodiscard]] virtual std::optional<charging::protocol::UserDto>
     findUserByPhone(const QString &phone) const = 0;

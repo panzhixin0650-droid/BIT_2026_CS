@@ -13,16 +13,15 @@ using namespace charging::protocol;
 
 InMemoryRepository::InMemoryRepository()
 {
-    AdminRecord admin;
-    admin.adminId = 1;
-    admin.username = QStringLiteral("admin");
-    admin.passwordHash = QString::fromLatin1(QCryptographicHash::hash(
-        QByteArrayLiteral("123456"), QCryptographicHash::Sha256).toHex());
-    admin.passwordAlgorithm = QStringLiteral("SHA256_LEGACY");
-    admin.displayName = QStringLiteral("系统管理员");
-    admin.createdAt = QStringLiteral("2026-09-01T00:00:00Z");
-    admin.updatedAt = admin.createdAt;
-    admins_ = {admin};
+    admins_ = {
+        AdminRecord{
+            1,
+            QStringLiteral("admin"),
+            QString::fromLatin1(QCryptographicHash::hash(
+                QByteArrayLiteral("123456"), QCryptographicHash::Sha256).toHex()),
+            QStringLiteral("系统管理员"),
+        },
+    };
 
     users_ = {
         UserDto{1, QStringLiteral("13800000001"), QStringLiteral("演示用户0001"),
@@ -123,8 +122,8 @@ bool InMemoryRepository::lastOperationSucceeded() const noexcept
 bool InMemoryRepository::beginTransaction()
 {
     if (transaction_.has_value()) return false;
-    transaction_ = Snapshot{users_, admins_, stations_, piles_, orders_, nextUserId_,
-                            nextAdminId_, nextStationId_, nextPileId_, nextOrderId_};
+    transaction_ = Snapshot{users_, stations_, piles_, orders_, nextUserId_,
+                            nextStationId_, nextPileId_, nextOrderId_};
     return true;
 }
 
@@ -139,12 +138,10 @@ void InMemoryRepository::rollbackTransaction()
 {
     if (!transaction_.has_value()) return;
     users_ = transaction_->users;
-    admins_ = transaction_->admins;
     stations_ = transaction_->stations;
     piles_ = transaction_->piles;
     orders_ = transaction_->orders;
     nextUserId_ = transaction_->nextUserId;
-    nextAdminId_ = transaction_->nextAdminId;
     nextStationId_ = transaction_->nextStationId;
     nextPileId_ = transaction_->nextPileId;
     nextOrderId_ = transaction_->nextOrderId;
@@ -156,83 +153,10 @@ std::optional<AdminRecord> InMemoryRepository::findAdminByUsername(
 {
     const auto found = std::find_if(admins_.cbegin(), admins_.cend(),
                                     [&username](const AdminRecord &admin) {
-                                        return admin.username.compare(
-                                            username, Qt::CaseInsensitive) == 0;
+                                        return admin.username == username;
                                     });
     return found == admins_.cend() ? std::nullopt
                                    : std::optional<AdminRecord>(*found);
-}
-
-std::optional<AdminRecord> InMemoryRepository::findAdminById(qint64 adminId) const
-{
-    const auto found = std::find_if(admins_.cbegin(), admins_.cend(),
-                                    [adminId](const AdminRecord &admin) {
-                                        return admin.adminId == adminId;
-                                    });
-    return found == admins_.cend() ? std::nullopt
-                                   : std::optional<AdminRecord>(*found);
-}
-
-QList<AdminRecord> InMemoryRepository::listAdmins() const
-{
-    QList<AdminRecord> result = admins_;
-    std::sort(result.begin(), result.end(), [](const AdminRecord &left,
-                                               const AdminRecord &right) {
-        return left.adminId < right.adminId;
-    });
-    return result;
-}
-
-AdminRecord InMemoryRepository::createAdmin(AdminRecord admin)
-{
-    if (admin.username.isEmpty()
-        || std::any_of(admins_.cbegin(), admins_.cend(), [&admin](const AdminRecord &stored) {
-               return stored.username.compare(admin.username, Qt::CaseInsensitive) == 0;
-           })) {
-        return {};
-    }
-    admin.adminId = nextAdminId_++;
-    admins_.append(admin);
-    return admin;
-}
-
-bool InMemoryRepository::updateAdmin(const AdminRecord &admin)
-{
-    const auto found = std::find_if(admins_.begin(), admins_.end(),
-                                    [&admin](const AdminRecord &stored) {
-                                        return stored.adminId == admin.adminId;
-                                    });
-    if (found == admins_.end()) return false;
-    *found = admin;
-    found->version = admin.version + 1;
-    return true;
-}
-
-bool InMemoryRepository::replaceAdminStationScopes(
-    qint64 adminId,
-    const QList<qint64> &stationIds,
-    qint64 grantedByAdminId,
-    const QString &grantedAt)
-{
-    Q_UNUSED(grantedByAdminId)
-    Q_UNUSED(grantedAt)
-    const auto found = std::find_if(admins_.begin(), admins_.end(),
-                                    [adminId](const AdminRecord &admin) {
-                                        return admin.adminId == adminId;
-                                    });
-    if (found == admins_.end()) return false;
-    found->stationIds = stationIds;
-    return true;
-}
-
-bool InMemoryRepository::appendAdminAudit(qint64 actorAdminId,
-                                          const QString &action,
-                                          qint64 targetAdminId,
-                                          const QString &detailsJson,
-                                          const QString &createdAt)
-{
-    return actorAdminId > 0 && targetAdminId > 0 && !action.isEmpty()
-        && !detailsJson.isEmpty() && !createdAt.isEmpty();
 }
 
 std::optional<UserDto> InMemoryRepository::findUserByPhone(const QString &phone) const

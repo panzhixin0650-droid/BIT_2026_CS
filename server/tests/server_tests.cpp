@@ -40,8 +40,6 @@ private slots:
     void adminEditsPileMetadataSafely();
     void adminStationDisableEnforcesPileSafety();
     void adminCannotFreezeUserWithCurrentOrder();
-    void adminAccountsSupportRolesScopesAndPasswordChanges();
-    void rolePermissionsAreEnforcedByTheService();
 };
 
 struct ServiceFixture {
@@ -185,11 +183,9 @@ void ServerTests::adminLoginAcceptsDemoCredentials()
     const ServiceResult result = facade.login(QStringLiteral("admin"),
                                               QStringLiteral("123456"));
     QCOMPARE(result.code, ErrorCode::Ok);
-    const QJsonObject admin = result.data.value(QStringLiteral("admin")).toObject();
-    QCOMPARE(admin.value(QStringLiteral("adminId")).toInteger(), qint64{1});
-    QCOMPARE(admin.value(QStringLiteral("displayName")).toString(),
+    QCOMPARE(result.data.value(QStringLiteral("adminId")).toInteger(), qint64{1});
+    QCOMPARE(result.data.value(QStringLiteral("displayName")).toString(),
              QStringLiteral("系统管理员"));
-    QCOMPARE(admin.value(QStringLiteral("role")).toString(), QStringLiteral("SYS_ADMIN"));
 }
 
 void ServerTests::adminLoginRejectsWrongPassword()
@@ -207,7 +203,6 @@ void ServerTests::adminDashboardContainsExactRevenueRange()
 {
     ServiceFixture fixture;
     AdminFacade facade(&fixture.service);
-    QVERIFY(facade.login(QStringLiteral("admin"), QStringLiteral("123456")).ok());
 
     const ServiceResult sevenDays = facade.getDashboard(7);
     QCOMPARE(sevenDays.code, ErrorCode::Ok);
@@ -224,7 +219,6 @@ void ServerTests::adminDashboardAcceptsCustomDateRange()
 {
     ServiceFixture fixture;
     AdminFacade facade(&fixture.service);
-    QVERIFY(facade.login(QStringLiteral("admin"), QStringLiteral("123456")).ok());
     const QDate end = QDate::currentDate();
     const ServiceResult result = facade.getDashboard(end.addDays(-12), end);
     QCOMPARE(result.code, ErrorCode::Ok);
@@ -237,7 +231,6 @@ void ServerTests::adminListsAndCreatesStationsWithPiles()
 {
     ServiceFixture fixture;
     AdminFacade facade(&fixture.service);
-    QVERIFY(facade.login(QStringLiteral("admin"), QStringLiteral("123456")).ok());
 
     QCOMPARE(facade.listStations().data.value(QStringLiteral("items")).toArray().size(), 3);
     QCOMPARE(facade.listPiles().data.value(QStringLiteral("items")).toArray().size(), 6);
@@ -270,7 +263,6 @@ void ServerTests::adminDeletesOnlyStationsWithoutOrders()
 {
     ServiceFixture fixture;
     AdminFacade facade(&fixture.service);
-    QVERIFY(facade.login(QStringLiteral("admin"), QStringLiteral("123456")).ok());
 
     const ServiceResult created = facade.createStation({
         {QStringLiteral("name"), QStringLiteral("可删除测试站")},
@@ -306,7 +298,6 @@ void ServerTests::adminManagesPileLifecycleSafely()
 {
     ServiceFixture fixture;
     AdminFacade facade(&fixture.service);
-    QVERIFY(facade.login(QStringLiteral("admin"), QStringLiteral("123456")).ok());
     const ServiceResult created = facade.createPile({
         {QStringLiteral("stationId"), 1},
         {QStringLiteral("pileCode"), QStringLiteral("PILE-NEW-01")},
@@ -344,7 +335,6 @@ void ServerTests::adminEditsPileMetadataSafely()
 {
     ServiceFixture fixture;
     AdminFacade facade(&fixture.service);
-    QVERIFY(facade.login(QStringLiteral("admin"), QStringLiteral("123456")).ok());
 
     QCOMPARE(facade.updatePile({
         {QStringLiteral("pileId"), 1},
@@ -383,7 +373,6 @@ void ServerTests::adminStationDisableEnforcesPileSafety()
 {
     ServiceFixture fixture;
     AdminFacade facade(&fixture.service);
-    QVERIFY(facade.login(QStringLiteral("admin"), QStringLiteral("123456")).ok());
 
     // Station 1 owns a charging pile in the demo data, so disabling it must
     // be rejected without changing either the station or its piles.
@@ -428,137 +417,10 @@ void ServerTests::adminCannotFreezeUserWithCurrentOrder()
 {
     ServiceFixture fixture;
     AdminFacade facade(&fixture.service);
-    QVERIFY(facade.login(QStringLiteral("admin"), QStringLiteral("123456")).ok());
 
     const ServiceResult result = facade.setUserStatus(1, UserStatus::Frozen);
     QCOMPARE(result.code, ErrorCode::CurrentOrderExists);
     QCOMPARE(result.message, QStringLiteral("CURRENT_ORDER_EXISTS"));
-}
-
-void ServerTests::adminAccountsSupportRolesScopesAndPasswordChanges()
-{
-    ServiceFixture fixture;
-    AdminFacade facade(&fixture.service);
-    QVERIFY(facade.login(QStringLiteral("admin"), QStringLiteral("123456")).ok());
-
-    const ServiceResult created = facade.createAdmin({
-        {QStringLiteral("username"), QStringLiteral("second_admin")},
-        {QStringLiteral("initialPassword"), QStringLiteral("password8")},
-        {QStringLiteral("displayName"), QStringLiteral("第二管理员")},
-        {QStringLiteral("role"), QStringLiteral("SYS_ADMIN")},
-        {QStringLiteral("stationIds"), QJsonArray{}},
-    });
-    QCOMPARE(created.code, ErrorCode::Ok);
-    const QJsonObject createdAdmin = created.data.value(QStringLiteral("admin")).toObject();
-    QVERIFY(createdAdmin.value(QStringLiteral("mustChangePassword")).toBool());
-    QVERIFY(!createdAdmin.contains(QStringLiteral("passwordHash")));
-    QCOMPARE(facade.listAdmins().data.value(QStringLiteral("items")).toArray().size(), 2);
-    QCOMPARE(facade.createAdmin({
-        {QStringLiteral("username"), QStringLiteral("SECOND_ADMIN")},
-        {QStringLiteral("initialPassword"), QStringLiteral("password8")},
-        {QStringLiteral("displayName"), QStringLiteral("重复账号")},
-        {QStringLiteral("role"), QStringLiteral("SYS_ADMIN")},
-        {QStringLiteral("stationIds"), QJsonArray{}},
-    }).message, QStringLiteral("DUPLICATE_USERNAME"));
-
-    QCOMPARE(facade.updateAdmin({
-        {QStringLiteral("adminId"), 1},
-        {QStringLiteral("displayName"), QStringLiteral("系统管理员")},
-        {QStringLiteral("role"), QStringLiteral("SYS_ADMIN")},
-        {QStringLiteral("status"), QStringLiteral("DISABLED")},
-        {QStringLiteral("reason"), QStringLiteral("测试自我停用保护")},
-        {QStringLiteral("stationIds"), QJsonArray{}},
-    }).message, QStringLiteral("CANNOT_DISABLE_SELF"));
-    QCOMPARE(facade.updateAdmin({
-        {QStringLiteral("adminId"), 1},
-        {QStringLiteral("displayName"), QStringLiteral("系统管理员")},
-        {QStringLiteral("role"), QStringLiteral("USER_ADMIN")},
-        {QStringLiteral("status"), QStringLiteral("ACTIVE")},
-        {QStringLiteral("reason"), QStringLiteral("测试自我改角色保护")},
-        {QStringLiteral("stationIds"), QJsonArray{}},
-    }).message, QStringLiteral("CANNOT_CHANGE_OWN_ROLE"));
-
-    const qint64 secondAdminId = createdAdmin.value(QStringLiteral("adminId")).toInteger();
-    QCOMPARE(facade.updateAdmin({
-        {QStringLiteral("adminId"), secondAdminId},
-        {QStringLiteral("displayName"), QStringLiteral("第二管理员")},
-        {QStringLiteral("role"), QStringLiteral("SYS_ADMIN")},
-        {QStringLiteral("status"), QStringLiteral("DISABLED")},
-        {QStringLiteral("reason"), QStringLiteral("测试停用登录保护")},
-        {QStringLiteral("stationIds"), QJsonArray{}},
-    }).code, ErrorCode::Ok);
-    facade.logout();
-    QCOMPARE(facade.login(QStringLiteral("second_admin"),
-                          QStringLiteral("password8")).message,
-             QStringLiteral("PRINCIPAL_DISABLED"));
-    QVERIFY(facade.login(QStringLiteral("admin"), QStringLiteral("123456")).ok());
-
-    QCOMPARE(facade.changePassword(QStringLiteral("wrong"),
-                                   QStringLiteral("newpassword8")).message,
-             QStringLiteral("INVALID_CREDENTIALS"));
-    QCOMPARE(facade.changePassword(QStringLiteral("123456"),
-                                   QStringLiteral("newpassword8")).code,
-             ErrorCode::Ok);
-    QCOMPARE(facade.currentAdmin().code, ErrorCode::InvalidSession);
-    QCOMPARE(facade.login(QStringLiteral("admin"), QStringLiteral("123456")).code,
-             ErrorCode::InvalidCredentials);
-    QCOMPARE(facade.login(QStringLiteral("admin"), QStringLiteral("newpassword8")).code,
-             ErrorCode::Ok);
-}
-
-void ServerTests::rolePermissionsAreEnforcedByTheService()
-{
-    ServiceFixture fixture;
-    AdminFacade facade(&fixture.service);
-    QVERIFY(facade.login(QStringLiteral("admin"), QStringLiteral("123456")).ok());
-    QCOMPARE(facade.createAdmin({
-        {QStringLiteral("username"), QStringLiteral("station_ops")},
-        {QStringLiteral("initialPassword"), QStringLiteral("stationpass")},
-        {QStringLiteral("displayName"), QStringLiteral("和平站点管理员")},
-        {QStringLiteral("role"), QStringLiteral("STATION_ADMIN")},
-        {QStringLiteral("stationIds"), QJsonArray{2}},
-    }).code, ErrorCode::Ok);
-    QCOMPARE(facade.createAdmin({
-        {QStringLiteral("username"), QStringLiteral("user_ops")},
-        {QStringLiteral("initialPassword"), QStringLiteral("userpass88")},
-        {QStringLiteral("displayName"), QStringLiteral("用户管理员")},
-        {QStringLiteral("role"), QStringLiteral("USER_ADMIN")},
-        {QStringLiteral("stationIds"), QJsonArray{}},
-    }).code, ErrorCode::Ok);
-
-    facade.logout();
-    QVERIFY(facade.login(QStringLiteral("station_ops"),
-                         QStringLiteral("stationpass")).ok());
-    QCOMPARE(facade.listStations().message, QStringLiteral("PASSWORD_CHANGE_REQUIRED"));
-    QCOMPARE(facade.changePassword(QStringLiteral("stationpass"),
-                                   QStringLiteral("stationpass2")).code,
-             ErrorCode::Ok);
-    QVERIFY(facade.login(QStringLiteral("station_ops"),
-                         QStringLiteral("stationpass2")).ok());
-    const ServiceResult stations = facade.listStations();
-    QCOMPARE(stations.code, ErrorCode::Ok);
-    const QJsonArray stationItems = stations.data.value(QStringLiteral("items")).toArray();
-    QCOMPARE(stationItems.size(), 1);
-    QCOMPARE(stationItems.first().toObject().value(QStringLiteral("stationId")).toInteger(),
-             qint64{2});
-    QCOMPARE(facade.listPiles(1).message, QStringLiteral("STATION_SCOPE_FORBIDDEN"));
-    QCOMPARE(facade.setPileStatus(1, PileStatus::Offline).message,
-             QStringLiteral("STATION_SCOPE_FORBIDDEN"));
-    QCOMPARE(facade.listUsers().message, QStringLiteral("ROLE_FORBIDDEN"));
-    QCOMPARE(facade.listAdmins().message, QStringLiteral("ROLE_FORBIDDEN"));
-    QCOMPARE(facade.getDashboard(7).data.value(QStringLiteral("stationCount")).toInt(), 1);
-
-    facade.logout();
-    QVERIFY(facade.login(QStringLiteral("user_ops"), QStringLiteral("userpass88")).ok());
-    QCOMPARE(facade.changePassword(QStringLiteral("userpass88"),
-                                   QStringLiteral("userpass99")).code,
-             ErrorCode::Ok);
-    QVERIFY(facade.login(QStringLiteral("user_ops"), QStringLiteral("userpass99")).ok());
-    QCOMPARE(facade.listUsers().code, ErrorCode::Ok);
-    QCOMPARE(facade.setUserStatus(4, UserStatus::Active).code, ErrorCode::Ok);
-    QCOMPARE(facade.listOrders().code, ErrorCode::Ok);
-    QCOMPARE(facade.listStations().message, QStringLiteral("ROLE_FORBIDDEN"));
-    QCOMPARE(facade.listAdmins().message, QStringLiteral("ROLE_FORBIDDEN"));
 }
 
 void ServerTests::dashboardExporterWritesAtomically()
