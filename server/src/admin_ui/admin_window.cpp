@@ -12,7 +12,6 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QDateTime>
-#include <QDebug>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDateEdit>
@@ -170,19 +169,6 @@ QString userStatusText(const QString &status)
 {
     return status == QStringLiteral("ACTIVE") ? QStringLiteral("正常")
                                                : QStringLiteral("已冻结");
-}
-
-QString adminStatusText(const QString &status)
-{
-    return status == QStringLiteral("ACTIVE") ? QStringLiteral("启用")
-                                               : QStringLiteral("停用");
-}
-
-QString adminRoleText(const QString &role)
-{
-    if (role == QStringLiteral("SYS_ADMIN")) return QStringLiteral("系统管理员");
-    if (role == QStringLiteral("STATION_ADMIN")) return QStringLiteral("站点管理员");
-    return QStringLiteral("用户管理员");
 }
 
 QString stationStatusText(const QString &status)
@@ -608,8 +594,7 @@ QWidget *AdminWindow::buildApplicationPage()
     navigation_->setObjectName(QStringLiteral("navigation"));
     navigation_->addItems({QStringLiteral("◉  运营监控"), QStringLiteral("▥  营收统计"),
                            QStringLiteral("⌂  充电站管理"), QStringLiteral("ϟ  充电桩管理"),
-                           QStringLiteral("♙  用户管理"), QStringLiteral("≡  订单管理"),
-                           QStringLiteral("⚙  管理员管理")});
+                           QStringLiteral("♙  用户管理"), QStringLiteral("≡  订单管理")});
     sidebarLayout->addWidget(navigation_, 1);
     auto *accountPanel = new QFrame(sidebar);
     accountPanel->setStyleSheet(QStringLiteral(
@@ -620,20 +605,9 @@ QWidget *AdminWindow::buildApplicationPage()
         "QPushButton:hover { background:#3565a4; }"));
     auto *accountLayout = new QVBoxLayout(accountPanel);
     accountLayout->setContentsMargins(10, 10, 10, 10);
-    accountLayout->setSpacing(8);
-    accountIdentity_ = new QLabel(QStringLiteral("未登录"), accountPanel);
-    accountIdentity_->setWordWrap(true);
-    accountLayout->addWidget(accountIdentity_);
-    auto *changePasswordButton = new QPushButton(QStringLiteral("修改密码"), accountPanel);
-    connect(changePasswordButton, &QPushButton::clicked, this, [this] {
-        showChangePasswordDialog(false);
-    });
-    accountLayout->addWidget(changePasswordButton);
+    accountLayout->setSpacing(0);
     auto *logoutButton = new QPushButton(QStringLiteral("退出登录"), accountPanel);
     connect(logoutButton, &QPushButton::clicked, this, [this] {
-        if (facade_ != nullptr) facade_->logout();
-        currentAdminId_ = 0;
-        currentAdminRole_.clear();
         rootStack_->setCurrentIndex(0);
         passwordEdit_->clear();
         backHistory_.clear();
@@ -698,7 +672,6 @@ QWidget *AdminWindow::buildApplicationPage()
     contentStack_->addWidget(buildPilesPage());
     contentStack_->addWidget(buildUsersPage());
     contentStack_->addWidget(buildOrdersPage());
-    contentStack_->addWidget(buildAdminsPage());
     mainLayout->addWidget(contentStack_, 1);
     layout->addWidget(mainArea, 1);
     connect(navigation_, &QListWidget::currentRowChanged,
@@ -1190,126 +1163,6 @@ QWidget *AdminWindow::buildOrdersPage()
     return page;
 }
 
-QWidget *AdminWindow::buildAdminsPage()
-{
-    auto *page = new QWidget(this);
-    page->setObjectName(QStringLiteral("managementPage"));
-    auto *layout = new QVBoxLayout(page);
-    layout->setContentsMargins(0, 0, 0, 0);
-    auto *controls = new QHBoxLayout;
-    controls->setSpacing(10);
-    adminSearch_ = new QLineEdit(page);
-    adminSearch_->setObjectName(QStringLiteral("adminSearch"));
-    adminSearch_->setPlaceholderText(QStringLiteral("搜索账号或显示名"));
-    adminSearch_->setMaximumWidth(300);
-    connect(adminSearch_, &QLineEdit::textChanged, this, [this](const QString &text) {
-        appliedAdminSearch_ = text.trimmed();
-        refreshAdmins();
-    });
-    controls->addWidget(adminSearch_);
-    adminRole_ = new QComboBox(page);
-    adminRole_->addItem(QStringLiteral("全部角色"), QString{});
-    adminRole_->addItem(QStringLiteral("系统管理员"), QStringLiteral("SYS_ADMIN"));
-    adminRole_->addItem(QStringLiteral("站点管理员"), QStringLiteral("STATION_ADMIN"));
-    adminRole_->addItem(QStringLiteral("用户管理员"), QStringLiteral("USER_ADMIN"));
-    adminRoleFilter_ = new QPushButton(page);
-    adminRoleFilter_->setProperty("filterTitle", QStringLiteral("角色"));
-    updateFilterButton(adminRoleFilter_, 0);
-    installMultiSelectMenu(
-        adminRoleFilter_, adminRole_,
-        [this](const QVariant &value) {
-            return selectedAdminRoles_.contains(value.toString());
-        },
-        [this](const QVariant &value, bool selected) {
-            if (selected) selectedAdminRoles_.insert(value.toString());
-            else selectedAdminRoles_.remove(value.toString());
-            updateFilterButton(adminRoleFilter_, selectedAdminRoles_.size());
-        },
-        [this] {
-            selectedAdminRoles_.clear();
-            updateFilterButton(adminRoleFilter_, 0);
-        },
-        [this] { refreshAdmins(); });
-    adminRole_->hide();
-    controls->addWidget(adminRoleFilter_);
-    adminStatus_ = new QComboBox(page);
-    adminStatus_->addItem(QStringLiteral("全部状态"), QString{});
-    adminStatus_->addItem(QStringLiteral("启用"), QStringLiteral("ACTIVE"));
-    adminStatus_->addItem(QStringLiteral("停用"), QStringLiteral("DISABLED"));
-    adminStatusFilter_ = new QPushButton(page);
-    adminStatusFilter_->setProperty("filterTitle", QStringLiteral("状态"));
-    updateFilterButton(adminStatusFilter_, 0);
-    installMultiSelectMenu(
-        adminStatusFilter_, adminStatus_,
-        [this](const QVariant &value) {
-            return selectedAdminStatuses_.contains(value.toString());
-        },
-        [this](const QVariant &value, bool selected) {
-            if (selected) selectedAdminStatuses_.insert(value.toString());
-            else selectedAdminStatuses_.remove(value.toString());
-            updateFilterButton(adminStatusFilter_, selectedAdminStatuses_.size());
-        },
-        [this] {
-            selectedAdminStatuses_.clear();
-            updateFilterButton(adminStatusFilter_, 0);
-        },
-        [this] { refreshAdmins(); });
-    adminStatus_->hide();
-    controls->addWidget(adminStatusFilter_);
-    auto *resetButton = new QPushButton(QStringLiteral("重置"), page);
-    connect(resetButton, &QPushButton::clicked, this, [this] {
-        const QSignalBlocker blocker(adminSearch_);
-        adminSearch_->clear();
-        appliedAdminSearch_.clear();
-        selectedAdminStatuses_.clear();
-        selectedAdminRoles_.clear();
-        updateFilterButton(adminStatusFilter_, 0);
-        updateFilterButton(adminRoleFilter_, 0);
-        refreshAdmins();
-    });
-    controls->addWidget(resetButton);
-    controls->addStretch();
-    auto *createButton = new QPushButton(QStringLiteral("新增管理员"), page);
-    createButton->setObjectName(QStringLiteral("createAdminButton"));
-    connect(createButton, &QPushButton::clicked,
-            this, &AdminWindow::showCreateAdminDialog);
-    controls->addWidget(createButton);
-    layout->addLayout(controls);
-
-    adminsTable_ = new QTableWidget(page);
-    adminsTable_->setObjectName(QStringLiteral("adminsTable"));
-    prepareTable(adminsTable_, {QStringLiteral("ID"), QStringLiteral("账号"),
-                                QStringLiteral("显示名"), QStringLiteral("角色"),
-                                QStringLiteral("站点范围"), QStringLiteral("状态"),
-                                QStringLiteral("最后登录")});
-    adminsTable_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
-    adminsTable_->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Stretch);
-    adminsTable_->horizontalHeader()->setSectionResizeMode(6, QHeaderView::Stretch);
-    adminsTable_->verticalHeader()->setDefaultSectionSize(48);
-    connect(adminsTable_, &QTableWidget::cellDoubleClicked, this,
-            [this](int row, int) {
-                if (row >= 0) {
-                    showEditAdminDialog(
-                        adminsTable_->item(row, 0)->data(Qt::UserRole).toLongLong());
-                }
-            });
-    adminsTable_->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(adminsTable_, &QTableWidget::customContextMenuRequested, this,
-            [this](const QPoint &pos) {
-                const int row = adminsTable_->rowAt(pos.y());
-                if (row < 0) return;
-                adminsTable_->selectRow(row);
-                const qint64 adminId =
-                    adminsTable_->item(row, 0)->data(Qt::UserRole).toLongLong();
-                QMenu menu(this);
-                menu.addAction(QStringLiteral("编辑账号"), this,
-                               [this, adminId] { showEditAdminDialog(adminId); });
-                menu.exec(adminsTable_->viewport()->mapToGlobal(pos));
-            });
-    layout->addWidget(adminsTable_, 1);
-    return page;
-}
-
 void AdminWindow::setLoginError(const QString &message)
 {
     if (loginError_ == nullptr) return;
@@ -1337,113 +1190,13 @@ void AdminWindow::attemptLogin()
         passwordEdit_->setFocus();
         return;
     }
-    const QJsonObject admin = result.data.value(QStringLiteral("admin")).toObject();
-    currentAdminId_ = admin.value(QStringLiteral("adminId")).toInteger();
-    currentAdminRole_ = admin.value(QStringLiteral("role")).toString();
-    applyAdminPermissions(admin);
     setLoginError(QString());
-    if (admin.value(QStringLiteral("mustChangePassword")).toBool()) {
-        if (!showChangePasswordDialog(true)) {
-            facade_->logout();
-            currentAdminId_ = 0;
-            currentAdminRole_.clear();
-        }
-        return;
-    }
     rootStack_->setCurrentIndex(1);
     backHistory_.clear();
     forwardHistory_.clear();
-    navigation_->setCurrentRow(currentAdminRole_ == QStringLiteral("USER_ADMIN") ? 1 : 0);
+    navigation_->setCurrentRow(0);
     updateNavigationButtons();
     refreshAll();
-}
-
-void AdminWindow::applyAdminPermissions(const QJsonObject &admin)
-{
-    if (navigation_ == nullptr) return;
-    const QString role = admin.value(QStringLiteral("role")).toString();
-    const bool systemAdmin = role == QStringLiteral("SYS_ADMIN");
-    const bool stationAdmin = role == QStringLiteral("STATION_ADMIN");
-    const bool userAdmin = role == QStringLiteral("USER_ADMIN");
-    navigation_->item(0)->setHidden(userAdmin);
-    navigation_->item(1)->setHidden(false);
-    navigation_->item(2)->setHidden(userAdmin);
-    navigation_->item(3)->setHidden(userAdmin);
-    navigation_->item(4)->setHidden(stationAdmin);
-    navigation_->item(5)->setHidden(false);
-    navigation_->item(6)->setHidden(!systemAdmin);
-    if (accountIdentity_ != nullptr) {
-        accountIdentity_->setText(QStringLiteral("%1\n%2")
-            .arg(admin.value(QStringLiteral("displayName")).toString(),
-                 adminRoleText(role)));
-    }
-}
-
-bool AdminWindow::showChangePasswordDialog(bool required)
-{
-    if (facade_ == nullptr || currentAdminId_ <= 0) return false;
-    QDialog dialog(this);
-    dialog.setWindowTitle(required ? QStringLiteral("首次登录修改密码")
-                                   : QStringLiteral("修改密码"));
-    if (required) dialog.setWindowFlag(Qt::WindowCloseButtonHint, false);
-    auto *layout = new QVBoxLayout(&dialog);
-    auto *description = new QLabel(
-        required ? QStringLiteral("该账号使用初始密码，请先设置新密码。修改后需要重新登录。")
-                 : QStringLiteral("修改成功后将退出管理后台，请使用新密码重新登录。"),
-        &dialog);
-    description->setWordWrap(true);
-    layout->addWidget(description);
-    auto *form = new QFormLayout;
-    auto *currentPassword = new QLineEdit(&dialog);
-    auto *newPassword = new QLineEdit(&dialog);
-    auto *confirmPassword = new QLineEdit(&dialog);
-    currentPassword->setEchoMode(QLineEdit::Password);
-    newPassword->setEchoMode(QLineEdit::Password);
-    confirmPassword->setEchoMode(QLineEdit::Password);
-    currentPassword->setPlaceholderText(QStringLiteral("当前密码"));
-    newPassword->setPlaceholderText(QStringLiteral("8 至 128 个字符"));
-    confirmPassword->setPlaceholderText(QStringLiteral("再次输入新密码"));
-    if (required && passwordEdit_ != nullptr) currentPassword->setText(passwordEdit_->text());
-    form->addRow(QStringLiteral("当前密码"), currentPassword);
-    form->addRow(QStringLiteral("新密码"), newPassword);
-    form->addRow(QStringLiteral("确认新密码"), confirmPassword);
-    layout->addLayout(form);
-    auto *buttons = new QDialogButtonBox(
-        required ? QDialogButtonBox::Ok
-                 : QDialogButtonBox::StandardButtons(QDialogButtonBox::Ok
-                                                      | QDialogButtonBox::Cancel),
-        &dialog);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    layout->addWidget(buttons);
-    dialog.setMinimumWidth(440);
-
-    while (dialog.exec() == QDialog::Accepted) {
-        if (newPassword->text().size() < 8 || newPassword->text().size() > 128) {
-            QMessageBox::warning(&dialog, QStringLiteral("密码不符合要求"),
-                                 QStringLiteral("新密码长度必须为 8 至 128 个字符。"));
-            continue;
-        }
-        if (newPassword->text() != confirmPassword->text()) {
-            QMessageBox::warning(&dialog, QStringLiteral("密码不一致"),
-                                 QStringLiteral("两次输入的新密码不一致。"));
-            continue;
-        }
-        const ServiceResult result = facade_->changePassword(currentPassword->text(),
-                                                             newPassword->text());
-        if (!result.ok()) {
-            showServiceError(result.code, result.message);
-            continue;
-        }
-        currentAdminId_ = 0;
-        currentAdminRole_.clear();
-        rootStack_->setCurrentIndex(0);
-        passwordEdit_->clear();
-        QMessageBox::information(this, QStringLiteral("密码已修改"),
-                                 QStringLiteral("请使用新密码重新登录。"));
-        return true;
-    }
-    return false;
 }
 
 void AdminWindow::selectPage(int index)
@@ -1460,18 +1213,13 @@ void AdminWindow::selectPage(int index)
     }
     static const QStringList titles{QStringLiteral("运营监控"), QStringLiteral("营收统计"),
                                     QStringLiteral("充电站管理"), QStringLiteral("充电桩管理"),
-                                    QStringLiteral("用户管理"), QStringLiteral("订单管理"),
-                                    QStringLiteral("管理员管理")};
+                                    QStringLiteral("用户管理"), QStringLiteral("订单管理")};
     contentStack_->setCurrentIndex(index);
     {
         const QSignalBlocker navigationBlocker(navigation_);
         navigation_->setCurrentRow(index);
     }
     pageTitle_->setText(titles.value(index));
-    if (currentAdminId_ <= 0) {
-        updateNavigationButtons();
-        return;
-    }
     switch (index) {
     case 0: refreshOperations(); break;
     case 1: refreshDashboard(); break;
@@ -1479,7 +1227,6 @@ void AdminWindow::selectPage(int index)
     case 3: refreshPiles(); break;
     case 4: refreshUsers(); break;
     case 5: refreshOrders(); break;
-    case 6: refreshAdmins(); break;
     default: break;
     }
     updateNavigationButtons();
@@ -1488,18 +1235,11 @@ void AdminWindow::selectPage(int index)
 void AdminWindow::refreshAll()
 {
     refreshDashboard();
-    if (currentAdminRole_ == QStringLiteral("SYS_ADMIN")
-        || currentAdminRole_ == QStringLiteral("STATION_ADMIN")) {
-        refreshOperations();
-        refreshStations();
-        refreshPiles();
-    }
-    if (currentAdminRole_ == QStringLiteral("SYS_ADMIN")
-        || currentAdminRole_ == QStringLiteral("USER_ADMIN")) {
-        refreshUsers();
-    }
+    refreshOperations();
+    refreshStations();
+    refreshPiles();
+    refreshUsers();
     refreshOrders();
-    if (currentAdminRole_ == QStringLiteral("SYS_ADMIN")) refreshAdmins();
 }
 
 void AdminWindow::refreshCurrentPage()
@@ -1620,271 +1360,10 @@ void AdminWindow::refreshCurrentPage()
         refreshOrders();
         break;
     }
-    case 6: { // 管理员管理
-        const QSignalBlocker searchBlocker(adminSearch_);
-        if (adminSearch_ != nullptr) adminSearch_->clear();
-        appliedAdminSearch_.clear();
-        selectedAdminStatuses_.clear();
-        selectedAdminRoles_.clear();
-        updateFilterButton(adminStatusFilter_, 0);
-        updateFilterButton(adminRoleFilter_, 0);
-        if (adminsTable_ != nullptr) {
-            adminsTable_->clearSelection();
-            adminsTable_->setCurrentCell(-1, -1);
-        }
-        refreshAdmins();
-        break;
-    }
     default:
         break;
     }
     updateNavigationButtons();
-}
-
-void AdminWindow::refreshAdmins()
-{
-    if (facade_ == nullptr || adminsTable_ == nullptr
-        || currentAdminRole_ != QStringLiteral("SYS_ADMIN")) return;
-    const ServiceResult result = facade_->listAdmins(appliedAdminSearch_);
-    if (!result.ok()) return showServiceError(result.code, result.message);
-    QHash<qint64, QString> stationNames;
-    const ServiceResult stations = facade_->listStations();
-    if (stations.ok()) {
-        for (const QJsonValue &value : stations.data.value(QStringLiteral("items")).toArray()) {
-            const QJsonObject station = value.toObject();
-            stationNames.insert(station.value(QStringLiteral("stationId")).toInteger(),
-                                station.value(QStringLiteral("name")).toString());
-        }
-    }
-    adminsTable_->setRowCount(0);
-    const QJsonArray admins = result.data.value(QStringLiteral("items")).toArray();
-    for (const QJsonValue &value : admins) {
-        const QJsonObject admin = value.toObject();
-        const QString status = admin.value(QStringLiteral("status")).toString();
-        if (!selectedAdminStatuses_.isEmpty()
-            && !selectedAdminStatuses_.contains(status)) continue;
-        const QString role = admin.value(QStringLiteral("role")).toString();
-        if (!selectedAdminRoles_.isEmpty() && !selectedAdminRoles_.contains(role)) continue;
-        QStringList scopes;
-        for (const QJsonValue &stationValue
-             : admin.value(QStringLiteral("stationIds")).toArray()) {
-            const qint64 stationId = stationValue.toInteger();
-            scopes.append(stationNames.value(stationId,
-                                             QStringLiteral("站点 %1").arg(stationId)));
-        }
-        const int row = adminsTable_->rowCount();
-        adminsTable_->insertRow(row);
-        auto *id = numberItem(admin.value(QStringLiteral("adminId")).toInteger());
-        adminsTable_->setItem(row, 0, id);
-        adminsTable_->setItem(row, 1, item(admin.value(QStringLiteral("username")).toString()));
-        adminsTable_->setItem(row, 2, item(admin.value(QStringLiteral("displayName")).toString()));
-        adminsTable_->setItem(row, 3, item(adminRoleText(role)));
-        adminsTable_->setItem(row, 4, item(
-            role == QStringLiteral("SYS_ADMIN") ? QStringLiteral("全部站点")
-            : role == QStringLiteral("USER_ADMIN") ? QStringLiteral("—")
-            : scopes.join(QStringLiteral("、"))));
-        QString statusLabel = adminStatusText(status);
-        if (admin.value(QStringLiteral("mustChangePassword")).toBool()) {
-            statusLabel += QStringLiteral(" · 待改密");
-        }
-        auto *statusItem = item(statusLabel);
-        statusItem->setData(Qt::UserRole, status);
-        colorStatus(statusItem, status);
-        adminsTable_->setItem(row, 5, statusItem);
-        const QJsonValue lastLogin = admin.value(QStringLiteral("lastLoginAt"));
-        adminsTable_->setItem(row, 6, item(lastLogin.isString()
-            ? lastLogin.toString() : QStringLiteral("从未登录")));
-    }
-}
-
-void AdminWindow::showCreateAdminDialog()
-{
-    const ServiceResult stationResult = facade_->listStations();
-    if (!stationResult.ok()) return showServiceError(stationResult.code, stationResult.message);
-    QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("新增管理员"));
-    auto *layout = new QVBoxLayout(&dialog);
-    auto *form = new QFormLayout;
-    auto *username = new QLineEdit(&dialog);
-    auto *displayName = new QLineEdit(&dialog);
-    auto *password = new QLineEdit(&dialog);
-    auto *confirm = new QLineEdit(&dialog);
-    auto *role = new QComboBox(&dialog);
-    password->setEchoMode(QLineEdit::Password);
-    confirm->setEchoMode(QLineEdit::Password);
-    username->setPlaceholderText(QStringLiteral("3 至 32 位字母、数字、点、横线或下划线"));
-    password->setPlaceholderText(QStringLiteral("8 至 128 个字符"));
-    role->addItem(QStringLiteral("系统管理员"), QStringLiteral("SYS_ADMIN"));
-    role->addItem(QStringLiteral("站点管理员"), QStringLiteral("STATION_ADMIN"));
-    role->addItem(QStringLiteral("用户管理员"), QStringLiteral("USER_ADMIN"));
-    form->addRow(QStringLiteral("登录账号"), username);
-    form->addRow(QStringLiteral("显示名"), displayName);
-    form->addRow(QStringLiteral("初始密码"), password);
-    form->addRow(QStringLiteral("确认密码"), confirm);
-    form->addRow(QStringLiteral("角色"), role);
-    layout->addLayout(form);
-    auto *scopeLabel = new QLabel(QStringLiteral("授权站点（站点管理员至少选择一个）"), &dialog);
-    auto *stationList = new QListWidget(&dialog);
-    stationList->setSelectionMode(QAbstractItemView::MultiSelection);
-    for (const QJsonValue &value : stationResult.data.value(QStringLiteral("items")).toArray()) {
-        const QJsonObject station = value.toObject();
-        auto *entry = new QListWidgetItem(
-            QStringLiteral("%1（ID %2）")
-                .arg(station.value(QStringLiteral("name")).toString())
-                .arg(station.value(QStringLiteral("stationId")).toInteger()),
-            stationList);
-        entry->setData(Qt::UserRole, station.value(QStringLiteral("stationId")).toInteger());
-    }
-    const auto updateScopeEnabled = [role, scopeLabel, stationList] {
-        const bool enabled = role->currentData().toString() == QStringLiteral("STATION_ADMIN");
-        scopeLabel->setEnabled(enabled);
-        stationList->setEnabled(enabled);
-        if (!enabled) stationList->clearSelection();
-    };
-    connect(role, &QComboBox::currentIndexChanged, &dialog, updateScopeEnabled);
-    updateScopeEnabled();
-    layout->addWidget(scopeLabel);
-    layout->addWidget(stationList);
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
-                                         &dialog);
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, [&] {
-        if (username->text().trimmed().size() < 3
-            || displayName->text().trimmed().isEmpty()
-            || password->text().size() < 8 || password->text() != confirm->text()) {
-            QMessageBox::warning(&dialog, QStringLiteral("输入不完整"),
-                                 QStringLiteral("请检查账号、显示名和两次输入的初始密码。"));
-            return;
-        }
-        if (role->currentData().toString() == QStringLiteral("STATION_ADMIN")
-            && stationList->selectedItems().isEmpty()) {
-            QMessageBox::warning(&dialog, QStringLiteral("请选择站点"),
-                                 QStringLiteral("站点管理员至少需要一个授权站点。"));
-            return;
-        }
-        dialog.accept();
-    });
-    layout->addWidget(buttons);
-    dialog.resize(560, 560);
-    if (dialog.exec() != QDialog::Accepted) return;
-    QJsonArray stationIds;
-    for (QListWidgetItem *entry : stationList->selectedItems()) {
-        stationIds.append(entry->data(Qt::UserRole).toLongLong());
-    }
-    const ServiceResult result = facade_->createAdmin({
-        {QStringLiteral("username"), username->text().trimmed()},
-        {QStringLiteral("initialPassword"), password->text()},
-        {QStringLiteral("displayName"), displayName->text().trimmed()},
-        {QStringLiteral("role"), role->currentData().toString()},
-        {QStringLiteral("stationIds"), stationIds},
-    });
-    if (!result.ok()) return showServiceError(result.code, result.message);
-    refreshAdmins();
-    QMessageBox::information(this, QStringLiteral("新增成功"),
-                             QStringLiteral("管理员已创建，首次登录时必须修改初始密码。"));
-}
-
-void AdminWindow::showEditAdminDialog(qint64 adminId)
-{
-    const ServiceResult adminsResult = facade_->listAdmins();
-    if (!adminsResult.ok()) return showServiceError(adminsResult.code, adminsResult.message);
-    QJsonObject target;
-    for (const QJsonValue &value : adminsResult.data.value(QStringLiteral("items")).toArray()) {
-        if (value.toObject().value(QStringLiteral("adminId")).toInteger() == adminId) {
-            target = value.toObject();
-            break;
-        }
-    }
-    if (target.isEmpty()) return;
-    const ServiceResult stationResult = facade_->listStations();
-    if (!stationResult.ok()) return showServiceError(stationResult.code, stationResult.message);
-    QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("编辑管理员"));
-    auto *layout = new QVBoxLayout(&dialog);
-    auto *form = new QFormLayout;
-    auto *username = new QLabel(target.value(QStringLiteral("username")).toString(), &dialog);
-    auto *displayName = new QLineEdit(target.value(QStringLiteral("displayName")).toString(), &dialog);
-    auto *role = new QComboBox(&dialog);
-    role->addItem(QStringLiteral("系统管理员"), QStringLiteral("SYS_ADMIN"));
-    role->addItem(QStringLiteral("站点管理员"), QStringLiteral("STATION_ADMIN"));
-    role->addItem(QStringLiteral("用户管理员"), QStringLiteral("USER_ADMIN"));
-    role->setCurrentIndex(role->findData(target.value(QStringLiteral("role")).toString()));
-    auto *status = new QComboBox(&dialog);
-    status->addItem(QStringLiteral("启用"), QStringLiteral("ACTIVE"));
-    status->addItem(QStringLiteral("停用"), QStringLiteral("DISABLED"));
-    status->setCurrentIndex(status->findData(target.value(QStringLiteral("status")).toString()));
-    const bool editingSelf = adminId == currentAdminId_;
-    role->setEnabled(!editingSelf);
-    status->setEnabled(!editingSelf);
-    auto *reason = new QLineEdit(&dialog);
-    reason->setPlaceholderText(QStringLiteral("请填写本次变更原因"));
-    form->addRow(QStringLiteral("登录账号"), username);
-    form->addRow(QStringLiteral("显示名"), displayName);
-    form->addRow(QStringLiteral("角色"), role);
-    form->addRow(QStringLiteral("状态"), status);
-    form->addRow(QStringLiteral("变更原因"), reason);
-    layout->addLayout(form);
-    auto *scopeLabel = new QLabel(QStringLiteral("授权站点（保存后覆盖原授权）"), &dialog);
-    auto *stationList = new QListWidget(&dialog);
-    stationList->setSelectionMode(QAbstractItemView::MultiSelection);
-    QSet<qint64> selectedIds;
-    for (const QJsonValue &value : target.value(QStringLiteral("stationIds")).toArray()) {
-        selectedIds.insert(value.toInteger());
-    }
-    for (const QJsonValue &value : stationResult.data.value(QStringLiteral("items")).toArray()) {
-        const QJsonObject station = value.toObject();
-        const qint64 stationId = station.value(QStringLiteral("stationId")).toInteger();
-        auto *entry = new QListWidgetItem(
-            QStringLiteral("%1（ID %2）")
-                .arg(station.value(QStringLiteral("name")).toString()).arg(stationId),
-            stationList);
-        entry->setData(Qt::UserRole, stationId);
-        entry->setSelected(selectedIds.contains(stationId));
-    }
-    const auto updateScopeEnabled = [role, scopeLabel, stationList] {
-        const bool enabled = role->currentData().toString() == QStringLiteral("STATION_ADMIN");
-        scopeLabel->setEnabled(enabled);
-        stationList->setEnabled(enabled);
-        if (!enabled) stationList->clearSelection();
-    };
-    connect(role, &QComboBox::currentIndexChanged, &dialog, updateScopeEnabled);
-    updateScopeEnabled();
-    layout->addWidget(scopeLabel);
-    layout->addWidget(stationList);
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel,
-                                         &dialog);
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, [&] {
-        if (displayName->text().trimmed().isEmpty() || reason->text().trimmed().isEmpty()) {
-            QMessageBox::warning(&dialog, QStringLiteral("输入不完整"),
-                                 QStringLiteral("显示名和变更原因不能为空。"));
-            return;
-        }
-        if (role->currentData().toString() == QStringLiteral("STATION_ADMIN")
-            && stationList->selectedItems().isEmpty()) {
-            QMessageBox::warning(&dialog, QStringLiteral("请选择站点"),
-                                 QStringLiteral("站点管理员至少需要一个授权站点。"));
-            return;
-        }
-        dialog.accept();
-    });
-    layout->addWidget(buttons);
-    dialog.resize(560, 560);
-    if (dialog.exec() != QDialog::Accepted) return;
-    QJsonArray stationIds;
-    for (QListWidgetItem *entry : stationList->selectedItems()) {
-        stationIds.append(entry->data(Qt::UserRole).toLongLong());
-    }
-    const ServiceResult result = facade_->updateAdmin({
-        {QStringLiteral("adminId"), adminId},
-        {QStringLiteral("displayName"), displayName->text().trimmed()},
-        {QStringLiteral("role"), role->currentData().toString()},
-        {QStringLiteral("status"), status->currentData().toString()},
-        {QStringLiteral("reason"), reason->text().trimmed()},
-        {QStringLiteral("stationIds"), stationIds},
-    });
-    if (!result.ok()) return showServiceError(result.code, result.message);
-    refreshAdmins();
 }
 
 void AdminWindow::refreshDashboard()
@@ -2511,13 +1990,6 @@ AdminWindow::PageState AdminWindow::capturePageState() const
     if (ordersTable_ != nullptr && ordersTable_->currentRow() >= 0) {
         state.selectedOrderId = ordersTable_->item(ordersTable_->currentRow(), 0)->data(Qt::UserRole).toLongLong();
     }
-    if (adminSearch_ != nullptr) state.adminSearch = adminSearch_->text();
-    state.adminStatuses = selectedAdminStatuses_;
-    state.adminRoles = selectedAdminRoles_;
-    if (adminsTable_ != nullptr && adminsTable_->currentRow() >= 0) {
-        state.selectedAdminId = adminsTable_->item(adminsTable_->currentRow(), 0)
-                                    ->data(Qt::UserRole).toLongLong();
-    }
     if (dashboardDays_ != nullptr) state.dashboardDays = dashboardDays_->currentData().toInt();
     if (dashboardStartDate_ != nullptr) state.dashboardStartDate = dashboardStartDate_->date();
     if (dashboardEndDate_ != nullptr) state.dashboardEndDate = dashboardEndDate_->date();
@@ -2552,9 +2024,6 @@ void AdminWindow::restorePageState(const PageState &state)
     if (orderSearchField_ != nullptr) orderSearchField_->setCurrentIndex(state.orderSearchField);
     selectedOrderStatuses_ = state.orderStatuses;
     selectedOrderModes_ = state.orderModes;
-    if (adminSearch_ != nullptr) adminSearch_->setText(state.adminSearch);
-    selectedAdminStatuses_ = state.adminStatuses;
-    selectedAdminRoles_ = state.adminRoles;
     if (dashboardDays_ != nullptr) {
         const int index = dashboardDays_->findData(state.dashboardDays);
         if (index >= 0) dashboardDays_->setCurrentIndex(index);
@@ -2568,8 +2037,6 @@ void AdminWindow::restorePageState(const PageState &state)
     updateFilterButton(userStatusFilter_, selectedUserStatuses_.size());
     updateFilterButton(orderStatusFilter_, selectedOrderStatuses_.size());
     updateFilterButton(orderModeFilter_, selectedOrderModes_.size());
-    updateFilterButton(adminStatusFilter_, selectedAdminStatuses_.size());
-    updateFilterButton(adminRoleFilter_, selectedAdminRoles_.size());
 
     pendingExpandedStations_ = state.expandedStations;
     restoreExpandedStationsPending_ = true;
@@ -2595,14 +2062,6 @@ void AdminWindow::restorePageState(const PageState &state)
         for (int row = 0; row < ordersTable_->rowCount(); ++row) {
             if (ordersTable_->item(row, 0)->data(Qt::UserRole).toLongLong() == state.selectedOrderId) {
                 ordersTable_->selectRow(row);
-                break;
-            }
-        }
-    } else if (state.pageIndex == 6 && adminsTable_ != nullptr && state.selectedAdminId > 0) {
-        for (int row = 0; row < adminsTable_->rowCount(); ++row) {
-            if (adminsTable_->item(row, 0)->data(Qt::UserRole).toLongLong()
-                == state.selectedAdminId) {
-                adminsTable_->selectRow(row);
                 break;
             }
         }
@@ -2979,8 +2438,6 @@ void AdminWindow::toggleSelectedUserStatus()
 
 void AdminWindow::showServiceError(int code, const QString &message)
 {
-    qWarning().noquote() << QStringLiteral("Administrator operation failed: %1 %2")
-                                .arg(code).arg(message);
     Q_UNUSED(code)
     QString detail = message;
     if (code == ErrorCode::CurrentOrderExists) detail = QStringLiteral("该用户存在未结束订单，暂时不能冻结。");
@@ -2990,16 +2447,6 @@ void AdminWindow::showServiceError(int code, const QString &message)
     else if (code == ErrorCode::InvalidRequest) detail = QStringLiteral("输入内容不完整或格式不正确。");
     if (message == QStringLiteral("INVALID_STATION")) detail = QStringLiteral("请选择一个已启用的充电站。");
     else if (message == QStringLiteral("PILE_CODE_EXISTS")) detail = QStringLiteral("电桩编号已存在，请使用其他编号。");
-    else if (message == QStringLiteral("DUPLICATE_USERNAME")) detail = QStringLiteral("管理员账号已存在，请使用其他账号。");
-    else if (message == QStringLiteral("CANNOT_DISABLE_SELF")) detail = QStringLiteral("当前登录的管理员不能停用自己。");
-    else if (message == QStringLiteral("CANNOT_CHANGE_OWN_ROLE")) detail = QStringLiteral("当前登录的管理员不能修改自己的角色。");
-    else if (message == QStringLiteral("LAST_SYS_ADMIN")) detail = QStringLiteral("必须至少保留一名启用状态的系统管理员。");
-    else if (message == QStringLiteral("ADMIN_NOT_FOUND")) detail = QStringLiteral("目标管理员不存在或已被删除。");
-    else if (message == QStringLiteral("PRINCIPAL_DISABLED")) detail = QStringLiteral("管理员账号已停用。");
-    else if (message == QStringLiteral("INVALID_CREDENTIALS")) detail = QStringLiteral("当前密码错误。");
-    else if (message == QStringLiteral("PASSWORD_CHANGE_REQUIRED")) detail = QStringLiteral("请先修改初始密码。");
-    else if (message == QStringLiteral("ROLE_FORBIDDEN")) detail = QStringLiteral("当前角色没有执行该操作的权限。");
-    else if (message == QStringLiteral("STATION_SCOPE_FORBIDDEN")) detail = QStringLiteral("该充电站不在当前管理员的授权范围内。");
     QMessageBox::warning(this, QStringLiteral("操作失败"), detail);
 }
 

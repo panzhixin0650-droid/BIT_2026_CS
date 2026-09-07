@@ -28,21 +28,6 @@ public:
 
     [[nodiscard]] std::optional<AdminRecord>
     findAdminByUsername(const QString &username) const override;
-    [[nodiscard]] std::optional<AdminRecord>
-    findAdminById(qint64 adminId) const override;
-    [[nodiscard]] QList<AdminRecord> listAdmins() const override;
-    [[nodiscard]] AdminRecord createAdmin(AdminRecord admin) override;
-    [[nodiscard]] bool updateAdmin(const AdminRecord &admin) override;
-    [[nodiscard]] bool replaceAdminStationScopes(
-        qint64 adminId,
-        const QList<qint64> &stationIds,
-        qint64 grantedByAdminId,
-        const QString &grantedAt) override;
-    [[nodiscard]] bool appendAdminAudit(qint64 actorAdminId,
-                                        const QString &action,
-                                        qint64 targetAdminId,
-                                        const QString &detailsJson,
-                                        const QString &createdAt) override;
 
     [[nodiscard]] std::optional<charging::protocol::UserDto>
     findUserByPhone(const QString &phone) const override;

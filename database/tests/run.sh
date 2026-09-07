@@ -41,8 +41,6 @@ expect_sql_failure() {
 
 sqlite3 -batch -bail "$test_database" \
     < "$database_dir/migrations/001_initial_demo.sql"
-sqlite3 -batch -bail "$test_database" \
-    < "$database_dir/migrations/002_admin_accounts.sql"
 sqlite3 -batch -bail "$test_database" < "$database_dir/seeds/demo.sql"
 
 # The development seed is intentionally safe to run twice.

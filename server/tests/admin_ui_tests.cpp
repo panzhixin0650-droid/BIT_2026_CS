@@ -10,10 +10,8 @@
 #include <QImage>
 #include <QLabel>
 #include <QLineEdit>
-#include <QListWidget>
 #include <QPushButton>
 #include <QScreen>
-#include <QTableWidget>
 #include <QtTest>
 
 using namespace charging::server;
@@ -109,8 +107,6 @@ private slots:
     void loginFailurePreservesInputAndAllowsRetry();
     void loginSurfaceSurvivesPartialRepaints_data();
     void loginSurfaceSurvivesPartialRepaints();
-    void systemAdminCanOpenAdminManagementPage();
-    void userAdminOnlySeesAuthorizedPages();
 };
 
 void AdminUiTests::loginFailurePreservesInputAndAllowsRetry()
@@ -192,65 +188,6 @@ void AdminUiTests::loginSurfaceSurvivesPartialRepaints()
         mismatch = unexpectedSurfacePixels(fixture, image, errorColor);
         QVERIFY2(mismatch.isEmpty(), qPrintable(mismatch));
     }
-}
-
-void AdminUiTests::systemAdminCanOpenAdminManagementPage()
-{
-    LoginFixture fixture;
-    fixture.window.show();
-    QVERIFY(QTest::qWaitForWindowExposed(&fixture.window));
-    fixture.username->setText(QStringLiteral("admin"));
-    fixture.password->setText(QStringLiteral("123456"));
-    QTest::mouseClick(fixture.submit, Qt::LeftButton);
-    QTRY_VERIFY(!fixture.page->isVisible());
-
-    auto *navigation = fixture.window.findChild<QListWidget *>(QStringLiteral("navigation"));
-    auto *table = fixture.window.findChild<QTableWidget *>(QStringLiteral("adminsTable"));
-    QVERIFY(navigation != nullptr);
-    QVERIFY(table != nullptr);
-    QVERIFY(!navigation->item(6)->isHidden());
-    navigation->setCurrentRow(6);
-    QTRY_VERIFY(table->isVisible());
-    QCOMPARE(table->rowCount(), 1);
-    QCOMPARE(table->item(0, 1)->text(), QStringLiteral("admin"));
-}
-
-void AdminUiTests::userAdminOnlySeesAuthorizedPages()
-{
-    LoginFixture fixture;
-    const auto systemLogin = fixture.service.loginAdmin(QStringLiteral("admin"),
-                                                        QStringLiteral("123456"));
-    QVERIFY(systemLogin.ok());
-    const auto created = fixture.service.createAdminAccount(1, {
-        {QStringLiteral("username"), QStringLiteral("ui_user_admin")},
-        {QStringLiteral("initialPassword"), QStringLiteral("Initial-123")},
-        {QStringLiteral("displayName"), QStringLiteral("界面用户管理员")},
-        {QStringLiteral("role"), QStringLiteral("USER_ADMIN")},
-        {QStringLiteral("stationIds"), QJsonArray{}},
-    });
-    QVERIFY(created.ok());
-    const qint64 adminId = created.data.value(QStringLiteral("admin")).toObject()
-                               .value(QStringLiteral("adminId")).toInteger();
-    QVERIFY(fixture.service.changeAdminPassword(adminId,
-                                                QStringLiteral("Initial-123"),
-                                                QStringLiteral("Changed-456")).ok());
-
-    fixture.window.show();
-    QVERIFY(QTest::qWaitForWindowExposed(&fixture.window));
-    fixture.username->setText(QStringLiteral("ui_user_admin"));
-    fixture.password->setText(QStringLiteral("Changed-456"));
-    QTest::mouseClick(fixture.submit, Qt::LeftButton);
-    QTRY_VERIFY(!fixture.page->isVisible());
-
-    auto *navigation = fixture.window.findChild<QListWidget *>(QStringLiteral("navigation"));
-    QVERIFY(navigation != nullptr);
-    QVERIFY(navigation->item(0)->isHidden());
-    QVERIFY(!navigation->item(1)->isHidden());
-    QVERIFY(navigation->item(2)->isHidden());
-    QVERIFY(navigation->item(3)->isHidden());
-    QVERIFY(!navigation->item(4)->isHidden());
-    QVERIFY(!navigation->item(5)->isHidden());
-    QVERIFY(navigation->item(6)->isHidden());
 }
 
 QTEST_MAIN(AdminUiTests)

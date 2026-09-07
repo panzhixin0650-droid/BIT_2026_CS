@@ -21,15 +21,7 @@ public:
     explicit AdminFacade(ApplicationService *service);
 
     [[nodiscard]] ServiceResult login(const QString &username,
-                                      const QString &password);
-    void logout();
-    [[nodiscard]] ServiceResult currentAdmin() const;
-    [[nodiscard]] ServiceResult listAdmins(const QString &keyword = {},
-                                           const QString &status = {}) const;
-    [[nodiscard]] ServiceResult createAdmin(const QJsonObject &input) const;
-    [[nodiscard]] ServiceResult updateAdmin(const QJsonObject &input) const;
-    [[nodiscard]] ServiceResult changePassword(const QString &currentPassword,
-                                               const QString &newPassword);
+                                      const QString &password) const;
     [[nodiscard]] ServiceResult getDashboard(int days) const;
     [[nodiscard]] ServiceResult getDashboard(const QDate &startDate,
                                              const QDate &endDate) const;
@@ -58,7 +50,6 @@ public:
 
 private:
     ApplicationService *service_ = nullptr;
-    qint64 currentAdminId_ = 0;
 };
 
 }  // namespace charging::server
