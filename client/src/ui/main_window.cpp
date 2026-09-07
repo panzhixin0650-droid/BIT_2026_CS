@@ -343,6 +343,7 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
     mainTabs_->tabBar()->setUsesScrollButtons(false);
 
     homePage_ = new StationBrowserPage(mainTabs_);
+    homePage_->configureHomeMap(mapService.mapScriptUrl());
     orderPage_ = new OrderPage(mainTabs_);
     scanPage_ = new ScanPage(mainTabs_);
 

@@ -7,6 +7,7 @@
 #include <QShowEvent>
 #include <QVBoxLayout>
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
+#include <QWebChannel>
 #include <QWebEnginePage>
 #include <QWebEngineView>
 #endif
@@ -19,6 +20,7 @@ RouteMapView::RouteMapView(QWidget *parent) : QWidget(parent)
 {
     initializeMapResources();
     setObjectName(QStringLiteral("routeMapCanvas"));
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     timeout_.setSingleShot(true);
@@ -76,6 +78,7 @@ void RouteMapView::prepareMap()
 
 void RouteMapView::setRoute(const RouteResult &route)
 {
+    stationMode_ = false;
     ++generation_;
     paths_ = route.paths;
     routePending_ = true;
@@ -119,6 +122,8 @@ void RouteMapView::initialize(const QUrl &scriptUrl, bool reportFailure)
     sdkLoaded_ = false;
     initialized_ = false;
     initializing_ = true;
+    pageLoaded_ = false;
+    channelReady_ = false;
     reportInitializationFailure_ = reportFailure;
     scriptUrl_ = scriptUrl;
     timeout_.setInterval(reportFailure ? 15000 : 60000);
@@ -131,47 +136,33 @@ void RouteMapView::initialize(const QUrl &scriptUrl, bool reportFailure)
         view_->deleteLater();
     }
     view_ = new QWebEngineView(this);
-    view_->setObjectName(QStringLiteral("routeWebView"));
+    view_->setObjectName(stationMode_ ? QStringLiteral("stationWebView") : QStringLiteral("routeWebView"));
+    view_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     view_->setContextMenuPolicy(Qt::NoContextMenu);
     layout()->addWidget(view_);
     view_->page()->setLifecycleState(QWebEnginePage::LifecycleState::Active);
     view_->page()->setVisible(true);
     QPointer<QWebEngineView> source(view_);
+    auto *channel = new QWebChannel(view_->page());
+    auto *bridge = new MapEventBridge(channel);
+    channel->registerObject(QStringLiteral("mapEvents"), bridge);
+    view_->page()->setWebChannel(channel);
+    connect(bridge, &MapEventBridge::connected, this, [this, source] {
+        if (!source || source != view_) return;
+        channelReady_ = true;
+        checkInitialization();
+    });
+    connect(bridge, &MapEventBridge::stationClicked, this, [this, source](const QString &id) {
+        if (source && source == view_ && stationMode_ && initialized_) emit stationSelected(id);
+    });
     connect(view_, &QWebEngineView::loadFinished, this, [this, source](bool loaded) {
         if (!source || source != view_ || !initializing_) return;
         if (!loaded) {
             fail(FailureReason::PageLoadFailed, reportInitializationFailure_);
             return;
         }
-        QPointer<RouteMapView> guard(this);
-        view_->page()->runJavaScript(QStringLiteral(R"JS(
-            (() => {
-                if (!window.bitMap || !bitMap.state) return "bridge-unavailable";
-                if (bitMap.state.error) return "sdk-request-failed";
-                if (!bitMap.state.sdkReady || typeof TMap === "undefined")
-                    return "sdk-unavailable";
-                return "ready";
-            })()
-        )JS"),
-            [guard, source](const QVariant &value) {
-                if (!guard || !source || source != guard->view_ || !guard->initializing_) return;
-                const QString diagnostic = value.toString();
-                if (diagnostic != QStringLiteral("ready")) {
-                    const FailureReason reason =
-                        diagnostic == QStringLiteral("sdk-request-failed")
-                        ? FailureReason::SdkRequestFailed
-                        : diagnostic == QStringLiteral("sdk-unavailable")
-                        ? FailureReason::SdkUnavailable
-                        : FailureReason::BridgeUnavailable;
-                    guard->fail(reason, guard->reportInitializationFailure_);
-                    return;
-                }
-                guard->sdkLoaded_ = true;
-                guard->initializing_ = false;
-                guard->timeout_.stop();
-                emit guard->preloadReady();
-                if (guard->routePending_) guard->applyRoute();
-            });
+        pageLoaded_ = true;
+        checkInitialization();
     });
     connect(view_, &QWebEngineView::renderProcessTerminated, this,
             [this, source](QWebEnginePage::RenderProcessTerminationStatus status,
@@ -198,8 +189,46 @@ void RouteMapView::initialize(const QUrl &scriptUrl, bool reportFailure)
 #endif
 }
 
+void RouteMapView::checkInitialization()
+{
+#ifdef CHARGING_CLIENT_HAS_WEBENGINE
+    if (!initializing_ || !pageLoaded_ || !channelReady_ || !view_) return;
+    QPointer<RouteMapView> guard(this);
+    QPointer<QWebEngineView> source(view_);
+    view_->page()->runJavaScript(QStringLiteral(R"JS(
+        (() => {
+            if (!window.bitMap || !bitMap.state) return "bridge-unavailable";
+            if (bitMap.state.error) return "sdk-request-failed";
+            if (!bitMap.state.sdkReady || typeof TMap === "undefined")
+                return "sdk-unavailable";
+            return "ready";
+        })()
+    )JS"),
+        [guard, source](const QVariant &value) {
+            if (!guard || !source || source != guard->view_ || !guard->initializing_) return;
+            const QString diagnostic = value.toString();
+            if (diagnostic != QStringLiteral("ready")) {
+                const FailureReason reason =
+                    diagnostic == QStringLiteral("sdk-request-failed")
+                    ? FailureReason::SdkRequestFailed
+                    : diagnostic == QStringLiteral("sdk-unavailable")
+                    ? FailureReason::SdkUnavailable
+                    : FailureReason::BridgeUnavailable;
+                guard->fail(reason, guard->reportInitializationFailure_);
+                return;
+            }
+            guard->sdkLoaded_ = true;
+            guard->initializing_ = false;
+            guard->timeout_.stop();
+            emit guard->preloadReady();
+            if (guard->routePending_) guard->applyRoute();
+        });
+#endif
+}
+
 void RouteMapView::applyRoute()
 {
+    if (stationMode_) { applyStations(); return; }
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
     const QString data = QString::fromUtf8(QJsonDocument(paths_).toJson(QJsonDocument::Compact));
     const quint64 generation = generation_;
@@ -258,7 +287,7 @@ void RouteMapView::clearRoute()
 void RouteMapView::retry()
 {
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
-    if (initializing_ || paths_.isEmpty() || scriptUrl_.isEmpty()) return;
+    if (initializing_ || (!stationMode_ && paths_.isEmpty()) || scriptUrl_.isEmpty()) return;
     routePending_ = true;
     emit readyChanged(false);
     emit retryAvailableChanged(false);
@@ -331,6 +360,9 @@ QString RouteMapView::failureMessage(FailureReason reason,
         message = QStringLiteral(
             "路线数据已获取，但地图绘制失败：可查看文字详情并重新加载地图。");
         break;
+    case FailureReason::StationRenderingFailed:
+        message = QStringLiteral("充电站地图绘制失败，请重新加载地图。");
+        break;
     case FailureReason::RenderProcessTerminated:
         message = QStringLiteral(
             "地图渲染进程异常退出：可能是 WebEngine、显卡驱动或内存问题。");
@@ -342,7 +374,7 @@ QString RouteMapView::failureMessage(FailureReason reason,
     }
     if (!detail.isEmpty()) message += QStringLiteral("（%1）").arg(detail);
     if (canRetry(reason)) {
-        message += QStringLiteral(
+        message += stationMode_ ? QStringLiteral(" 请点击“重新加载地图”重试。") : QStringLiteral(
             " 请点击“重新加载地图”重试；已获取的路线文字仍可查看。");
     }
     return message;
@@ -352,13 +384,13 @@ bool RouteMapView::canRetry(FailureReason reason) const
 {
     return reason != FailureReason::MissingScriptUrl
         && reason != FailureReason::EmbeddedPageUnavailable
-        && !paths_.isEmpty() && !scriptUrl_.isEmpty();
+        && (stationMode_ || !paths_.isEmpty()) && !scriptUrl_.isEmpty();
 }
 
 void RouteMapView::command(const QString &script)
 {
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
-    if (initialized_ && !paths_.isEmpty()) view_->page()->runJavaScript(script);
+    if (initialized_ && (stationMode_ || !paths_.isEmpty())) view_->page()->runJavaScript(script);
 #else
     Q_UNUSED(script);
 #endif
@@ -367,6 +399,70 @@ void RouteMapView::command(const QString &script)
 void RouteMapView::zoomIn() { command(QStringLiteral("bitMap.zoom(1)")); }
 void RouteMapView::zoomOut() { command(QStringLiteral("bitMap.zoom(-1)")); }
 void RouteMapView::fitRoute() { command(QStringLiteral("bitMap.fit()")); }
+
+void RouteMapView::setStationScene(const QUrl &scriptUrl, const QJsonObject &scene)
+{
+    stationMode_ = true;
+    stationScene_ = scene;
+    ++generation_;
+    routePending_ = true;
+#ifdef CHARGING_CLIENT_HAS_WEBENGINE
+    if (sdkLoaded_ && scriptUrl_ == scriptUrl) { applyStations(); return; }
+    if (initializing_ && scriptUrl_ == scriptUrl) return;
+    emit loadingChanged(true);
+    emit retryAvailableChanged(false);
+    initialize(scriptUrl, true);
+#else
+    Q_UNUSED(scriptUrl);
+    emit statusChanged(QStringLiteral("当前构建未启用 Qt WebEngine，请重新配置客户端"), true);
+#endif
+}
+
+void RouteMapView::applyStations()
+{
+#ifdef CHARGING_CLIENT_HAS_WEBENGINE
+    const quint64 generation = generation_;
+    QPointer<RouteMapView> guard(this);
+    const QString data = QString::fromUtf8(QJsonDocument(stationScene_).toJson(QJsonDocument::Compact));
+    view_->page()->runJavaScript(QStringLiteral("bitMap.setStations(%1)").arg(data),
+        [guard, generation](const QVariant &result) {
+            if (!guard || generation != guard->generation_) return;
+            if (!result.toBool()) { guard->fail(FailureReason::StationRenderingFailed, true); return; }
+            guard->initialized_ = true;
+            guard->routePending_ = false;
+            guard->reportInitializationFailure_ = false;
+            guard->timeout_.stop();
+            emit guard->loadingChanged(false);
+            emit guard->readyChanged(true);
+            emit guard->retryAvailableChanged(false);
+            emit guard->statusChanged({}, false);
+        });
+#endif
+}
+
+void RouteMapView::selectStation(const QString &stationId)
+{
+    stationScene_.insert(QStringLiteral("selected"), stationId);
+    const QString data = QString::fromUtf8(QJsonDocument(QJsonArray{stationId}).toJson(QJsonDocument::Compact));
+    command(QStringLiteral("bitMap.selectStation(%1[0])").arg(data));
+}
+
+void RouteMapView::setStationCenter(const QJsonObject &coordinate)
+{
+    command(QStringLiteral("bitMap.setCenter(%1)").arg(QString::fromUtf8(
+        QJsonDocument(coordinate).toJson(QJsonDocument::Compact))));
+}
+
+void RouteMapView::setStationViewport(const QMargins &margins)
+{
+    const QJsonObject padding{{QStringLiteral("left"), margins.left()}, {QStringLiteral("top"), margins.top()},
+        {QStringLiteral("right"), margins.right()}, {QStringLiteral("bottom"), margins.bottom()}};
+    stationScene_.insert(QStringLiteral("padding"), padding);
+    command(QStringLiteral("bitMap.setStationPadding(%1)").arg(QString::fromUtf8(
+        QJsonDocument(padding).toJson(QJsonDocument::Compact))));
+}
+
+void RouteMapView::fitStations() { command(QStringLiteral("bitMap.fitStations()")); }
 
 void RouteMapView::hideEvent(QHideEvent *event)
 {

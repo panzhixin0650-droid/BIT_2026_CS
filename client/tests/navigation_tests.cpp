@@ -5,6 +5,7 @@
 #include "ui/map_controller.h"
 #include "ui/route_map_view.h"
 #include "ui/station_browser_page.h"
+#include "ui/station_map_view.h"
 
 #include <QJsonObject>
 #include <QLabel>
@@ -66,16 +67,23 @@ public:
     int sdkRequestCount = 0;
     QByteArray script = R"JS(
       window.sdkCounts = {initializations:0, fits:0, zoom:12};
+      window.sdkLayers = [];
       class Map {
-        constructor(element, options) { sdkCounts.initializations++; window.mapOptions = options; }
-        fitBounds() { sdkCounts.fits++; sdkCounts.zoom = 12; }
+        constructor(element, options) { sdkCounts.initializations++; window.mapOptions = options; window.sdkMap = this; this.events = {}; }
+        fitBounds(bounds) { sdkCounts.fits++; sdkCounts.zoom = 12; window.fittedBounds = bounds; }
         getZoom() { return sdkCounts.zoom; }
         setZoom(value) { sdkCounts.zoom = value; }
+        setCenter(value) { window.lastCenter = value; }
+        on(name, callback) { this.events[name] = callback; }
         resize() {}
       }
-      class Layer { constructor() {} setGeometries(geometries) { window.lastGeometry = geometries; } }
+      class Layer {
+        constructor(options) { this.options = options; this.events = {}; sdkLayers.push(this); }
+        on(name, callback) { this.events[name] = callback; }
+        setGeometries(geometries) { this.geometries = geometries; window.lastGeometry = geometries; }
+      }
       window.TMap = {Map, LatLng: class {constructor(lat,lng){this.lat=lat;this.lng=lng;}},
-        LatLngBounds: class {extend() {}}, MultiPolyline: Layer, MultiMarker: Layer,
+        LatLngBounds: class {constructor(){this.points=[];} extend(p) {this.points.push(p);}}, MultiPolyline: Layer, MultiMarker: Layer,
         PolylineStyle: class {}, MarkerStyle: class {}};
     )JS";
     ScriptServer()
@@ -134,6 +142,7 @@ private slots:
     void leavingRejectsStaleRoutesAndGeocodes();
     void switchingMainTabsKeepsNavigationState();
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
+    void stationMarkersAndBridgeUseSharedCanvas();
     void floatingNavigationSurvivesEmbeddedMapRepaints();
     void startupPreloadReusesMapForFirstRoute();
     void failedPreloadIsSilentAndRetries();
@@ -315,14 +324,15 @@ void NavigationTests::startupPreloadReusesMapForFirstRoute()
     auto *page = window.findChild<StationBrowserPage *>();
     page->showNavigation(station(), {QStringLiteral("起点"), 123.4, 41.79});
     QCOMPARE(page->findChild<QStackedWidget *>(QStringLiteral("routeDisplayStack"))->currentWidget(),
-             page->findChild<RouteMapView *>());
+             page->findChild<RouteMapView *>(QStringLiteral("routeMapCanvas")));
     QTRY_COMPARE(evaluate(view, QStringLiteral("sdkCounts.initializations")).toInt(), 1);
     page->showRouteResult(realRoute(server.url()));
     auto *plus = page->findChild<QPushButton *>(QStringLiteral("mapZoomInButton"));
     QTRY_VERIFY_WITH_TIMEOUT(plus->isEnabled(), 10000);
     QCOMPARE(page->findChild<QWebEngineView *>(QStringLiteral("routeWebView")), view);
     QCOMPARE(loads.count(), 0);
-    QCOMPARE(server.sdkRequestCount, 1);
+    // Home uses a second canvas; the navigation canvas still reuses its preload.
+    QTRY_COMPARE(server.sdkRequestCount, 2);
     QCOMPARE(evaluate(view, QStringLiteral("sdkCounts.initializations")).toInt(), 1);
 
     auto *tabs = window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
@@ -416,7 +426,7 @@ void NavigationTests::zoomFitAndRepeatedRoutesReuseMap()
     page.resize(360, 576);
     page.findChild<QPushButton *>(QStringLiteral("routeDetailsButton"))->click();
     QTest::qWait(50);
-    auto *canvas = page.findChild<RouteMapView *>();
+    auto *canvas = page.findChild<RouteMapView *>(QStringLiteral("routeMapCanvas"));
     QVERIFY(canvas->height() >= 120);
     QTRY_COMPARE(evaluate(view, QStringLiteral("document.getElementById('map').clientWidth")).toInt(), view->width());
 }
@@ -466,6 +476,71 @@ void NavigationTests::mapTimeoutReleasesBusyState()
     QVERIFY(message.contains(QStringLiteral("网络较慢")));
     QVERIFY(!page.findChild<QPushButton *>(QStringLiteral("mapZoomInButton"))->isEnabled());
     QVERIFY(page.findChild<QPushButton *>(QStringLiteral("mapRetryButton"))->isEnabled());
+}
+#endif
+
+#ifdef CHARGING_CLIENT_HAS_WEBENGINE
+void NavigationTests::stationMarkersAndBridgeUseSharedCanvas()
+{
+    ScriptServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    DeferredMap service;
+    service.preloadUrl = server.url();
+    MockChargingApi api;
+    MainWindow window(api, service);
+    window.resize(360, 640);
+    window.show();
+    login(window);
+    auto *map = window.findChild<StationMapView *>();
+    auto *canvas = window.findChild<RouteMapView *>(QStringLiteral("stationWebMapCanvas"));
+    QTRY_VERIFY(window.findChild<QWebEngineView *>(QStringLiteral("stationWebView")));
+    auto *view = window.findChild<QWebEngineView *>(QStringLiteral("stationWebView"));
+    QTRY_VERIFY_WITH_TIMEOUT(evaluate(view, QStringLiteral("!!(window.sdkLayers && sdkLayers.length === 4 && sdkLayers[2].geometries.length === 2)")).toBool(), 10000);
+    QCOMPARE(evaluate(view, QStringLiteral("sdkLayers[3].geometries[0].id")).toString(), QStringLiteral("current"));
+    QCOMPARE(evaluate(view, QStringLiteral("sdkLayers[2].geometries[0].position.lat")).toDouble(), 41.71);
+    QCOMPARE(evaluate(view, QStringLiteral("sdkCounts.initializations")).toInt(), 1);
+    QVERIFY(!window.findChild<QAbstractButton *>(QStringLiteral("stationMarker_1")));
+    QSignalSpy selected(map, &StationMapView::stationSelected);
+    QSignalSpy details(&api, &IChargingApi::stationDetailCompleted);
+    // Marker/map events may arrive for the same click, in either order.
+    evaluate(view, QStringLiteral("sdkMap.events.click({}); sdkLayers[2].events.click({geometry:{id:'1'}})"));
+    QTRY_COMPARE(map->selectedStationId(), 1);
+    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationPreviewCard"))->isVisible());
+    QTRY_COMPARE(evaluate(view, QStringLiteral("sdkLayers[2].geometries[0].styleId")).toString(), QStringLiteral("selected"));
+    QCOMPARE(details.size(), 0);
+    evaluate(view, QStringLiteral("sdkLayers[2].events.click({geometry:{id:'2'}}); sdkMap.events.click({})"));
+    QTRY_COMPARE(map->selectedStationId(), 2);
+    QTRY_COMPARE(selected.size(), 2);
+    evaluate(view, QStringLiteral("sdkMap.events.click({})"));
+    QTRY_COMPARE(map->selectedStationId(), 0);
+    QVERIFY(!window.findChild<QWidget *>(QStringLiteral("stationPreviewCard"))->isVisible());
+    window.findChild<QLineEdit *>(QStringLiteral("stationKeywordInput"))->setText(QStringLiteral("和平"));
+    window.findChild<QPushButton *>(QStringLiteral("stationRefreshButton"))->click();
+    QTRY_COMPARE(evaluate(view, QStringLiteral("sdkLayers[2].geometries.length")).toInt(), 1);
+    QCOMPARE(evaluate(view, QStringLiteral("sdkLayers[2].geometries[0].id")).toString(), QStringLiteral("2"));
+    QVERIFY(evaluate(view, QStringLiteral("fittedBounds.points.length === 2")).toBool());
+    map->zoomIn();
+    QTRY_COMPARE(evaluate(view, QStringLiteral("sdkCounts.zoom")).toInt(), 13);
+    window.findChild<QPushButton *>(QStringLiteral("stationMapLocate"))->click();
+    QTRY_VERIFY(evaluate(view, QStringLiteral("!!window.lastCenter")).toBool());
+    auto *tabs = window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
+    tabs->setCurrentIndex(1);
+    QTRY_COMPARE(view->page()->lifecycleState(), QWebEnginePage::LifecycleState::Frozen);
+    tabs->setCurrentIndex(0);
+    QTRY_COMPARE(view->page()->lifecycleState(), QWebEnginePage::LifecycleState::Active);
+    QTRY_VERIFY(window.findChild<QPushButton *>(QStringLiteral("stationRefreshButton"))->isEnabled());
+    QCOMPARE(evaluate(view, QStringLiteral("sdkCounts.initializations")).toInt(), 1);
+    const QByteArray workingSdk = server.script;
+    server.script = "/* SDK unavailable */";
+    canvas->retry();
+    QTRY_VERIFY_WITH_TIMEOUT(window.findChild<QPushButton *>(QStringLiteral("stationMapRetry"))->isVisible(), 10000);
+    server.script = workingSdk;
+    window.findChild<QPushButton *>(QStringLiteral("stationMapRetry"))->click();
+    QTRY_VERIFY_WITH_TIMEOUT(window.findChild<QWebEngineView *>(QStringLiteral("stationWebView")), 10000);
+    view = window.findChild<QWebEngineView *>(QStringLiteral("stationWebView"));
+    QTRY_VERIFY_WITH_TIMEOUT(evaluate(view, QStringLiteral("!!(window.sdkLayers && sdkLayers[2] && sdkLayers[2].geometries.length === 1)")).toBool(), 10000);
+    QCOMPARE(evaluate(view, QStringLiteral("sdkLayers[2].geometries[0].id")).toString(), QStringLiteral("2"));
+    QVERIFY(!window.findChild<QPushButton *>(QStringLiteral("stationMapRetry"))->isVisible());
 }
 #endif
 
