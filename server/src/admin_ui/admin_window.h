@@ -3,6 +3,7 @@
 #include <QMainWindow>
 #include <QDate>
 #include <QList>
+#include <QJsonObject>
 #include <QSet>
 
 class QComboBox;
@@ -60,6 +61,10 @@ private:
         qint64 selectedPileId = 0;
         qint64 selectedUserId = 0;
         qint64 selectedOrderId = 0;
+        QString adminSearch;
+        QSet<QString> adminStatuses;
+        QSet<QString> adminRoles;
+        qint64 selectedAdminId = 0;
     };
 
     QWidget *buildLoginPage();
@@ -70,6 +75,7 @@ private:
     QWidget *buildPilesPage();
     QWidget *buildUsersPage();
     QWidget *buildOrdersPage();
+    QWidget *buildAdminsPage();
 
     void attemptLogin();
     void setLoginError(const QString &message);
@@ -85,6 +91,11 @@ private:
     void refreshPiles();
     void refreshUsers();
     void refreshOrders();
+    void refreshAdmins();
+    void applyAdminPermissions(const QJsonObject &admin);
+    bool showChangePasswordDialog(bool required);
+    void showCreateAdminDialog();
+    void showEditAdminDialog(qint64 adminId);
     void showCreateStationDialog();
     void showEditStationDialog(qint64 stationId);
     void showCreatePileDialog(qint64 fixedStationId = 0);
@@ -127,6 +138,7 @@ private:
     QLineEdit *usernameEdit_ = nullptr;
     QLineEdit *passwordEdit_ = nullptr;
     QLabel *loginError_ = nullptr;
+    QLabel *accountIdentity_ = nullptr;
     QLabel *todayRevenue_ = nullptr;
     QLabel *monthRevenue_ = nullptr;
     QLabel *totalRevenue_ = nullptr;
@@ -167,10 +179,17 @@ private:
     QPushButton *orderStatusFilter_ = nullptr;
     QPushButton *orderModeFilter_ = nullptr;
     QTableWidget *ordersTable_ = nullptr;
+    QLineEdit *adminSearch_ = nullptr;
+    QComboBox *adminStatus_ = nullptr;
+    QComboBox *adminRole_ = nullptr;
+    QPushButton *adminStatusFilter_ = nullptr;
+    QPushButton *adminRoleFilter_ = nullptr;
+    QTableWidget *adminsTable_ = nullptr;
     QString appliedStationSearch_;
     QString appliedPileSearch_;
     QString appliedUserSearch_;
     QString appliedOrderSearch_;
+    QString appliedAdminSearch_;
     QSet<QString> selectedStationRegions_;
     QSet<QString> selectedStationStatuses_;
     QSet<qint64> selectedPileStations_;
@@ -178,6 +197,10 @@ private:
     QSet<QString> selectedUserStatuses_;
     QSet<QString> selectedOrderStatuses_;
     QSet<QString> selectedOrderModes_;
+    QSet<QString> selectedAdminStatuses_;
+    QSet<QString> selectedAdminRoles_;
+    qint64 currentAdminId_ = 0;
+    QString currentAdminRole_;
     qint64 expandStationAfterRefresh_ = 0;
     qint64 focusPileAfterRefresh_ = 0;
     QTimer *stationClickTimer_ = nullptr;

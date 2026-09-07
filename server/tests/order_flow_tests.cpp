@@ -109,7 +109,9 @@ struct Fixture {
     {
         if (!temporary.isValid()) return false;
         if (sqlite) {
-            for (const char *path : {CHARGING_DATABASE_MIGRATION_PATH, CHARGING_DATABASE_SEED_PATH}) {
+            for (const char *path : {CHARGING_DATABASE_MIGRATION_PATH,
+                                     CHARGING_DATABASE_MIGRATION_002_PATH,
+                                     CHARGING_DATABASE_SEED_PATH}) {
                 QFile input(QString::fromUtf8(path));
                 if (!input.open(QIODevice::ReadOnly) || !sql(input.readAll())) return false;
             }
@@ -186,10 +188,59 @@ private slots:
     void sqliteFailuresRollBack_data();
     void sqliteFailuresRollBack();
     void sqliteRestartPreservesOrders();
+    void sqliteAdminAccountsAndPasswordUpgrade();
     void mockReadingsNeverRetreat();
     void integerBilling();
     void realClientTcpOrderFlow();
 };
+
+void OrderFlowTests::sqliteAdminAccountsAndPasswordUpgrade()
+{
+    Fixture f;
+    QVERIFY2(f.initialize(true), qPrintable(f.error));
+
+    const auto legacyLogin = f.service->loginAdmin(QStringLiteral("admin"),
+                                                    QStringLiteral("123456"));
+    QCOMPARE(legacyLogin.code, ErrorCode::Ok);
+    QCOMPARE(legacyLogin.data.value(QStringLiteral("admin")).toObject()
+                 .value(QStringLiteral("role")).toString(),
+             QStringLiteral("SYS_ADMIN"));
+    const auto upgraded = f.repository->findAdminByUsername(QStringLiteral("admin"));
+    QVERIFY(upgraded.has_value());
+    QCOMPARE(upgraded->passwordAlgorithm, QStringLiteral("PBKDF2_SHA256"));
+    QVERIFY(upgraded->passwordHash.startsWith(QStringLiteral("$pbkdf2-sha256$")));
+
+    const QJsonObject input{
+        {QStringLiteral("username"), QStringLiteral("station.sqlite")},
+        {QStringLiteral("initialPassword"), QStringLiteral("Initial-123")},
+        {QStringLiteral("displayName"), QStringLiteral("SQLite 站点管理员")},
+        {QStringLiteral("role"), QStringLiteral("STATION_ADMIN")},
+        {QStringLiteral("stationIds"), QJsonArray{1}},
+    };
+    const auto created = f.service->createAdminAccount(1, input);
+    QCOMPARE(created.code, ErrorCode::Ok);
+    const qint64 adminId = created.data.value(QStringLiteral("admin")).toObject()
+                               .value(QStringLiteral("adminId")).toInteger();
+    QVERIFY(adminId > 1);
+
+    const auto initialLogin = f.service->loginAdmin(QStringLiteral("station.sqlite"),
+                                                     QStringLiteral("Initial-123"));
+    QCOMPARE(initialLogin.code, ErrorCode::Ok);
+    QCOMPARE(f.service->getDashboard(adminId, 7).message,
+             QStringLiteral("PASSWORD_CHANGE_REQUIRED"));
+    QCOMPARE(f.service->changeAdminPassword(adminId, QStringLiteral("Initial-123"),
+                                            QStringLiteral("Changed-456")).code,
+             ErrorCode::Ok);
+    QCOMPARE(f.service->loginAdmin(QStringLiteral("station.sqlite"),
+                                   QStringLiteral("Initial-123")).code,
+             ErrorCode::InvalidCredentials);
+    QCOMPARE(f.service->loginAdmin(QStringLiteral("station.sqlite"),
+                                   QStringLiteral("Changed-456")).code,
+             ErrorCode::Ok);
+
+    QVERIFY(f.sql("SELECT count(*) FROM admin_audit_logs;\n"));
+    QCOMPARE(f.error.trimmed(), QStringLiteral("5"));
+}
 
 void OrderFlowTests::reservationAndCancellation()
 {
@@ -241,7 +292,7 @@ void OrderFlowTests::chargingAndAutomaticSettlement()
     QVERIFY(f.getPile().status == PileStatus::Charging);
     const auto beforeCount = f.getPile().chargeCount;
     const auto beforeSeconds = f.getPile().totalChargeSeconds;
-    const auto revenue = f.service->getDashboard(30).data.value(QStringLiteral("totalRevenueCents")).toInteger();
+    const auto revenue = f.service->getDashboard(1, 30).data.value(QStringLiteral("totalRevenueCents")).toInteger();
     auto station = f.repository->findStationById(1);
     QVERIFY(station.has_value());
     station->priceCentsPerKwh = 999;
@@ -255,7 +306,7 @@ void OrderFlowTests::chargingAndAutomaticSettlement()
     const auto listed = f.call(MessageType::OrderList).data.value(QStringLiteral("items")).toArray();
     QCOMPARE(listed.first().toObject().value(QStringLiteral("energyWh")).toInteger(), qint64{5000});
     bool adminReadFound = false;
-    for (const auto &item : f.service->listAdminOrders().data.value(QStringLiteral("items")).toArray()) {
+    for (const auto &item : f.service->listAdminOrders(1).data.value(QStringLiteral("items")).toArray()) {
         if (item.toObject().value(QStringLiteral("orderId")).toInteger() != orderId(started)) continue;
         QCOMPARE(item.toObject().value(QStringLiteral("energyWh")).toInteger(), qint64{5000});
         adminReadFound = true;
@@ -270,7 +321,7 @@ void OrderFlowTests::chargingAndAutomaticSettlement()
     QVERIFY(f.getPile().status == PileStatus::Idle);
     QCOMPARE(f.getPile().chargeCount, beforeCount + 1);
     QCOMPARE(f.getPile().totalChargeSeconds, beforeSeconds + 1800);
-    QCOMPARE(f.service->getDashboard(30).data.value(QStringLiteral("totalRevenueCents")).toInteger(), revenue + 675);
+    QCOMPARE(f.service->getDashboard(1, 30).data.value(QStringLiteral("totalRevenueCents")).toInteger(), revenue + 675);
     const auto state = f.snapshot();
     QCOMPARE(f.call(MessageType::OrderStop, orderInput(orderId(started))).code, ErrorCode::IllegalOrderState);
     QCOMPARE(f.call(MessageType::OrderPay, orderInput(orderId(started))).code, ErrorCode::IllegalOrderState);

@@ -1,0 +1,49 @@
+{
+  "login": {
+    "input": {
+      "username": "admin",
+      "password": "123456"
+    },
+    "result": {
+      "admin": {
+        "adminId": 1,
+        "username": "admin",
+        "displayName": "演示管理员",
+        "role": "SYS_ADMIN",
+        "status": "ACTIVE",
+        "mustChangePassword": false,
+        "stationIds": []
+      }
+    }
+  },
+  "createStationAdmin": {
+    "input": {
+      "username": "station.demo",
+      "initialPassword": "Initial-123",
+      "displayName": "一号站管理员",
+      "role": "STATION_ADMIN",
+      "stationIds": [1]
+    },
+    "result": {
+      "admin": {
+        "adminId": 2,
+        "username": "station.demo",
+        "displayName": "一号站管理员",
+        "role": "STATION_ADMIN",
+        "status": "ACTIVE",
+        "mustChangePassword": true,
+        "stationIds": [1]
+      }
+    }
+  },
+  "changePassword": {
+    "input": {
+      "currentPassword": "Initial-123",
+      "newPassword": "Changed-456"
+    },
+    "result": {
+      "changed": true,
+      "requiresLogin": true
+    }
+  }
+}
