@@ -213,12 +213,16 @@ amountCents = floor((energyWh * unitPriceCentsPerKwh + 500) / 1000)
 | 0 | `OK` | 成功 |
 | 40001 | `INVALID_REQUEST` | 字段缺失、类型或范围错误；提示用户修正 |
 | 40101 | `INVALID_SESSION` | 缺 token、token 无效；返回登录页 |
-| 40102 | `INVALID_CREDENTIALS` | 管理员账号或密码错误 |
-| 40301 | `FORBIDDEN` | 用户被冻结、操作他人订单或管理员未登录 |
+| 40102 | `INVALID_CREDENTIALS` / `PRINCIPAL_DISABLED` | 管理员账号密码错误或账号已停用 |
+| 40301 | `FORBIDDEN` / `ROLE_FORBIDDEN` | 用户被冻结、操作他人订单或管理员角色越权 |
+| 40302 | `STATION_SCOPE_FORBIDDEN` | 站点管理员访问未授权站点 |
 | 40401 | `NOT_FOUND` | 用户、站点、桩或订单不存在 |
+| 40406 | `ADMIN_NOT_FOUND` | 目标管理员不存在 |
 | 40901 | `PILE_NOT_AVAILABLE` | 站点停用或桩不是 `IDLE`；刷新站点详情 |
 | 40902 | `CURRENT_ORDER_EXISTS` | 用户已有预约、充电中或待支付订单；跳转当前订单 |
 | 40903 | `ILLEGAL_ORDER_STATE` | 当前状态不能执行该动作；刷新订单 |
+| 40907 | `DUPLICATE_USERNAME` | 管理员账号已存在 |
+| 40911 | `LAST_SYS_ADMIN` | 操作将导致没有有效系统管理员 |
 | 42201 | `INSUFFICIENT_BALANCE` | 补支付时余额不足；显示充值入口 |
 | 50001 | `INTERNAL_ERROR` | 数据库或未分类服务端错误；显示通用提示 |
 | 50301 | `SERVICE_UNAVAILABLE` | 客户端连接失败、断线或等待超时；允许提示后由用户重试 |
@@ -408,14 +412,20 @@ DTO 表中列出的字段在成功响应里都必须出现；标为 `/null` 的�
 
 ## 7. 管理端进程内接口：`AdminFacade`
 
-管理员 UI 位于 `server-app` 内，不需要管理端 TCP、管理员 token、RBAC 或站点授权表。所有方法仍通过 ApplicationService，不能直接写数据库。
+管理员 UI 位于 `server-app` 内，不增加管理端 TCP 或持久化 token。`AdminFacade` 在进程内保存当前管理员 ID，ApplicationService 每次操作重新读取账号状态、角色和站点范围。所有方法仍通过 ApplicationService，不能直接写数据库。
 
 当前 Demo 的逻辑调用是同步返回，统一结果形状为 `{code: integer, message: string, data: T}`。`code == 0` 时读取 `data`；失败时只读取 `code/message`，`data` 不承载业务结果。具体使用 Qt 模板、结构体还是其他表示由服务端负责人决定。
 
 管理端额外使用三个小类型：
 
 ```text
-AdminInfoDto       = {adminId: integer, displayName: string}
+AdminProfileDto    = {
+  adminId: integer, username: string, displayName: string,
+  role: SYS_ADMIN|STATION_ADMIN|USER_ADMIN,
+  status: ACTIVE|DISABLED, mustChangePassword: bool,
+  stationIds: integer[], lastLoginAt: datetime/null,
+  createdAt: datetime, updatedAt: datetime, version: integer
+}
 StationDetailDto   = {station: StationDto, piles: PileDto[]}
 StationCreateInput = {
   name: string[1..64], region: string[1..64], address: string[1..200],
@@ -430,7 +440,12 @@ StationCreateInput = {
 
 | 方法 | 输入 | 输出 | 含义 |
 | --- | --- | --- | --- |
-| `login` | `username, password` | `Result<AdminInfoDto>` | 校验 `admins.password_hash`；初始账号 `admin/123456`，凭证错误返回 `40102` |
+| `login` | `username, password` | `Result<{admin: AdminProfileDto}>` | 校验密码与账号状态；初始账号 `admin/123456`；旧 SHA-256 在成功登录后升级为带随机盐的 PBKDF2-SHA256 |
+| `logout/currentAdmin` | 无 | `Result<AdminProfileDto>` | 清除进程内身份/读取当前身份；停用后下一次调用立即失效 |
+| `listAdmins` | `keyword?, status?` | `Result<AdminProfileDto[]>` | 仅系统管理员；可按账号、显示名和状态查询；不返回密码字段 |
+| `createAdmin` | `username, initialPassword, displayName, role, stationIds[]` | `Result<AdminProfileDto>` | 仅系统管理员；初始密码 8..128；站点管理员至少授权一个站点，其他角色范围为空 |
+| `updateAdmin` | `adminId, displayName, role, status, stationIds[], reason` | `Result<AdminProfileDto>` | 仅系统管理员；站点范围完整替换；禁止停用自己或改变自己的角色，并保留有效系统管理员 |
+| `changePassword` | `currentPassword, newPassword` | `Result<{changed: true}>` | 管理员本人；新密码 8..128 且不能与旧密码相同；成功后退出登录 |
 | `getDashboard` | `days: 7 或 30`，或管理端内部 `startDate, endDate` | `Result<DashboardDto>` | KPI、营收曲线和桩状态比例；自定义范围不超过 366 个中国业务日 |
 | `listStations` | `region?, keyword?` | `Result<StationDto[]>` | 管理端包含停用站点 |
 | `getStation` | `stationId` | `Result<StationDetailDto>` | 站点和站内实时 Mock 状态 |
@@ -452,7 +467,11 @@ StationCreateInput = {
 - `deletePile` 不删除历史：存在任何订单、处于 `RESERVED/CHARGING/FAULT` 时返回 `40903`；
 - `setPileStatus` 不创建命令表或审计表；`OFFLINE -> IDLE` 表示上线，`IDLE -> OFFLINE` 表示下线，`IDLE/OFFLINE -> FAULT` 表示故障；普通管理操作不能将 `FAULT` 恢复；
 - `restartPile` 不创建命令表或审计表；`OFFLINE` 变为 `IDLE`，`IDLE` 返回成功且状态不变，`RESERVED/CHARGING/FAULT` 返回 `40903`；
-- 管理端只需要一个管理员身份；没有新增管理员、角色分配或改密接口；
+- `SYS_ADMIN` 可使用全部管理页面并管理管理员账号；`STATION_ADMIN` 只能读取指标、订单和授权站点，并维护授权站点及其电桩；`USER_ADMIN` 可读取全局摘要、用户和订单并冻结/解冻用户；
+- 站点授权沿用当前 V1 的整数 `stationId`，数据库用复合主键防止重复授权；前端显示站点名称，保存时是完整覆盖；
+- 新账号 `mustChangePassword=true`，修改初始密码前只能读取本人资料和改密；成功改密后退出登录；
+- 管理员账号只停用不删除；不得停用自己或改变自己的角色；停用或降级系统管理员时至少保留一个有效 `SYS_ADMIN`；
+- 管理员登录、创建、更新和改密写入 `admin_audit_logs`，审计详情不含密码或密码哈希；
 - 冻结用户不删除其历史订单和余额；用户存在 `RESERVED/CHARGING/PENDING_PAYMENT` 订单时暂不允许冻结，返回 `40902`，避免订单和电桩无人结束；
 - `getDashboard(days)` 的 `revenuePoints` 必须按中国业务日补齐为恰好 7 或 30 个点；不需要日期表；
 - 管理端自定义日期查询包含起止日，只改变 `revenuePoints`，今日/月/累计 KPI 的业务含义不变；
