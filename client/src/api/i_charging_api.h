@@ -31,8 +31,14 @@ public:
     [[nodiscard]] virtual QString getChargingProgress(qint64 orderId) = 0;
     [[nodiscard]] virtual QString stopCharging(qint64 orderId) = 0;
     [[nodiscard]] virtual QString payOrder(qint64 orderId) = 0;
+    [[nodiscard]] virtual QString createSupportTicket(const protocol::SupportTicketDraft &draft);
+    [[nodiscard]] virtual QString listSupportTickets(std::optional<qint64> beforeId = {});
+    [[nodiscard]] virtual QString getSupportTicket(qint64 ticketId);
 
 signals:
+    void supportTicketCreated(const charging::client::TicketResult &result);
+    void supportTicketsListed(const charging::client::TicketListResult &result);
+    void supportTicketDetailed(const charging::client::TicketResult &result);
     void loginCompleted(const charging::client::LoginResult &result);
     void logoutCompleted(const charging::client::LogoutResult &result);
     void profileCompleted(const charging::client::UserResult &result);

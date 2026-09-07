@@ -15,8 +15,6 @@ namespace {
 
 using namespace charging::protocol;
 
-constexpr int kExpectedSchemaVersion = 1;
-
 bool parseUserStatus(const QString &text, UserStatus *status)
 {
     if (text == QStringLiteral("ACTIVE")) {
@@ -329,7 +327,8 @@ bool Repository::open(const QString &databasePath, QString *error)
     if (!version.exec(QStringLiteral("PRAGMA user_version")) || !version.next()) {
         return reject(version.lastError().text());
     }
-    if (version.value(0).toInt() != kExpectedSchemaVersion) {
+    const int schemaVersion = version.value(0).toInt();
+    if (schemaVersion != 1 && schemaVersion != 2) {
         return reject(QStringLiteral("unsupported database schema version: %1")
                           .arg(version.value(0).toInt()));
     }
@@ -346,6 +345,16 @@ bool Repository::open(const QString &databasePath, QString *error)
         return reject(QStringLiteral("required Demo tables are missing"));
     }
 
+    supportTicketsAvailable_ = false;
+    if (schemaVersion == 2) {
+        QSqlQuery tickets(database_);
+        if (!tickets.exec(QStringLiteral(
+                "SELECT ticket_id, user_id, submission_id, title, summary, source_model, "
+                "status, reply, created_at, updated_at FROM support_tickets LIMIT 0")))
+            return reject(QStringLiteral("support ticket schema is missing or invalid"));
+        supportTicketsAvailable_ = true;
+    }
+
     if (error != nullptr) {
         error->clear();
     }
@@ -354,6 +363,7 @@ bool Repository::open(const QString &databasePath, QString *error)
 
 void Repository::close()
 {
+    supportTicketsAvailable_ = false;
     rollbackTransaction();
     if (!database_.isValid()) {
         return;
@@ -1197,6 +1207,146 @@ bool Repository::updateOrder(const OrderDto &order, OrderStatus expectedStatus)
     query.bindValue(QStringLiteral(":expected_status"), toString(expectedStatus));
     if (!query.exec()) {
         failOperation(operation, query.lastError().text());
+        return false;
+    }
+    return query.numRowsAffected() == 1;
+}
+
+namespace {
+QString ticketSelect()
+{
+    return QStringLiteral("SELECT ticket_id, user_id, submission_id, title, summary, "
+                          "source_model, status, reply, created_at, updated_at FROM support_tickets ");
+}
+
+bool readTicket(const QSqlQuery &query, SupportTicketDto *ticket)
+{
+    return fromJson({{"ticketId", query.value(0).toLongLong()},
+                     {"userId", query.value(1).toLongLong()},
+                     {"submissionId", query.value(2).toString()},
+                     {"title", query.value(3).toString()}, {"summary", query.value(4).toString()},
+                     {"sourceModel", query.value(5).toString()}, {"status", query.value(6).toString()},
+                     {"reply", query.value(7).toString()}, {"createdAt", query.value(8).toString()},
+                     {"updatedAt", query.value(9).toString()}}, ticket);
+}
+}
+
+bool Repository::supportsSupportTickets() const
+{
+    return isOpen() && supportTicketsAvailable_;
+}
+
+std::optional<SupportTicketDto> Repository::findSupportTicket(qint64 ticketId) const
+{
+    beginOperation();
+    if (!requireOpen(QStringLiteral("findSupportTicket"))) return std::nullopt;
+    QSqlQuery query(database_);
+    query.prepare(ticketSelect() + QStringLiteral("WHERE ticket_id = :id"));
+    query.bindValue(":id", ticketId);
+    if (!query.exec()) {
+        failOperation(QStringLiteral("findSupportTicket"), query.lastError().text());
+        return std::nullopt;
+    }
+    if (!query.next()) return std::nullopt;
+    SupportTicketDto ticket;
+    if (!readTicket(query, &ticket)) {
+        failOperation(QStringLiteral("findSupportTicket"), QStringLiteral("invalid ticket row"));
+        return std::nullopt;
+    }
+    return ticket;
+}
+
+std::optional<SupportTicketDto> Repository::findSupportSubmission(
+    qint64 userId, const QString &submissionId) const
+{
+    beginOperation();
+    if (!requireOpen(QStringLiteral("findSupportSubmission"))) return std::nullopt;
+    QSqlQuery query(database_);
+    query.prepare(ticketSelect() + QStringLiteral("WHERE user_id = :user AND submission_id = :id"));
+    query.bindValue(":user", userId);
+    query.bindValue(":id", submissionId);
+    if (!query.exec()) {
+        failOperation(QStringLiteral("findSupportSubmission"), query.lastError().text());
+        return std::nullopt;
+    }
+    if (!query.next()) return std::nullopt;
+    SupportTicketDto ticket;
+    if (!readTicket(query, &ticket)) {
+        failOperation(QStringLiteral("findSupportSubmission"), QStringLiteral("invalid ticket row"));
+        return std::nullopt;
+    }
+    return ticket;
+}
+
+QList<SupportTicketDto> Repository::listSupportTickets(
+    std::optional<qint64> userId, std::optional<qint64> beforeId, int limit) const
+{
+    beginOperation();
+    if (!requireOpen(QStringLiteral("listSupportTickets"))) return {};
+    QString sql = ticketSelect() + QStringLiteral("WHERE 1=1 ");
+    if (userId) sql += QStringLiteral("AND user_id = :user ");
+    if (beforeId) sql += QStringLiteral("AND ticket_id < :before ");
+    sql += QStringLiteral("ORDER BY ticket_id DESC LIMIT :limit");
+    QSqlQuery query(database_);
+    query.prepare(sql);
+    if (userId) query.bindValue(":user", *userId);
+    if (beforeId) query.bindValue(":before", *beforeId);
+    query.bindValue(":limit", qBound(1, limit, 101));
+    if (!query.exec()) {
+        failOperation(QStringLiteral("listSupportTickets"), query.lastError().text());
+        return {};
+    }
+    QList<SupportTicketDto> tickets;
+    while (query.next()) {
+        SupportTicketDto ticket;
+        if (!readTicket(query, &ticket)) {
+            failOperation(QStringLiteral("listSupportTickets"), QStringLiteral("invalid ticket row"));
+            return {};
+        }
+        tickets.append(ticket);
+    }
+    return tickets;
+}
+
+SupportTicketDto Repository::createSupportTicket(SupportTicketDto ticket)
+{
+    beginOperation();
+    if (!requireOpen(QStringLiteral("createSupportTicket"))) return {};
+    QSqlQuery query(database_);
+    query.prepare(QStringLiteral(
+        "INSERT INTO support_tickets (user_id, submission_id, title, summary, source_model, "
+        "status, reply, created_at, updated_at) VALUES (:user, :id, :title, :summary, "
+        ":model, 'OPEN', '', :created, :updated)"));
+    query.bindValue(":user", ticket.userId);
+    query.bindValue(":id", ticket.submissionId);
+    query.bindValue(":title", ticket.title);
+    query.bindValue(":summary", ticket.summary);
+    query.bindValue(":model", ticket.sourceModel.isEmpty() ? QStringLiteral("") : ticket.sourceModel);
+    query.bindValue(":created", ticket.createdAt);
+    query.bindValue(":updated", ticket.updatedAt);
+    if (!query.exec()) {
+        failOperation(QStringLiteral("createSupportTicket"), query.lastError().text());
+        return {};
+    }
+    ticket.ticketId = query.lastInsertId().toLongLong();
+    ticket.status = TicketStatus::Open;
+    ticket.reply = QStringLiteral("");
+    return ticket;
+}
+
+bool Repository::updateSupportTicket(const SupportTicketDto &ticket)
+{
+    beginOperation();
+    if (!requireOpen(QStringLiteral("updateSupportTicket"))) return false;
+    QSqlQuery query(database_);
+    query.prepare(QStringLiteral("UPDATE support_tickets SET status = :status, reply = :reply, "
+                                 "updated_at = :updated WHERE ticket_id = :id"));
+    query.bindValue(":status", toString(ticket.status));
+    query.bindValue(":reply", ticket.reply.isEmpty() ? QStringLiteral("") : ticket.reply);
+    query.bindValue(":updated", ticket.updatedAt);
+    query.bindValue(":id", ticket.ticketId);
+    if (!query.exec()) {
+        failOperation(QStringLiteral("updateSupportTicket"), query.lastError().text());
         return false;
     }
     return query.numRowsAffected() == 1;

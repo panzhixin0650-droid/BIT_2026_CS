@@ -13,10 +13,12 @@ AdminFacade::AdminFacade(ApplicationService *service)
 ServiceResult AdminFacade::login(const QString &username,
                                  const QString &password) const
 {
-    return service_ == nullptr
+    const auto result = service_ == nullptr
         ? ServiceResult::failure(charging::protocol::ErrorCode::InternalError,
                                  QStringLiteral("INTERNAL_ERROR"))
         : service_->loginAdmin(username, password);
+    ticketAuthorized_ = result.ok();
+    return result;
 }
 
 ServiceResult AdminFacade::getDashboard(int days) const
@@ -103,6 +105,22 @@ ServiceResult AdminFacade::setUserStatus(
 ServiceResult AdminFacade::listOrders() const
 {
     return service_->listAdminOrders();
+}
+
+void AdminFacade::logout() { ticketAuthorized_ = false; }
+
+ServiceResult AdminFacade::listSupportTickets(std::optional<qint64> beforeId) const
+{
+    if (!ticketAuthorized_ || !service_)
+        return ServiceResult::failure(charging::protocol::ErrorCode::Forbidden, QStringLiteral("FORBIDDEN"));
+    return service_->listAdminSupportTickets(beforeId);
+}
+
+ServiceResult AdminFacade::updateSupportTicket(const QJsonObject &input) const
+{
+    if (!ticketAuthorized_ || !service_)
+        return ServiceResult::failure(charging::protocol::ErrorCode::Forbidden, QStringLiteral("FORBIDDEN"));
+    return service_->updateAdminSupportTicket(input);
 }
 
 }  // namespace charging::server

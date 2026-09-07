@@ -28,6 +28,7 @@ class StationBrowserController;
 class StationBrowserPage;
 class AssistantService;
 class SupportPage;
+class SupportDeskDialog;
 
 class MainWindow final : public QMainWindow {
 public:
@@ -53,6 +54,7 @@ private:
     ScanPage *scanPage_ = nullptr;
     AssistantService *assistantService_ = nullptr;
     SupportPage *supportPage_ = nullptr;
+    SupportDeskDialog *supportDesk_ = nullptr;
     ProfilePage *profilePage_ = nullptr;
     LoginController *loginController_ = nullptr;
     MapController *mapController_ = nullptr;

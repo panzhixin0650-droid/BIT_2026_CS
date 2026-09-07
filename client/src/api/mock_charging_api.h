@@ -31,6 +31,9 @@ public:
     [[nodiscard]] QString getChargingProgress(qint64 orderId) override;
     [[nodiscard]] QString stopCharging(qint64 orderId) override;
     [[nodiscard]] QString payOrder(qint64 orderId) override;
+    [[nodiscard]] QString createSupportTicket(const protocol::SupportTicketDraft &draft) override;
+    [[nodiscard]] QString listSupportTickets(std::optional<qint64> beforeId = {}) override;
+    [[nodiscard]] QString getSupportTicket(qint64 ticketId) override;
 
 private:
     [[nodiscard]] QString nextRequestId();
@@ -54,6 +57,8 @@ private:
     qint64 nextUserId_ = 2;
     qint64 nextOrderId_ = 1001;
     quint64 requestSequence_ = 0;
+    QList<protocol::SupportTicketDto> tickets_;
+    qint64 nextTicketId_ = 1;
 };
 
 }  // namespace charging::client

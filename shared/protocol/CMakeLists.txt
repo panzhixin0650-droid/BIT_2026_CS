@@ -11,6 +11,7 @@ find_package(Qt6 6.2 REQUIRED COMPONENTS Core)
 
 add_library(charging_protocol STATIC
     src/dto.cpp
+    src/support_ticket.cpp
     src/envelope.cpp
     src/frame_codec.cpp
 )

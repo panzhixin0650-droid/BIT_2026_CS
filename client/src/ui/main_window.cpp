@@ -1,4 +1,5 @@
 #include "ui/main_window.h"
+#include "ui/support_desk_dialog.h"
 
 #include "api/i_charging_api.h"
 #include "local/avatar_storage.h"
@@ -347,6 +348,16 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
 
     assistantService_ = new AssistantService(assistantConfig, this);
     supportPage_ = new SupportPage(*assistantService_, mainTabs_);
+    connect(supportPage_, &SupportPage::supportDeskRequested, this, [this, &api, assistantConfig] {
+        if (!supportDesk_) {
+            const auto config = assistantConfig.forSupportDesk();
+            auto *desk = new AssistantService(config, this, nullptr, AssistantPurpose::SupportDesk);
+            auto *summary = new AssistantService(config, this, nullptr, AssistantPurpose::TicketSummary);
+            supportDesk_ = new SupportDeskDialog(api, *desk, *summary, this);
+            connect(supportDesk_, &SupportDeskDialog::invalidSession, this, &MainWindow::showLoginPage);
+        }
+        supportDesk_->openDesk(supportPage_->recentHistory());
+    });
 
     mainTabs_->addTab(homePage_,
                       clientNavigationIcon(NavigationIcon::Charging),
@@ -538,6 +549,11 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
 
 MainWindow::~MainWindow()
 {
+    if (supportDesk_) {
+        supportDesk_->resetSession();
+        delete supportDesk_;
+        supportDesk_ = nullptr;
+    }
     // Child pages may emit navigationClosed while the window is being torn down.
     // Disconnect their controller before ownedMapService_ is destroyed.
     delete mapController_;
@@ -546,6 +562,7 @@ MainWindow::~MainWindow()
 
 void MainWindow::showAuthenticatedHome(const protocol::UserDto &user, bool isNewUser)
 {
+    if (supportDesk_) supportDesk_->resetSession();
     supportPage_->resetConversation();
     homePage_->setGreeting(user.nickname, isNewUser);
     profileController_->setInitialUser(user);
@@ -556,6 +573,7 @@ void MainWindow::showAuthenticatedHome(const protocol::UserDto &user, bool isNew
 
 void MainWindow::showLoginPage(const QString &message)
 {
+    if (supportDesk_) supportDesk_->resetSession();
     supportPage_->resetConversation();
     loginPage_->setLoading(false);
     loginPage_->setErrorMessage(message);

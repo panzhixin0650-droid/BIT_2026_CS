@@ -5,6 +5,7 @@
 #include "adapters/mock_prediction_provider.h"
 #include "charging/protocol/protocol_constants.h"
 #include "persistence/i_repository.h"
+#include "persistence/repository_transaction.h"
 
 #include <QDateTime>
 #include <QCryptographicHash>
@@ -1056,6 +1057,115 @@ ServiceResult ApplicationService::listAdminOrders() const
         items.append(toJson(order));
     }
     return ServiceResult::success({{QStringLiteral("items"), items}});
+}
+
+namespace {
+ServiceResult ticketsUnavailable()
+{
+    return ServiceResult::failure(ErrorCode::ServiceUnavailable,
+                                  QStringLiteral("SUPPORT_TICKETS_MIGRATION_REQUIRED"));
+}
+
+ServiceResult ticketPage(IRepository *repository, std::optional<qint64> userId,
+                         std::optional<qint64> beforeId)
+{
+    if (!repository || !repository->supportsSupportTickets()) return ticketsUnavailable();
+    auto tickets = repository->listSupportTickets(userId, beforeId, 11);
+    if (!repository->lastOperationSucceeded()) return internalError();
+    const bool hasMore = tickets.size() > 10;
+    if (hasMore) tickets.removeLast();
+    QJsonArray items;
+    for (const auto &ticket : tickets) items.append(toJson(ticket));
+    return ServiceResult::success({{"items", items}, {"hasMore", hasMore}});
+}
+}
+
+ServiceResult ApplicationService::createSupportTicket(const QString &token, const QJsonObject &input)
+{
+    ServiceResult failure;
+    const auto userId = authenticatedUserId(token, &failure);
+    if (!userId) return failure;
+    SupportTicketDraft draft;
+    if (!fromJson(input, &draft)) return invalidRequest();
+    if (!repository_->supportsSupportTickets()) return ticketsUnavailable();
+    RepositoryTransaction transaction(repository_);
+    if (!transaction.active()) return internalError();
+    const auto existing = repository_->findSupportSubmission(*userId, draft.submissionId);
+    if (!repository_->lastOperationSucceeded()) return internalError();
+    if (existing) {
+        if (toJson(static_cast<const SupportTicketDraft &>(*existing)) != toJson(draft))
+            return invalidRequest();
+        if (!transaction.commit()) return internalError();
+        return ServiceResult::success({{"ticket", toJson(*existing)}});
+    }
+    SupportTicketDto ticket;
+    static_cast<SupportTicketDraft &>(ticket) = draft;
+    ticket.userId = *userId;
+    ticket.createdAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    ticket.updatedAt = ticket.createdAt;
+    ticket = repository_->createSupportTicket(ticket);
+    if (!repository_->lastOperationSucceeded() || ticket.ticketId <= 0 || !transaction.commit())
+        return internalError();
+    return ServiceResult::success({{"ticket", toJson(ticket)}});
+}
+
+ServiceResult ApplicationService::listSupportTickets(const QString &token, const QJsonObject &input) const
+{
+    ServiceResult failure;
+    const auto userId = authenticatedUserId(token, &failure);
+    if (!userId) return failure;
+    std::optional<qint64> beforeId;
+    if (!input.isEmpty()) {
+        qint64 id = 0;
+        if (input.size() != 1 || !positiveTicketId(input.value("beforeTicketId"), &id))
+            return invalidRequest();
+        beforeId = id;
+    }
+    return ticketPage(repository_, *userId, beforeId);
+}
+
+ServiceResult ApplicationService::getSupportTicket(const QString &token, const QJsonObject &input) const
+{
+    ServiceResult failure;
+    const auto userId = authenticatedUserId(token, &failure);
+    if (!userId) return failure;
+    qint64 ticketId = 0;
+    if (input.size() != 1 || !positiveTicketId(input.value("ticketId"), &ticketId))
+        return invalidRequest();
+    if (!repository_->supportsSupportTickets()) return ticketsUnavailable();
+    const auto ticket = repository_->findSupportTicket(ticketId);
+    if (!repository_->lastOperationSucceeded()) return internalError();
+    if (!ticket || ticket->userId != *userId)
+        return ServiceResult::failure(ErrorCode::NotFound, QStringLiteral("NOT_FOUND"));
+    return ServiceResult::success({{"ticket", toJson(*ticket)}});
+}
+
+ServiceResult ApplicationService::listAdminSupportTickets(std::optional<qint64> beforeId) const
+{
+    if (beforeId && *beforeId < 1) return invalidRequest();
+    return ticketPage(repository_, {}, beforeId);
+}
+
+ServiceResult ApplicationService::updateAdminSupportTicket(const QJsonObject &input)
+{
+    qint64 ticketId = 0;
+    TicketStatus status;
+    if (input.size() != 3 || !positiveTicketId(input.value("ticketId"), &ticketId)
+        || !parseTicketStatus(input.value("status").toString(), &status)
+        || !input.value("reply").isString()
+        || !validTicketText(input.value("reply").toString(), 2000, status == TicketStatus::Resolved))
+        return invalidRequest();
+    if (!repository_ || !repository_->supportsSupportTickets()) return ticketsUnavailable();
+    RepositoryTransaction transaction(repository_);
+    if (!transaction.active()) return internalError();
+    auto ticket = repository_->findSupportTicket(ticketId);
+    if (!repository_->lastOperationSucceeded()) return internalError();
+    if (!ticket) return ServiceResult::failure(ErrorCode::NotFound, QStringLiteral("NOT_FOUND"));
+    ticket->status = status;
+    ticket->reply = input.value("reply").toString();
+    ticket->updatedAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    if (!repository_->updateSupportTicket(*ticket) || !transaction.commit()) return internalError();
+    return ServiceResult::success({{"ticket", toJson(*ticket)}});
 }
 
 }  // namespace charging::server

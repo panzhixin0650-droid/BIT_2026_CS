@@ -13,11 +13,18 @@ class QVBoxLayout;
 
 namespace charging::client {
 
+class BusyIndicator;
+
 class SupportPage final : public QWidget {
     Q_OBJECT
 public:
     explicit SupportPage(AssistantService &service, QWidget *parent = nullptr);
     void resetConversation();
+    QList<AssistantTurn> recentHistory() const { return history_; }
+signals:
+    void supportDeskRequested();
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     void submit(const QString &question);
@@ -29,6 +36,8 @@ private:
     AssistantService &service_;
     QComboBox *mode_ = nullptr;
     QLabel *status_ = nullptr;
+    BusyIndicator *busyIndicator_ = nullptr;
+    QTimer waitingTimer_;
     QLabel *privacy_ = nullptr;
     QScrollArea *scroll_ = nullptr;
     QWidget *canvas_ = nullptr;
@@ -38,6 +47,7 @@ private:
     QLabel *counter_ = nullptr;
     QPushButton *send_ = nullptr;
     QPushButton *stop_ = nullptr;
+    QPushButton *deskEntry_ = nullptr;
     QList<QPushButton *> suggestions_;
     QList<QWidget *> messages_;
     QList<AssistantTurn> history_;
