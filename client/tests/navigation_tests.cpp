@@ -51,6 +51,7 @@ charging::protocol::StationDto station(const QString &name = QStringLiteral("演
 void login(MainWindow &window)
 {
     window.findChild<QLineEdit *>(QStringLiteral("phoneInput"))->setText(QStringLiteral("13800000001"));
+    window.findChild<QLineEdit *>(QStringLiteral("verificationCodeInput"))->setText(QStringLiteral("123456"));
     window.findChild<QPushButton *>(QStringLiteral("loginButton"))->click();
     QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("authenticatedHomePage"))->isVisible());
 }
