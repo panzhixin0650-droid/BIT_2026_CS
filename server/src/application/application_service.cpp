@@ -10,8 +10,10 @@
 #include <QDateTime>
 #include <QCryptographicHash>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonValue>
 #include <QRegularExpression>
+#include <QRandomGenerator>
 #include <QSet>
 #include <QTimeZone>
 
@@ -26,6 +28,12 @@ namespace {
 using namespace charging::protocol;
 
 constexpr double kEarthRadiusKm = 6371.0;
+constexpr int kPrincipalDisabled = 40102;
+constexpr int kRoleForbidden = 40301;
+constexpr int kStationScopeForbidden = 40302;
+constexpr int kAdminNotFound = 40406;
+constexpr int kDuplicateUsername = 40907;
+constexpr int kLastSystemAdmin = 40911;
 
 ServiceResult invalidRequest()
 {
@@ -37,6 +45,179 @@ ServiceResult internalError()
 {
     return ServiceResult::failure(ErrorCode::InternalError,
                                   QStringLiteral("INTERNAL_ERROR"));
+}
+
+ServiceResult forbidden(const QString &message = QStringLiteral("ROLE_FORBIDDEN"))
+{
+    return ServiceResult::failure(kRoleForbidden, message);
+}
+
+QByteArray hmacSha256(const QByteArray &key, const QByteArray &message)
+{
+    QByteArray normalizedKey = key;
+    constexpr int blockSize = 64;
+    if (normalizedKey.size() > blockSize) {
+        normalizedKey = QCryptographicHash::hash(normalizedKey,
+                                                 QCryptographicHash::Sha256);
+    }
+    normalizedKey = normalizedKey.leftJustified(blockSize, '\0', true);
+    QByteArray outer(blockSize, char(0x5c));
+    QByteArray inner(blockSize, char(0x36));
+    for (int index = 0; index < blockSize; ++index) {
+        outer[index] = char(outer.at(index) ^ normalizedKey.at(index));
+        inner[index] = char(inner.at(index) ^ normalizedKey.at(index));
+    }
+    return QCryptographicHash::hash(
+        outer + QCryptographicHash::hash(inner + message,
+                                         QCryptographicHash::Sha256),
+        QCryptographicHash::Sha256);
+}
+
+QByteArray derivePbkdf2Sha256(const QByteArray &password,
+                              const QByteArray &salt,
+                              int iterations)
+{
+    QByteArray block = salt;
+    block.append(QByteArray::fromHex("00000001"));
+    QByteArray value = hmacSha256(password, block);
+    QByteArray result = value;
+    for (int round = 1; round < iterations; ++round) {
+        value = hmacSha256(password, value);
+        for (int index = 0; index < result.size(); ++index) {
+            result[index] = char(result.at(index) ^ value.at(index));
+        }
+    }
+    return result;
+}
+
+QString hashAdminPassword(const QString &password)
+{
+    constexpr int iterations = 20000;
+    QByteArray salt(16, '\0');
+    for (char &byte : salt) {
+        byte = static_cast<char>(QRandomGenerator::system()->generate() & 0xff);
+    }
+    const QByteArray digest = derivePbkdf2Sha256(password.toUtf8(), salt,
+                                                iterations);
+    return QStringLiteral("$pbkdf2-sha256$%1$%2$%3")
+        .arg(iterations)
+        .arg(QString::fromLatin1(salt.toBase64(QByteArray::Base64UrlEncoding
+                                               | QByteArray::OmitTrailingEquals)))
+        .arg(QString::fromLatin1(digest.toHex()));
+}
+
+bool constantTimeEquals(const QByteArray &left, const QByteArray &right)
+{
+    if (left.size() != right.size()) return false;
+    unsigned char difference = 0;
+    for (int index = 0; index < left.size(); ++index) {
+        difference |= static_cast<unsigned char>(left.at(index) ^ right.at(index));
+    }
+    return difference == 0;
+}
+
+bool verifyAdminPassword(const AdminRecord &admin, const QString &password)
+{
+    if (admin.passwordAlgorithm == QStringLiteral("SHA256_LEGACY")) {
+        const QByteArray actual = QCryptographicHash::hash(
+            password.toUtf8(), QCryptographicHash::Sha256).toHex();
+        return constantTimeEquals(admin.passwordHash.toLatin1(), actual);
+    }
+    if (admin.passwordAlgorithm != QStringLiteral("PBKDF2_SHA256")) return false;
+    const QStringList parts = admin.passwordHash.split(QLatin1Char('$'));
+    bool iterationsOk = false;
+    if (parts.size() != 5 || parts.at(1) != QStringLiteral("pbkdf2-sha256")) return false;
+    const int iterations = parts.at(2).toInt(&iterationsOk);
+    if (!iterationsOk || iterations < 10000 || iterations > 1000000) return false;
+    const QByteArray salt = QByteArray::fromBase64(
+        parts.at(3).toLatin1(), QByteArray::Base64UrlEncoding);
+    const QByteArray expected = QByteArray::fromHex(parts.at(4).toLatin1());
+    const QByteArray actual = derivePbkdf2Sha256(password.toUtf8(), salt,
+                                                iterations);
+    return salt.size() >= 16 && expected.size() == 32
+        && constantTimeEquals(expected, actual);
+}
+
+QJsonObject adminToJson(const AdminRecord &admin, bool accountsAvailable = true)
+{
+    QJsonArray scopes;
+    for (qint64 stationId : admin.stationIds) scopes.append(stationId);
+    return {
+        {QStringLiteral("adminId"), admin.adminId},
+        {QStringLiteral("username"), admin.username},
+        {QStringLiteral("displayName"), admin.displayName},
+        {QStringLiteral("role"), admin.role},
+        {QStringLiteral("status"), admin.status},
+        {QStringLiteral("mustChangePassword"), admin.mustChangePassword},
+        {QStringLiteral("adminAccountsAvailable"), accountsAvailable},
+        {QStringLiteral("stationIds"), scopes},
+        {QStringLiteral("lastLoginAt"), admin.lastLoginAt.isEmpty()
+             ? QJsonValue(QJsonValue::Null) : QJsonValue(admin.lastLoginAt)},
+        {QStringLiteral("createdAt"), admin.createdAt.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(admin.createdAt)},
+        {QStringLiteral("updatedAt"), admin.updatedAt.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(admin.updatedAt)},
+        {QStringLiteral("version"), admin.version},
+    };
+}
+
+std::optional<AdminRecord> activeAdmin(IRepository *repository,
+                                       qint64 adminId,
+                                       ServiceResult *failure,
+                                       bool allowPasswordChangeRequired = false)
+{
+    if (repository == nullptr || adminId <= 0) {
+        *failure = ServiceResult::failure(ErrorCode::InvalidSession,
+                                          QStringLiteral("ADMIN_SESSION_REQUIRED"));
+        return std::nullopt;
+    }
+    const auto admin = repository->findAdminById(adminId);
+    if (!repository->lastOperationSucceeded()) {
+        *failure = internalError();
+        return std::nullopt;
+    }
+    if (!admin.has_value() || admin->status != QStringLiteral("ACTIVE")) {
+        *failure = ServiceResult::failure(ErrorCode::InvalidSession,
+                                          QStringLiteral("ADMIN_SESSION_INVALID"));
+        return std::nullopt;
+    }
+    if (admin->mustChangePassword && !allowPasswordChangeRequired) {
+        *failure = forbidden(QStringLiteral("PASSWORD_CHANGE_REQUIRED"));
+        return std::nullopt;
+    }
+    return admin;
+}
+
+bool hasRole(const AdminRecord &admin, std::initializer_list<const char *> roles)
+{
+    return std::any_of(roles.begin(), roles.end(), [&admin](const char *role) {
+        return admin.role == QLatin1String(role);
+    });
+}
+
+bool canAccessStation(const AdminRecord &admin, qint64 stationId)
+{
+    return admin.role == QStringLiteral("SYS_ADMIN")
+        || (admin.role == QStringLiteral("STATION_ADMIN")
+            && admin.stationIds.contains(stationId));
+}
+
+bool readStationIds(const QJsonObject &input, QList<qint64> *stationIds)
+{
+    const QJsonValue value = input.value(QStringLiteral("stationIds"));
+    if (!value.isArray()) return false;
+    QSet<qint64> unique;
+    for (const QJsonValue &item : value.toArray()) {
+        if (!item.isDouble() || item.toInteger() <= 0) return false;
+        unique.insert(item.toInteger());
+    }
+    stationIds->clear();
+    for (qint64 stationId : unique) stationIds->append(stationId);
+    std::sort(stationIds->begin(), stationIds->end());
+    return true;
+}
+
+QString compactJson(const QJsonObject &object)
+{
+    return QString::fromUtf8(QJsonDocument(object).toJson(QJsonDocument::Compact));
 }
 
 bool readString(const QJsonObject &input, const QString &key, QString *value)
@@ -435,7 +616,7 @@ std::optional<qint64> ApplicationService::authenticatedUserId(
 }
 
 ServiceResult ApplicationService::loginAdmin(const QString &username,
-                                             const QString &password) const
+                                             const QString &password)
 {
     if (repository_ == nullptr || username.isEmpty() || password.isEmpty()) {
         return ServiceResult::failure(ErrorCode::InvalidCredentials,
@@ -446,27 +627,275 @@ ServiceResult ApplicationService::loginAdmin(const QString &username,
     if (!repository_->lastOperationSucceeded()) {
         return internalError();
     }
-    const QString passwordHash = QString::fromLatin1(QCryptographicHash::hash(
-        password.toUtf8(), QCryptographicHash::Sha256).toHex());
-    if (!admin.has_value() || admin->passwordHash != passwordHash) {
+    if (!admin.has_value() || !verifyAdminPassword(*admin, password)) {
         return ServiceResult::failure(ErrorCode::InvalidCredentials,
                                       QStringLiteral("INVALID_CREDENTIALS"));
     }
-    return ServiceResult::success({
-        {QStringLiteral("adminId"), static_cast<double>(admin->adminId)},
-        {QStringLiteral("displayName"), admin->displayName},
-    });
+    if (admin->status != QStringLiteral("ACTIVE")) {
+        return ServiceResult::failure(kPrincipalDisabled,
+                                      QStringLiteral("PRINCIPAL_DISABLED"));
+    }
+    if (!repository_->supportsAdminAccounts()) {
+        return ServiceResult::success({{QStringLiteral("admin"), adminToJson(*admin, false)}});
+    }
+    AdminRecord updated = *admin;
+    if (updated.passwordAlgorithm == QStringLiteral("SHA256_LEGACY")) {
+        updated.passwordHash = hashAdminPassword(password);
+        updated.passwordAlgorithm = QStringLiteral("PBKDF2_SHA256");
+    }
+    updated.lastLoginAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    updated.updatedAt = updated.lastLoginAt;
+    RepositoryTransaction transaction(repository_);
+    if (!transaction.active() || !repository_->updateAdmin(updated)
+        || !repository_->appendAdminAudit(updated.adminId,
+                                          QStringLiteral("ADMIN_LOGIN"),
+                                          updated.adminId,
+                                          QStringLiteral("{}"),
+                                          updated.lastLoginAt)
+        || !transaction.commit()) {
+        return internalError();
+    }
+    updated.version += 1;
+    return ServiceResult::success({{QStringLiteral("admin"), adminToJson(updated)}});
 }
 
-ServiceResult ApplicationService::getDashboard(int days) const
+ServiceResult ApplicationService::getAdminProfile(qint64 actorAdminId) const
+{
+    ServiceResult failure;
+    const auto admin = activeAdmin(repository_, actorAdminId, &failure, true);
+    return admin.has_value()
+        ? ServiceResult::success({{QStringLiteral("admin"), adminToJson(*admin, repository_->supportsAdminAccounts())}})
+        : failure;
+}
+
+ServiceResult ApplicationService::listAdminAccounts(qint64 actorAdminId,
+                                                    const QString &keyword,
+                                                    const QString &status) const
+{
+    ServiceResult failure;
+    const auto actor = activeAdmin(repository_, actorAdminId, &failure);
+    if (!actor.has_value()) return failure;
+    if (actor->role != QStringLiteral("SYS_ADMIN")) return forbidden();
+    if (!repository_->supportsAdminAccounts()) return ServiceResult::failure(
+        ErrorCode::ServiceUnavailable, QStringLiteral("ADMIN_ACCOUNTS_MIGRATION_REQUIRED"));
+    if (!status.isEmpty() && status != QStringLiteral("ACTIVE")
+        && status != QStringLiteral("DISABLED")) return invalidRequest();
+    const QList<AdminRecord> admins = repository_->listAdmins();
+    if (!repository_->lastOperationSucceeded()) return internalError();
+    QJsonArray items;
+    for (const AdminRecord &admin : admins) {
+        if (!status.isEmpty() && admin.status != status) continue;
+        if (!keyword.isEmpty()
+            && !admin.username.contains(keyword, Qt::CaseInsensitive)
+            && !admin.displayName.contains(keyword, Qt::CaseInsensitive)) continue;
+        items.append(adminToJson(admin));
+    }
+    return ServiceResult::success({{QStringLiteral("items"), items}});
+}
+
+ServiceResult ApplicationService::createAdminAccount(qint64 actorAdminId,
+                                                      const QJsonObject &input)
+{
+    ServiceResult failure;
+    const auto actor = activeAdmin(repository_, actorAdminId, &failure);
+    if (!actor.has_value()) return failure;
+    if (actor->role != QStringLiteral("SYS_ADMIN")) return forbidden();
+    if (!repository_->supportsAdminAccounts()) return ServiceResult::failure(
+        ErrorCode::ServiceUnavailable, QStringLiteral("ADMIN_ACCOUNTS_MIGRATION_REQUIRED"));
+    QString username;
+    QString initialPassword;
+    QString displayName;
+    QString role;
+    QList<qint64> stationIds;
+    static const QRegularExpression usernamePattern(QStringLiteral("^[A-Za-z0-9_.-]{3,32}$"));
+    if (!readString(input, QStringLiteral("username"), &username)
+        || !readString(input, QStringLiteral("initialPassword"), &initialPassword)
+        || !readString(input, QStringLiteral("displayName"), &displayName)
+        || !readString(input, QStringLiteral("role"), &role)
+        || !readStationIds(input, &stationIds)
+        || !usernamePattern.match(username).hasMatch()
+        || initialPassword.size() < 8 || initialPassword.size() > 128
+        || displayName.trimmed().isEmpty() || displayName.trimmed().size() > 32
+        || (role != QStringLiteral("SYS_ADMIN")
+            && role != QStringLiteral("STATION_ADMIN")
+            && role != QStringLiteral("USER_ADMIN"))
+        || (role == QStringLiteral("STATION_ADMIN") && stationIds.isEmpty())
+        || (role != QStringLiteral("STATION_ADMIN") && !stationIds.isEmpty())) {
+        return invalidRequest();
+    }
+    const QList<AdminRecord> existingAdmins = repository_->listAdmins();
+    if (!repository_->lastOperationSucceeded()) return internalError();
+    if (std::any_of(existingAdmins.cbegin(), existingAdmins.cend(),
+                    [&username](const AdminRecord &admin) {
+                        return admin.username.compare(username, Qt::CaseInsensitive) == 0;
+                    })) {
+        return ServiceResult::failure(kDuplicateUsername,
+                                      QStringLiteral("DUPLICATE_USERNAME"));
+    }
+    for (qint64 stationId : stationIds) {
+        if (!repository_->findStationById(stationId).has_value()) {
+            if (!repository_->lastOperationSucceeded()) return internalError();
+            return ServiceResult::failure(ErrorCode::NotFound,
+                                          QStringLiteral("STATION_NOT_FOUND"));
+        }
+    }
+    const QString now = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    AdminRecord admin;
+    admin.username = username;
+    admin.passwordHash = hashAdminPassword(initialPassword);
+    admin.displayName = displayName.trimmed();
+    admin.role = role;
+    admin.status = QStringLiteral("ACTIVE");
+    admin.mustChangePassword = true;
+    admin.createdAt = now;
+    admin.updatedAt = now;
+    admin.stationIds = stationIds;
+    RepositoryTransaction transaction(repository_);
+    if (!transaction.active()) return internalError();
+    admin = repository_->createAdmin(admin);
+    if (!repository_->lastOperationSucceeded() || admin.adminId <= 0
+        || !repository_->replaceAdminStationScopes(admin.adminId, stationIds,
+                                                   actorAdminId, now)
+        || !repository_->appendAdminAudit(actorAdminId,
+                                          QStringLiteral("ADMIN_CREATE"),
+                                          admin.adminId,
+                                          compactJson({{QStringLiteral("role"), role},
+                                                       {QStringLiteral("stationIds"), input.value(QStringLiteral("stationIds"))}}),
+                                          now)
+        || !transaction.commit()) return internalError();
+    admin.stationIds = stationIds;
+    return ServiceResult::success({{QStringLiteral("admin"), adminToJson(admin)}});
+}
+
+ServiceResult ApplicationService::updateAdminAccount(qint64 actorAdminId,
+                                                      const QJsonObject &input)
+{
+    ServiceResult failure;
+    const auto actor = activeAdmin(repository_, actorAdminId, &failure);
+    if (!actor.has_value()) return failure;
+    if (actor->role != QStringLiteral("SYS_ADMIN")) return forbidden();
+    if (!repository_->supportsAdminAccounts()) return ServiceResult::failure(
+        ErrorCode::ServiceUnavailable, QStringLiteral("ADMIN_ACCOUNTS_MIGRATION_REQUIRED"));
+    qint64 adminId = 0;
+    QString displayName;
+    QString role;
+    QString status;
+    QString reason;
+    QList<qint64> stationIds;
+    if (!readInteger(input, QStringLiteral("adminId"), &adminId)
+        || !readString(input, QStringLiteral("displayName"), &displayName)
+        || !readString(input, QStringLiteral("role"), &role)
+        || !readString(input, QStringLiteral("status"), &status)
+        || !readString(input, QStringLiteral("reason"), &reason)
+        || !readStationIds(input, &stationIds)
+        || adminId <= 0 || displayName.trimmed().isEmpty()
+        || displayName.trimmed().size() > 32 || reason.trimmed().isEmpty()
+        || reason.trimmed().size() > 200
+        || (role != QStringLiteral("SYS_ADMIN")
+            && role != QStringLiteral("STATION_ADMIN")
+            && role != QStringLiteral("USER_ADMIN"))
+        || (status != QStringLiteral("ACTIVE") && status != QStringLiteral("DISABLED"))
+        || (role == QStringLiteral("STATION_ADMIN") && stationIds.isEmpty())
+        || (role != QStringLiteral("STATION_ADMIN") && !stationIds.isEmpty())) {
+        return invalidRequest();
+    }
+    auto target = repository_->findAdminById(adminId);
+    if (!repository_->lastOperationSucceeded()) return internalError();
+    if (!target.has_value()) {
+        return ServiceResult::failure(kAdminNotFound, QStringLiteral("ADMIN_NOT_FOUND"));
+    }
+    if (adminId == actorAdminId && status == QStringLiteral("DISABLED")) {
+        return forbidden(QStringLiteral("CANNOT_DISABLE_SELF"));
+    }
+    if (adminId == actorAdminId && role != actor->role) {
+        return forbidden(QStringLiteral("CANNOT_CHANGE_OWN_ROLE"));
+    }
+    for (qint64 stationId : stationIds) {
+        if (!repository_->findStationById(stationId).has_value()) {
+            if (!repository_->lastOperationSucceeded()) return internalError();
+            return ServiceResult::failure(ErrorCode::NotFound,
+                                          QStringLiteral("STATION_NOT_FOUND"));
+        }
+    }
+    if (target->role == QStringLiteral("SYS_ADMIN")
+        && target->status == QStringLiteral("ACTIVE")
+        && (role != QStringLiteral("SYS_ADMIN") || status != QStringLiteral("ACTIVE"))) {
+        const QList<AdminRecord> admins = repository_->listAdmins();
+        if (!repository_->lastOperationSucceeded()) return internalError();
+        const int activeSystemAdmins = std::count_if(
+            admins.cbegin(), admins.cend(), [](const AdminRecord &admin) {
+                return admin.role == QStringLiteral("SYS_ADMIN")
+                    && admin.status == QStringLiteral("ACTIVE");
+            });
+        if (activeSystemAdmins <= 1) {
+            return ServiceResult::failure(kLastSystemAdmin,
+                                          QStringLiteral("LAST_SYS_ADMIN"));
+        }
+    }
+    const QString now = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    target->displayName = displayName.trimmed();
+    target->role = role;
+    target->status = status;
+    target->stationIds = stationIds;
+    target->updatedAt = now;
+    RepositoryTransaction transaction(repository_);
+    if (!transaction.active() || !repository_->updateAdmin(*target)
+        || !repository_->replaceAdminStationScopes(adminId, stationIds,
+                                                   actorAdminId, now)
+        || !repository_->appendAdminAudit(actorAdminId,
+                                          QStringLiteral("ADMIN_UPDATE"),
+                                          adminId,
+                                          compactJson({{QStringLiteral("role"), role},
+                                                       {QStringLiteral("status"), status},
+                                                       {QStringLiteral("reason"), reason.trimmed()},
+                                                       {QStringLiteral("stationIds"), input.value(QStringLiteral("stationIds"))}}),
+                                          now)
+        || !transaction.commit()) return internalError();
+    target->version += 1;
+    return ServiceResult::success({{QStringLiteral("admin"), adminToJson(*target)}});
+}
+
+ServiceResult ApplicationService::changeAdminPassword(qint64 actorAdminId,
+                                                       const QString &currentPassword,
+                                                       const QString &newPassword)
+{
+    ServiceResult failure;
+    auto actor = activeAdmin(repository_, actorAdminId, &failure, true);
+    if (!actor.has_value()) return failure;
+    if (!repository_->supportsAdminAccounts()) return ServiceResult::failure(
+        ErrorCode::ServiceUnavailable, QStringLiteral("ADMIN_ACCOUNTS_MIGRATION_REQUIRED"));
+    if (currentPassword.isEmpty() || newPassword.size() < 8
+        || newPassword.size() > 128 || currentPassword == newPassword) {
+        return invalidRequest();
+    }
+    if (!verifyAdminPassword(*actor, currentPassword)) {
+        return ServiceResult::failure(ErrorCode::InvalidCredentials,
+                                      QStringLiteral("INVALID_CREDENTIALS"));
+    }
+    const QString now = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    actor->passwordHash = hashAdminPassword(newPassword);
+    actor->passwordAlgorithm = QStringLiteral("PBKDF2_SHA256");
+    actor->mustChangePassword = false;
+    actor->updatedAt = now;
+    RepositoryTransaction transaction(repository_);
+    if (!transaction.active() || !repository_->updateAdmin(*actor)
+        || !repository_->appendAdminAudit(actorAdminId,
+                                          QStringLiteral("ADMIN_PASSWORD_CHANGE"),
+                                          actorAdminId, QStringLiteral("{}"), now)
+        || !transaction.commit()) return internalError();
+    return ServiceResult::success({{QStringLiteral("changed"), true}});
+}
+
+ServiceResult ApplicationService::getDashboard(qint64 actorAdminId, int days) const
 {
     if (days != 7 && days != 30) return invalidRequest();
     const QTimeZone businessZone("Asia/Shanghai");
     const QDate today = QDateTime::currentDateTimeUtc().toTimeZone(businessZone).date();
-    return getDashboard(today.addDays(1 - days), today);
+    return getDashboard(actorAdminId, today.addDays(1 - days), today);
 }
 
-ServiceResult ApplicationService::getDashboard(const QDate &startDate,
+ServiceResult ApplicationService::getDashboard(qint64 actorAdminId,
+                                                const QDate &startDate,
                                                 const QDate &endDate) const
 {
     if (repository_ == nullptr || !startDate.isValid() || !endDate.isValid()
@@ -474,17 +903,38 @@ ServiceResult ApplicationService::getDashboard(const QDate &startDate,
         return invalidRequest();
     }
 
-    const QList<OrderDto> orders = repository_->listOrders();
+    ServiceResult failure;
+    const auto actor = activeAdmin(repository_, actorAdminId, &failure);
+    if (!actor.has_value()) return failure;
+
+    QList<OrderDto> orders = repository_->listOrders();
     if (!repository_->lastOperationSucceeded()) {
         return internalError();
     }
-    const QList<StationDto> stations = repository_->listStations();
+    QList<StationDto> stations = repository_->listStations();
     if (!repository_->lastOperationSucceeded()) {
         return internalError();
     }
-    const QList<PileDto> piles = repository_->listPiles();
+    QList<PileDto> piles = repository_->listPiles();
     if (!repository_->lastOperationSucceeded()) {
         return internalError();
+    }
+    if (actor->role == QStringLiteral("STATION_ADMIN")) {
+        const auto outsideScope = [&actor](qint64 stationId) {
+            return !actor->stationIds.contains(stationId);
+        };
+        orders.erase(std::remove_if(orders.begin(), orders.end(),
+                                    [&outsideScope](const OrderDto &order) {
+                                        return outsideScope(order.stationId);
+                                    }), orders.end());
+        stations.erase(std::remove_if(stations.begin(), stations.end(),
+                                      [&outsideScope](const StationDto &station) {
+                                          return outsideScope(station.stationId);
+                                      }), stations.end());
+        piles.erase(std::remove_if(piles.begin(), piles.end(),
+                                   [&outsideScope](const PileDto &pile) {
+                                       return outsideScope(pile.stationId);
+                                   }), piles.end());
     }
     const QTimeZone businessZone("Asia/Shanghai");
     const QDate today = QDateTime::currentDateTimeUtc().toTimeZone(businessZone).date();
@@ -550,19 +1000,25 @@ ServiceResult ApplicationService::getDashboard(const QDate &startDate,
     });
 }
 
-ServiceResult ApplicationService::listAdminStations(const QString &region,
-                                                    const QString &keyword) const
+ServiceResult ApplicationService::listAdminStations(qint64 actorAdminId,
+                                                     const QString &region,
+                                                     const QString &keyword) const
 {
     if (repository_ == nullptr) {
         return ServiceResult::failure(ErrorCode::InternalError,
                                       QStringLiteral("INTERNAL_ERROR"));
     }
+    ServiceResult failure;
+    const auto actor = activeAdmin(repository_, actorAdminId, &failure);
+    if (!actor.has_value()) return failure;
+    if (!hasRole(*actor, {"SYS_ADMIN", "STATION_ADMIN"})) return forbidden();
     const QList<StationDto> storedStations = repository_->listStations();
     if (!repository_->lastOperationSucceeded()) {
         return internalError();
     }
     QList<StationDto> result;
     for (StationDto station : storedStations) {
+        if (!canAccessStation(*actor, station.stationId)) continue;
         if (!region.isEmpty() && station.region != region) {
             continue;
         }
@@ -581,12 +1037,17 @@ ServiceResult ApplicationService::listAdminStations(const QString &region,
     });
 }
 
-ServiceResult ApplicationService::createAdminStation(const QJsonObject &input)
+ServiceResult ApplicationService::createAdminStation(qint64 actorAdminId,
+                                                      const QJsonObject &input)
 {
     if (repository_ == nullptr) {
         return ServiceResult::failure(ErrorCode::InternalError,
                                       QStringLiteral("INTERNAL_ERROR"));
     }
+    ServiceResult failure;
+    const auto actor = activeAdmin(repository_, actorAdminId, &failure);
+    if (!actor.has_value()) return failure;
+    if (actor->role != QStringLiteral("SYS_ADMIN")) return forbidden();
     StationDto station;
     qint64 price = 0;
     const QJsonValue longitudeValue = input.value(QStringLiteral("longitude"));
@@ -666,11 +1127,16 @@ ServiceResult ApplicationService::createAdminStation(const QJsonObject &input)
     });
 }
 
-ServiceResult ApplicationService::deleteAdminStation(qint64 stationId)
+ServiceResult ApplicationService::deleteAdminStation(qint64 actorAdminId,
+                                                      qint64 stationId)
 {
     if (repository_ == nullptr || stationId <= 0) {
         return invalidRequest();
     }
+    ServiceResult failure;
+    const auto actor = activeAdmin(repository_, actorAdminId, &failure);
+    if (!actor.has_value()) return failure;
+    if (actor->role != QStringLiteral("SYS_ADMIN")) return forbidden();
 
     switch (repository_->deleteStation(stationId)) {
     case DeleteStationResult::Deleted:
@@ -687,7 +1153,8 @@ ServiceResult ApplicationService::deleteAdminStation(qint64 stationId)
     return internalError();
 }
 
-ServiceResult ApplicationService::updateAdminStation(const QJsonObject &input)
+ServiceResult ApplicationService::updateAdminStation(qint64 actorAdminId,
+                                                      const QJsonObject &input)
 {
     if (repository_ == nullptr) return internalError();
     qint64 stationId = 0;
@@ -714,6 +1181,13 @@ ServiceResult ApplicationService::updateAdminStation(const QJsonObject &input)
         || latitudeValue.toDouble() < -90.0 || latitudeValue.toDouble() > 90.0) {
         return invalidRequest();
     }
+    ServiceResult failure;
+    const auto actor = activeAdmin(repository_, actorAdminId, &failure);
+    if (!actor.has_value()) return failure;
+    if (!canAccessStation(*actor, stationId)) {
+        return ServiceResult::failure(kStationScopeForbidden,
+                                      QStringLiteral("STATION_SCOPE_FORBIDDEN"));
+    }
     StationStatus status;
     if (statusText == QStringLiteral("ACTIVE")) status = StationStatus::Active;
     else if (statusText == QStringLiteral("DISABLED")) status = StationStatus::Disabled;
@@ -736,12 +1210,20 @@ ServiceResult ApplicationService::updateAdminStation(const QJsonObject &input)
     return ServiceResult::success({{QStringLiteral("station"), toJson(*updated)}});
 }
 
-ServiceResult ApplicationService::setAdminStationStatus(qint64 stationId,
+ServiceResult ApplicationService::setAdminStationStatus(qint64 actorAdminId,
+                                                        qint64 stationId,
                                                         StationStatus status)
 {
     if (repository_ == nullptr || stationId <= 0
         || (status != StationStatus::Active && status != StationStatus::Disabled)) {
         return invalidRequest();
+    }
+    ServiceResult failure;
+    const auto actor = activeAdmin(repository_, actorAdminId, &failure);
+    if (!actor.has_value()) return failure;
+    if (!canAccessStation(*actor, stationId)) {
+        return ServiceResult::failure(kStationScopeForbidden,
+                                      QStringLiteral("STATION_SCOPE_FORBIDDEN"));
     }
     const auto existing = repository_->findStationById(stationId);
     if (!repository_->lastOperationSucceeded()) return internalError();
@@ -797,24 +1279,39 @@ ServiceResult ApplicationService::setAdminStationStatus(qint64 stationId,
 }
 
 ServiceResult ApplicationService::listAdminPiles(
+    qint64 actorAdminId,
     std::optional<qint64> stationId) const
 {
     if (repository_ == nullptr) {
         return ServiceResult::failure(ErrorCode::InternalError,
                                       QStringLiteral("INTERNAL_ERROR"));
     }
-    const QList<PileDto> piles = stationId.has_value()
+    ServiceResult failure;
+    const auto actor = activeAdmin(repository_, actorAdminId, &failure);
+    if (!actor.has_value()) return failure;
+    if (!hasRole(*actor, {"SYS_ADMIN", "STATION_ADMIN"})) return forbidden();
+    if (stationId.has_value() && !canAccessStation(*actor, *stationId)) {
+        return ServiceResult::failure(kStationScopeForbidden,
+                                      QStringLiteral("STATION_SCOPE_FORBIDDEN"));
+    }
+    QList<PileDto> piles = stationId.has_value()
         ? repository_->listPilesByStationId(*stationId)
         : repository_->listPiles();
     if (!repository_->lastOperationSucceeded()) {
         return internalError();
+    }
+    if (actor->role == QStringLiteral("STATION_ADMIN") && !stationId.has_value()) {
+        piles.erase(std::remove_if(piles.begin(), piles.end(), [&actor](const PileDto &pile) {
+            return !actor->stationIds.contains(pile.stationId);
+        }), piles.end());
     }
     return ServiceResult::success({
         {QStringLiteral("items"), pilesToJson(piles)},
     });
 }
 
-ServiceResult ApplicationService::createAdminPile(const QJsonObject &input)
+ServiceResult ApplicationService::createAdminPile(qint64 actorAdminId,
+                                                   const QJsonObject &input)
 {
     if (repository_ == nullptr) return internalError();
     qint64 stationId = 0;
@@ -829,6 +1326,13 @@ ServiceResult ApplicationService::createAdminPile(const QJsonObject &input)
         || powerValue.toDouble() <= 0.0
         || (pileType != QStringLiteral("FAST") && pileType != QStringLiteral("SLOW"))) {
         return invalidRequest();
+    }
+    ServiceResult failure;
+    const auto actor = activeAdmin(repository_, actorAdminId, &failure);
+    if (!actor.has_value()) return failure;
+    if (!canAccessStation(*actor, stationId)) {
+        return ServiceResult::failure(kStationScopeForbidden,
+                                      QStringLiteral("STATION_SCOPE_FORBIDDEN"));
     }
     const auto station = repository_->findStationById(stationId);
     if (!repository_->lastOperationSucceeded()) return internalError();
@@ -854,7 +1358,8 @@ ServiceResult ApplicationService::createAdminPile(const QJsonObject &input)
     return ServiceResult::success({{QStringLiteral("pile"), toJson(pile)}});
 }
 
-ServiceResult ApplicationService::updateAdminPile(const QJsonObject &input)
+ServiceResult ApplicationService::updateAdminPile(qint64 actorAdminId,
+                                                   const QJsonObject &input)
 {
     if (repository_ == nullptr) return internalError();
 
@@ -880,6 +1385,13 @@ ServiceResult ApplicationService::updateAdminPile(const QJsonObject &input)
     });
     if (found == piles.end()) {
         return ServiceResult::failure(ErrorCode::NotFound, QStringLiteral("NOT_FOUND"));
+    }
+    ServiceResult failure;
+    const auto actor = activeAdmin(repository_, actorAdminId, &failure);
+    if (!actor.has_value()) return failure;
+    if (!canAccessStation(*actor, found->stationId)) {
+        return ServiceResult::failure(kStationScopeForbidden,
+                                      QStringLiteral("STATION_SCOPE_FORBIDDEN"));
     }
     // A pile participating in a reservation or an active charge cannot have
     // its hardware metadata changed while the client is using it.
@@ -909,9 +1421,25 @@ ServiceResult ApplicationService::updateAdminPile(const QJsonObject &input)
     return ServiceResult::success({{QStringLiteral("pile"), toJson(*found)}});
 }
 
-ServiceResult ApplicationService::deleteAdminPile(qint64 pileId)
+ServiceResult ApplicationService::deleteAdminPile(qint64 actorAdminId,
+                                                   qint64 pileId)
 {
     if (repository_ == nullptr || pileId <= 0) return invalidRequest();
+    const QList<PileDto> piles = repository_->listPiles();
+    if (!repository_->lastOperationSucceeded()) return internalError();
+    const auto found = std::find_if(piles.cbegin(), piles.cend(), [pileId](const PileDto &pile) {
+        return pile.pileId == pileId;
+    });
+    if (found == piles.cend()) {
+        return ServiceResult::failure(ErrorCode::NotFound, QStringLiteral("NOT_FOUND"));
+    }
+    ServiceResult failure;
+    const auto actor = activeAdmin(repository_, actorAdminId, &failure);
+    if (!actor.has_value()) return failure;
+    if (!canAccessStation(*actor, found->stationId)) {
+        return ServiceResult::failure(kStationScopeForbidden,
+                                      QStringLiteral("STATION_SCOPE_FORBIDDEN"));
+    }
     switch (repository_->deletePile(pileId)) {
     case DeletePileResult::Deleted:
         return ServiceResult::success({{QStringLiteral("success"), true}});
@@ -927,7 +1455,9 @@ ServiceResult ApplicationService::deleteAdminPile(qint64 pileId)
     return internalError();
 }
 
-ServiceResult ApplicationService::setAdminPileStatus(qint64 pileId, PileStatus status)
+ServiceResult ApplicationService::setAdminPileStatus(qint64 actorAdminId,
+                                                      qint64 pileId,
+                                                      PileStatus status)
 {
     if (repository_ == nullptr || pileId <= 0
         || (status != PileStatus::Idle && status != PileStatus::Offline
@@ -940,6 +1470,13 @@ ServiceResult ApplicationService::setAdminPileStatus(qint64 pileId, PileStatus s
         return pile.pileId == pileId;
     });
     if (found == piles.end()) return ServiceResult::failure(ErrorCode::NotFound, QStringLiteral("NOT_FOUND"));
+    ServiceResult failure;
+    const auto actor = activeAdmin(repository_, actorAdminId, &failure);
+    if (!actor.has_value()) return failure;
+    if (!canAccessStation(*actor, found->stationId)) {
+        return ServiceResult::failure(kStationScopeForbidden,
+                                      QStringLiteral("STATION_SCOPE_FORBIDDEN"));
+    }
     if (found->status == PileStatus::Reserved || found->status == PileStatus::Charging
         || (found->status == PileStatus::Fault && status != PileStatus::Fault)) {
         return ServiceResult::failure(ErrorCode::IllegalOrderState, QStringLiteral("ILLEGAL_ORDER_STATE"));
@@ -949,7 +1486,8 @@ ServiceResult ApplicationService::setAdminPileStatus(qint64 pileId, PileStatus s
     return ServiceResult::success({{QStringLiteral("pile"), toJson(*found)}});
 }
 
-ServiceResult ApplicationService::restartAdminPile(qint64 pileId)
+ServiceResult ApplicationService::restartAdminPile(qint64 actorAdminId,
+                                                    qint64 pileId)
 {
     if (repository_ == nullptr || pileGateway_ == nullptr || pileId <= 0) {
         return invalidRequest();
@@ -966,6 +1504,13 @@ ServiceResult ApplicationService::restartAdminPile(qint64 pileId)
         return ServiceResult::failure(ErrorCode::NotFound,
                                       QStringLiteral("NOT_FOUND"));
     }
+    ServiceResult failure;
+    const auto actor = activeAdmin(repository_, actorAdminId, &failure);
+    if (!actor.has_value()) return failure;
+    if (!canAccessStation(*actor, found->stationId)) {
+        return ServiceResult::failure(kStationScopeForbidden,
+                                      QStringLiteral("STATION_SCOPE_FORBIDDEN"));
+    }
     QString error;
     if (found->status == PileStatus::Fault
         || !pileGateway_->restart(found->pileId, found->status, &error)) {
@@ -980,12 +1525,17 @@ ServiceResult ApplicationService::restartAdminPile(qint64 pileId)
     return ServiceResult::success({{QStringLiteral("pile"), toJson(*found)}});
 }
 
-ServiceResult ApplicationService::listAdminUsers(const QString &phoneKeyword) const
+ServiceResult ApplicationService::listAdminUsers(qint64 actorAdminId,
+                                                 const QString &phoneKeyword) const
 {
     if (repository_ == nullptr) {
         return ServiceResult::failure(ErrorCode::InternalError,
                                       QStringLiteral("INTERNAL_ERROR"));
     }
+    ServiceResult failure;
+    const auto actor = activeAdmin(repository_, actorAdminId, &failure);
+    if (!actor.has_value()) return failure;
+    if (!hasRole(*actor, {"SYS_ADMIN", "USER_ADMIN"})) return forbidden();
     const QList<UserDto> users = repository_->listUsers();
     if (!repository_->lastOperationSucceeded()) {
         return internalError();
@@ -1000,12 +1550,17 @@ ServiceResult ApplicationService::listAdminUsers(const QString &phoneKeyword) co
     return ServiceResult::success({{QStringLiteral("items"), items}});
 }
 
-ServiceResult ApplicationService::setAdminUserStatus(qint64 userId,
+ServiceResult ApplicationService::setAdminUserStatus(qint64 actorAdminId,
+                                                     qint64 userId,
                                                      UserStatus status)
 {
     if (repository_ == nullptr || userId <= 0) {
         return invalidRequest();
     }
+    ServiceResult failure;
+    const auto actor = activeAdmin(repository_, actorAdminId, &failure);
+    if (!actor.has_value()) return failure;
+    if (!hasRole(*actor, {"SYS_ADMIN", "USER_ADMIN"})) return forbidden();
     std::optional<UserDto> user = repository_->findUserById(userId);
     if (!repository_->lastOperationSucceeded()) {
         return internalError();
@@ -1040,19 +1595,24 @@ ServiceResult ApplicationService::setAdminUserStatus(qint64 userId,
     return ServiceResult::success({{QStringLiteral("user"), toJson(*user)}});
 }
 
-ServiceResult ApplicationService::listAdminOrders() const
+ServiceResult ApplicationService::listAdminOrders(qint64 actorAdminId) const
 {
     if (repository_ == nullptr) {
         return ServiceResult::failure(ErrorCode::InternalError,
                                       QStringLiteral("INTERNAL_ERROR"));
     }
-    const QList<OrderDto> orders = repository_->listOrders();
+    ServiceResult failure;
+    const auto actor = activeAdmin(repository_, actorAdminId, &failure);
+    if (!actor.has_value()) return failure;
+    QList<OrderDto> orders = repository_->listOrders();
     if (!repository_->lastOperationSucceeded()) {
         return internalError();
     }
     QJsonArray items;
     const QDateTime now = QDateTime::currentDateTimeUtc();
     for (OrderDto order : orders) {
+        if (actor->role == QStringLiteral("STATION_ADMIN")
+            && !actor->stationIds.contains(order.stationId)) continue;
         if (!refreshOrderReading(&order, now)) return internalError();
         items.append(toJson(order));
     }
@@ -1140,14 +1700,22 @@ ServiceResult ApplicationService::getSupportTicket(const QString &token, const Q
     return ServiceResult::success({{"ticket", toJson(*ticket)}});
 }
 
-ServiceResult ApplicationService::listAdminSupportTickets(std::optional<qint64> beforeId) const
+ServiceResult ApplicationService::listAdminSupportTickets(qint64 actorAdminId, std::optional<qint64> beforeId) const
 {
+    ServiceResult failure;
+    const auto actor = activeAdmin(repository_, actorAdminId, &failure);
+    if (!actor) return failure;
+    if (actor->role != QStringLiteral("SYS_ADMIN")) return forbidden();
     if (beforeId && *beforeId < 1) return invalidRequest();
     return ticketPage(repository_, {}, beforeId);
 }
 
-ServiceResult ApplicationService::updateAdminSupportTicket(const QJsonObject &input)
+ServiceResult ApplicationService::updateAdminSupportTicket(qint64 actorAdminId, const QJsonObject &input)
 {
+    ServiceResult failure;
+    const auto actor = activeAdmin(repository_, actorAdminId, &failure);
+    if (!actor) return failure;
+    if (actor->role != QStringLiteral("SYS_ADMIN")) return forbidden();
     qint64 ticketId = 0;
     TicketStatus status;
     if (input.size() != 3 || !positiveTicketId(input.value("ticketId"), &ticketId)

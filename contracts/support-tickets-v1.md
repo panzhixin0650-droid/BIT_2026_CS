@@ -56,12 +56,17 @@ ID 使用与 V1 一致的 JSON 安全整数。状态和回复变更不表示任�
 ## 管理端与持久化
 
 管理员通过本地 AdminFacade 查看工单、设置状态和回复；未登录返回 `40301`。
+结合 [管理员 RBAC](../docs/decisions/0009-admin-account-rbac.md)，仅 `SYS_ADMIN` 可处理工单。
+每次读写都在 ApplicationService 重新校验账号状态、首次改密和角色；停用后的会话返回
+`40101`，首次改密未完成或角色不允许返回 `40301`。站点／用户管理员不能读取全量工单，
+仅隐藏菜单不能代替权限校验；退出、登录失败或改密退出后不保留工单授权。
 不提供用户可访问的管理员更新 TCP 消息。更新只接受 `ticketId/status/reply`，已处理
 记录必须填写回复；合法状态可由管理员纠正，不改变工单原作者、标题、正文或创建时间。
 管理员退出后清除工单访问授权。
 
 仅新增[迁移 002](../database/migrations/002_support_tickets.sql) 的 `support_tickets` 表。
-保留旧 `user_version=1` 的业务可用性，启用工单需显式升级到 2。完整对话、AI Key、
+保留旧 `user_version=1` 的业务可用性，schema 2/3 均支持工单。
+003 管理员迁移不重建工单、不改变用户 TCP 消息；完整对话、AI Key、
 用户 token、手机号与实时位置不进入工单字段；用户应在提交预览中移除不必要的个人信息。
 
 示例：[创建请求](examples/support-ticket-create.request.json)、

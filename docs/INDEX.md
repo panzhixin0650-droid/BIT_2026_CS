@@ -6,7 +6,7 @@
 | --- | --- |
 | [`requirements/project-spec.doc`](requirements/project-spec.doc) | 课程验收的原始项目说明书 |
 | [`../contracts/overall-interface-v1.md`](../contracts/overall-interface-v1.md) | 当前跨模块接口、DTO、状态和错误码 |
-| [`design/demo-database-design.md`](design/demo-database-design.md) | 当前五表数据库设计与字段说明 |
+| [`design/demo-database-design.md`](design/demo-database-design.md) | 当前五张核心表、管理员附属表与字段说明 |
 | [`design/architecture/demo-architecture.png`](design/architecture/demo-architecture.png) | 当前架构图 PNG |
 | [`design/architecture/demo-architecture.svg`](design/architecture/demo-architecture.svg) | 可编辑架构图 SVG |
 
@@ -36,6 +36,7 @@
 | [`decisions/0007-client-demo-code-login.md`](decisions/0007-client-demo-code-login.md) | 用户端固定验证码登录交互，保留 V1 手机号自动注册与登录 |
 | [`decisions/0008-support-ticket-desk.md`](decisions/0008-support-ticket-desk.md) | 模拟客服、用户确认的 AI 工单摘要与独立数据库增量 |
 | [`../contracts/support-tickets-v1.md`](../contracts/support-tickets-v1.md) | 客服工单 V1 增量、幂等重试、权限和分页边界 |
+| [`decisions/0009-admin-account-rbac.md`](decisions/0009-admin-account-rbac.md) | 管理员账号管理、三角色权限、站点范围和密码升级 |
 | [`../contracts/client-assistant-local.md`](../contracts/client-assistant-local.md) | 智能助理本地检索与外部 HTTPS 边界，不改变 V1 TCP |
 
 ## 规则

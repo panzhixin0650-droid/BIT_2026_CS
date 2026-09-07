@@ -59,37 +59,62 @@ public:
     [[nodiscard]] ServiceResult createSupportTicket(const QString &token, const QJsonObject &input);
     [[nodiscard]] ServiceResult listSupportTickets(const QString &token, const QJsonObject &input) const;
     [[nodiscard]] ServiceResult getSupportTicket(const QString &token, const QJsonObject &input) const;
-    // Local administrator calls only; AdminFacade enforces its login boundary.
-    [[nodiscard]] ServiceResult listAdminSupportTickets(std::optional<qint64> beforeId = {}) const;
-    [[nodiscard]] ServiceResult updateAdminSupportTicket(const QJsonObject &input);
+    // Local administrator calls only; re-check identity and role on every operation.
+    [[nodiscard]] ServiceResult listAdminSupportTickets(qint64 actorAdminId, std::optional<qint64> beforeId = {}) const;
+    [[nodiscard]] ServiceResult updateAdminSupportTicket(qint64 actorAdminId, const QJsonObject &input);
 
     [[nodiscard]] ServiceResult loginAdmin(const QString &username,
-                                           const QString &password) const;
-    [[nodiscard]] ServiceResult getDashboard(int days) const;
-    [[nodiscard]] ServiceResult getDashboard(const QDate &startDate,
+                                           const QString &password);
+    [[nodiscard]] ServiceResult getAdminProfile(qint64 actorAdminId) const;
+    [[nodiscard]] ServiceResult listAdminAccounts(qint64 actorAdminId,
+                                                  const QString &keyword = {},
+                                                  const QString &status = {}) const;
+    [[nodiscard]] ServiceResult createAdminAccount(qint64 actorAdminId,
+                                                   const QJsonObject &input);
+    [[nodiscard]] ServiceResult updateAdminAccount(qint64 actorAdminId,
+                                                   const QJsonObject &input);
+    [[nodiscard]] ServiceResult changeAdminPassword(qint64 actorAdminId,
+                                                    const QString &currentPassword,
+                                                    const QString &newPassword);
+    [[nodiscard]] ServiceResult getDashboard(qint64 actorAdminId, int days) const;
+    [[nodiscard]] ServiceResult getDashboard(qint64 actorAdminId,
+                                             const QDate &startDate,
                                              const QDate &endDate) const;
-    [[nodiscard]] ServiceResult listAdminStations(const QString &region,
+    [[nodiscard]] ServiceResult listAdminStations(qint64 actorAdminId,
+                                                  const QString &region,
                                                   const QString &keyword) const;
-    [[nodiscard]] ServiceResult createAdminStation(const QJsonObject &input);
-    [[nodiscard]] ServiceResult updateAdminStation(const QJsonObject &input);
+    [[nodiscard]] ServiceResult createAdminStation(qint64 actorAdminId,
+                                                   const QJsonObject &input);
+    [[nodiscard]] ServiceResult updateAdminStation(qint64 actorAdminId,
+                                                   const QJsonObject &input);
     [[nodiscard]] ServiceResult setAdminStationStatus(
+        qint64 actorAdminId,
         qint64 stationId,
         charging::protocol::StationStatus status);
-    [[nodiscard]] ServiceResult deleteAdminStation(qint64 stationId);
+    [[nodiscard]] ServiceResult deleteAdminStation(qint64 actorAdminId,
+                                                   qint64 stationId);
     [[nodiscard]] ServiceResult listAdminPiles(
+        qint64 actorAdminId,
         std::optional<qint64> stationId = std::nullopt) const;
-    [[nodiscard]] ServiceResult createAdminPile(const QJsonObject &input);
-    [[nodiscard]] ServiceResult updateAdminPile(const QJsonObject &input);
-    [[nodiscard]] ServiceResult deleteAdminPile(qint64 pileId);
+    [[nodiscard]] ServiceResult createAdminPile(qint64 actorAdminId,
+                                                const QJsonObject &input);
+    [[nodiscard]] ServiceResult updateAdminPile(qint64 actorAdminId,
+                                                const QJsonObject &input);
+    [[nodiscard]] ServiceResult deleteAdminPile(qint64 actorAdminId,
+                                                qint64 pileId);
     [[nodiscard]] ServiceResult setAdminPileStatus(
+        qint64 actorAdminId,
         qint64 pileId,
         charging::protocol::PileStatus status);
-    [[nodiscard]] ServiceResult restartAdminPile(qint64 pileId);
-    [[nodiscard]] ServiceResult listAdminUsers(const QString &phoneKeyword) const;
+    [[nodiscard]] ServiceResult restartAdminPile(qint64 actorAdminId,
+                                                 qint64 pileId);
+    [[nodiscard]] ServiceResult listAdminUsers(qint64 actorAdminId,
+                                               const QString &phoneKeyword) const;
     [[nodiscard]] ServiceResult setAdminUserStatus(
+        qint64 actorAdminId,
         qint64 userId,
         charging::protocol::UserStatus status);
-    [[nodiscard]] ServiceResult listAdminOrders() const;
+    [[nodiscard]] ServiceResult listAdminOrders(qint64 actorAdminId) const;
 
 private:
     [[nodiscard]] std::optional<qint64> authenticatedUserId(

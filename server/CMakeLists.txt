@@ -153,6 +153,8 @@ if(BUILD_TESTING)
         PRIVATE
             CHARGING_SQLITE3_EXECUTABLE="${SQLITE3_EXECUTABLE}"
             CHARGING_DATABASE_MIGRATION_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/migrations/001_initial_demo.sql"
+            CHARGING_TICKET_MIGRATION_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/migrations/002_support_tickets.sql"
+            CHARGING_ADMIN_MIGRATION_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/migrations/003_admin_accounts.sql"
             CHARGING_DATABASE_SEED_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/seeds/demo.sql"
     )
 
@@ -187,9 +189,11 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/../client/src
     )
     target_compile_definitions(charging_order_flow_tests PRIVATE
-        CHARGING_SQLITE3_EXECUTABLE="${SQLITE3_EXECUTABLE}"
-        CHARGING_DATABASE_MIGRATION_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/migrations/001_initial_demo.sql"
-        CHARGING_DATABASE_SEED_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/seeds/demo.sql"
+            CHARGING_SQLITE3_EXECUTABLE="${SQLITE3_EXECUTABLE}"
+            CHARGING_DATABASE_MIGRATION_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/migrations/001_initial_demo.sql"
+            CHARGING_TICKET_MIGRATION_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/migrations/002_support_tickets.sql"
+            CHARGING_ADMIN_MIGRATION_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/migrations/003_admin_accounts.sql"
+            CHARGING_DATABASE_SEED_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/seeds/demo.sql"
     )
     target_link_libraries(charging_order_flow_tests PRIVATE
         charging_protocol Qt6::Core Qt6::Network Qt6::Sql Qt6::Test
@@ -217,7 +221,8 @@ if(BUILD_TESTING)
         CHARGING_SQLITE3_EXECUTABLE="${SQLITE3_EXECUTABLE}"
         CHARGING_DATABASE_MIGRATION_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/migrations/001_initial_demo.sql"
         CHARGING_DATABASE_SEED_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/seeds/demo.sql"
-        CHARGING_TICKET_MIGRATION_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/migrations/002_support_tickets.sql")
+        CHARGING_TICKET_MIGRATION_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/migrations/002_support_tickets.sql"
+        CHARGING_ADMIN_MIGRATION_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/migrations/003_admin_accounts.sql")
     target_link_libraries(charging_support_ticket_flow_tests PRIVATE
         charging_protocol Qt6::Core Qt6::Network Qt6::Sql Qt6::Test)
     add_test(NAME charging_support_ticket_flow_tests COMMAND charging_support_ticket_flow_tests)

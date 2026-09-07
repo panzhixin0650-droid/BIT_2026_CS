@@ -1,5 +1,6 @@
 #include "admin_ui/support_tickets_page.h"
 #include "admin_ui/admin_facade.h"
+#include "charging/protocol/protocol_constants.h"
 
 #include <QComboBox>
 #include <QHBoxLayout>
@@ -121,6 +122,7 @@ void SupportTicketsPage::save()
     const auto result = facade_->updateSupportTicket({{"ticketId", tickets_[row].ticketId},
         {"status", status_->currentData().toString()}, {"reply", reply_->toPlainText().trimmed()}});
     if (!result.ok()) {
+        if (result.code == ErrorCode::Forbidden || result.code == ErrorCode::InvalidSession) clear();
         notice_->setText(QStringLiteral("保存失败：回复最多 2000 字，‘已解决’需填写回复；请确认仍已登录。")); return;
     }
     SupportTicketDto updated;

@@ -8,7 +8,7 @@
 >
 > 配套文件：[整体接口契约](../../contracts/overall-interface-v1.md)、[架构图](./architecture/demo-architecture.png)
 >
-> 当前阶段：设计已冻结；首个五表迁移、演示种子和独立验证位于 `database/`，合并后由编号迁移成为结构事实源。
+> 当前阶段：五表基线已冻结；ADR 0008 / 002 增加工单，ADR 0009 / 003 增加管理员授权与审计。
 
 ---
 
@@ -36,7 +36,7 @@
 - 小时聚合、模型版本、预测任务和预测点；
 - 退款、钱包账本、备份保留和并发压力测试。
 
-项目说明书明确点名的数据库对象只有：**用户、管理员、充电站、充电桩、充电订单**。因此本版只保留这 5 张表。
+项目说明书明确点名的核心数据库对象仍是：**用户、管理员、充电站、充电桩、充电订单**。管理员账号管理已产生实际页面消费者，因此在五张核心表之外增加 `admin_station_scopes` 和 `admin_audit_logs` 两张附属表；其他扩展仍不进入本版。
 
 ### 1.2 现有两份文档不能直接共同作为实现基线
 
@@ -55,7 +55,7 @@
 
 因此，不建议继续修改旧 24 表方案。本文和新接口契约构成当前设计基线；数据库开始实现后，已合并的编号迁移 SQL 才成为结构事实源。旧文档仅作为扩展思路参考。
 
-### 1.3 五张表为什么够用
+### 1.3 五张核心表、工单与两张管理员附属表
 
 | 功能 | 数据来源或写入位置 |
 | --- | --- |
@@ -69,6 +69,10 @@
 | 今日/月/总营收、7/30 日曲线 | 从 `COMPLETED` 订单按 `paid_at` 聚合 |
 | Web 大屏 | 服务端把上述聚合结果导出为 JSON；Web 不直连数据库 |
 | 1/6/24 小时预测 | `IPredictionProvider` 的 Mock 输出；当前不落库 |
+| 管理员角色、状态和首次改密 | `admins` 扩展字段 |
+| 站点管理员授权范围 | `admin_station_scopes` |
+| 管理员登录、创建、更新和改密审计 | `admin_audit_logs` |
+| 用户确认的客服工单、回复和处理状态 | `support_tickets` |
 | 充电桩硬件 | `MockPile`；当前没有真实设备表、心跳表或命令表 |
 
 ---
@@ -77,11 +81,11 @@
 
 ### 2.1 当前必须实现
 
-1. 数据库负责人编写首个编号迁移，只建立这 5 张表。
+1. `001` 建立五张核心表；`002` 增加工单；`003` 在 schema 2 上升级管理员并增加两张附属表。
 2. 编写演示种子，覆盖用户、站点、电桩和近 30 日订单页面需要的数据。
 3. 服务端通过一个 Repository/数据访问模块访问 SQLite。
 4. 预约、开始充电、停止结算和补支付时，订单、桩状态、余额在一个事务中修改。
-5. 管理端和 Web 大屏从这 5 张表查询、联表和聚合。
+5. 管理端和 Web 大屏从五张核心表查询、联表和聚合，管理员页面另外使用两张附属表。
 
 ### 2.2 当前不建表
 
@@ -94,12 +98,12 @@
 | 充值/支付流水 | 当前只保留用户余额与订单支付结果 | 增加账单流水、退款或对账时 |
 | 预约超时/违约 | 当前不实现自动超时 | 需求明确预约时限后 |
 | 客服工单 | 已按 ADR 0008 单独启用，schema 2 增量迁移 | 用户确认的摘要与管理员处理结果 |
-| 报修派单、管理员管理 | 当前未启用 | 页面和接口进入本期计划后 |
+| 报修派单 | 当前未启用 | 页面和接口进入本期计划后 |
 | 只读 AI 助理 | 客户端随包知识与内存会话，见 [ADR 0005](../decisions/0005-client-rag-assistant.md) | 明确要求持久会话或客服工单时另行决策 |
 | 设备命令日志 | `MockPile.restart()` 直接返回结果 | 接入真实硬件或需要操作审计时 |
 | 小时指标 | 查询时聚合 | 数据量大到查询确实变慢时 |
 | 预测结果 | Mock/静态 JSON | 真正部署模型且需保留历史时 |
-| 请求幂等、审计、迁移校验和 | 不实现 | 有真实重试、审计或多版本升级需求时 |
+| 通用请求幂等、全业务审计、迁移校验和 | 不实现；工单去重与管理员审计为已接受的局部扩展 | 有更多持久化消费者时 |
 
 这些不是“永远禁止”；当前没有服务端持久化消费者的能力不建表，本地只读助理也不需要数据库迁移。
 
@@ -112,6 +116,9 @@ erDiagram
     USERS ||--o{ CHARGING_ORDERS : creates
     CHARGING_STATIONS ||--o{ CHARGING_PILES : contains
     CHARGING_PILES ||--o{ CHARGING_ORDERS : serves
+    ADMINS ||--o{ ADMIN_STATION_SCOPES : receives
+    CHARGING_STATIONS ||--o{ ADMIN_STATION_SCOPES : authorizes
+    ADMINS ||--o{ ADMIN_AUDIT_LOGS : acts
 
     USERS {
         INTEGER user_id PK
@@ -125,7 +132,26 @@ erDiagram
         INTEGER admin_id PK
         TEXT username UK
         TEXT password_hash
+        TEXT password_algorithm
         TEXT display_name
+        TEXT role
+        TEXT status
+        INTEGER must_change_password
+        TEXT last_login_at
+    }
+    ADMIN_STATION_SCOPES {
+        INTEGER admin_id FK
+        INTEGER station_id FK
+        INTEGER granted_by_admin_id FK
+        TEXT granted_at
+    }
+    ADMIN_AUDIT_LOGS {
+        INTEGER audit_id PK
+        INTEGER actor_admin_id FK
+        TEXT action
+        INTEGER target_admin_id FK
+        TEXT details_json
+        TEXT created_at
     }
     CHARGING_STATIONS {
         INTEGER station_id PK
@@ -165,6 +191,8 @@ erDiagram
     }
 ```
 
+`ADMINS` 与 `CHARGING_STATIONS` 通过 `ADMIN_STATION_SCOPES` 建立多对多授权关系；`ADMIN_AUDIT_LOGS` 记录管理员账号相关安全操作。
+
 设计只保留三个直接关系：
 
 - 一个站点包含多个电桩；
@@ -200,10 +228,23 @@ erDiagram
 | --- | --- | :---: | --- |
 | `admin_id` | INTEGER PK | 是 | 管理员 ID |
 | `username` | TEXT UNIQUE | 是 | 登录账号 |
-| `password_hash` | TEXT | 是 | 课程版固定使用 SHA-256 结果；不向客户端返回 |
+| `password_hash` | TEXT | 是 | 旧 SHA-256 或带随机盐的 PBKDF2-SHA256；不向界面返回 |
+| `password_algorithm` | TEXT | 是 | `SHA256_LEGACY` 或 `PBKDF2_SHA256` |
 | `display_name` | TEXT | 是 | 管理界面显示名 |
+| `role` | TEXT | 是 | `SYS_ADMIN`、`STATION_ADMIN` 或 `USER_ADMIN` |
+| `status` | TEXT | 是 | `ACTIVE` 或 `DISABLED` |
+| `must_change_password` | INTEGER | 是 | 新账号是否必须先修改初始密码 |
+| `last_login_at` | TEXT/null | 否 | 最近一次成功登录时间 |
+| `created_at` / `updated_at` | TEXT | 是 | UTC ISO 8601 时间 |
+| `version` | INTEGER | 是 | 管理员资料更新版本 |
 
-首版只有一个管理员，不做角色、站点授权、账号新增、改密和审计。种子账号为 `admin / 123456`。若日后上线真实系统，密码算法必须替换为专用密码哈希；这不是当前 Demo 的实现范围。
+种子账号仍为 `admin / 123456`。旧 SHA-256 凭据用于兼容；完成 003 后成功登录才自动升级为 PBKDF2-SHA256；新建和改密直接使用 PBKDF2-SHA256。账号只停用、不删除，完整规则见 [ADR 0009](../decisions/0009-admin-account-rbac.md)。
+
+### 4.2.1 管理员站点范围与审计
+
+`admin_station_scopes` 以 `(admin_id, station_id)` 为复合主键，只允许 `STATION_ADMIN` 在业务层拥有至少一个范围；系统管理员和用户管理员范围为空。替换范围与管理员更新处于同一事务。
+
+`admin_audit_logs` 记录账号登录、创建、更新和改密，保存操作者、目标管理员、动作、脱敏 JSON 详情和 UTC 时间。详情不得写入密码或密码哈希。
 
 ### 4.3 `charging_stations`：充电站
 
@@ -281,7 +322,7 @@ erDiagram
 
 ## 5. 不存字段，但接口仍要返回的派生数据
 
-以下数据都可以从 5 张表得到，不应重复保存。
+以下业务展示数据都可以从五张核心表得到，不应重复保存。
 
 ### 5.1 站点卡片
 
@@ -375,6 +416,8 @@ PRAGMA foreign_keys = ON;
 数据库负责人已在 `database/` 下交付：
 
 - `migrations/001_initial_demo.sql`：从空库建立本文五表和必要索引；
+- `migrations/002_support_tickets.sql`：追加工单，schema 1 → 2；
+- `migrations/003_admin_accounts.sql`：在 schema 2 上升级管理员并增加授权、审计附属表，版本升为 3；
 - `seeds/demo.sql`：生成课程页面所需的演示数据；
 - `tests/`：在临时库中验证迁移、种子、订单事务、约束和失败分支；
 - 可选样例数据库：只用于快速联调，不能替代 SQL。
@@ -396,7 +439,7 @@ PRAGMA foreign_keys = ON;
 
 迁移和种子实现完成后，至少验证 `integrity_check=ok`、`foreign_key_check` 无异常，并检查：
 
-1. 数据库只有 5 张业务表；
+1. 数据库有 5 张核心业务表和 2 张管理员附属表；
 2. 站点/电桩/用户/订单列表都有可显示数据；
 3. `RESERVED` 订单对应 `RESERVED` 桩；
 4. `CHARGING` 订单对应 `CHARGING` 桩；
@@ -420,9 +463,8 @@ PRAGMA foreign_keys = ON;
 | 充值明细、退款、对账 | `wallet_transactions` |
 | 报修闭环 | `fault_reports` |
 | AI 转人工 | `support_tickets` |
-| 多管理员和站点权限 | `admin_station_scopes`，再给管理员加角色 |
 | 峰谷/快慢充计价 | 独立 `pricing_rules`，订单现有单价快照无需改变 |
 | 设备命令审计 | `pile_commands` |
 | 模型预测历史 | `prediction_results` |
 
-当前五表不会阻碍上述扩展，也不会让当前开发者先实现没有页面使用的机制。
+当前五张核心表及管理员附属表不会阻碍上述扩展，也不会让当前开发者先实现没有页面使用的机制。

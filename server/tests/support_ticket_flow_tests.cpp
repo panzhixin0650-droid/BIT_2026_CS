@@ -50,11 +50,12 @@ struct Fixture {
         error = QString::fromUtf8(process.readAll());
         return process.exitStatus() == QProcess::NormalExit && process.exitCode() == 0;
     }
-    bool initialize(bool sqlite, bool migrate = true)
+    bool initialize(bool sqlite, bool migrate = true, bool adminAccounts = true)
     {
         if (sqlite) {
             QStringList paths{QStringLiteral(CHARGING_DATABASE_MIGRATION_PATH), QStringLiteral(CHARGING_DATABASE_SEED_PATH)};
             if (migrate) paths.append(QStringLiteral(CHARGING_TICKET_MIGRATION_PATH));
+            if (migrate && adminAccounts) paths.append(QStringLiteral(CHARGING_ADMIN_MIGRATION_PATH));
             for (const auto &path : paths) {
                 QFile file(path);
                 if (!file.open(QIODevice::ReadOnly) || !sql(file.readAll())) return false;
@@ -97,6 +98,14 @@ private slots:
     void legacySchemaKeepsBusinessWorking();
     void persistentAndStorageFailure();
     void realClientTcpToSqliteAndAdmin();
+    void legacyAdminLoginKeepsSchema_data();
+    void legacyAdminLoginKeepsSchema();
+    void adminAuthorizationIsRechecked_data() { backends(); }
+    void adminAuthorizationIsRechecked();
+    void mixedAdminAndTicketRollback_data() { backends(); }
+    void mixedAdminAndTicketRollback();
+    void upgradePreservesTickets();
+    void mismatchedSchemaVersionsAreRejected();
 };
 
 void SupportTicketFlowTests::lifecycleAndIsolation()
@@ -271,6 +280,168 @@ void SupportTicketFlowTests::realClientTcpToSqliteAndAdmin()
     QVERIFY(!api.listSupportTickets().isEmpty());
     QTRY_COMPARE(list.size(), 1);
     QVERIFY(qvariant_cast<client::TicketListResult>(list.takeFirst().first()).payload->items.isEmpty());
+}
+
+void SupportTicketFlowTests::legacyAdminLoginKeepsSchema_data()
+{
+    QTest::addColumn<bool>("tickets");
+    QTest::newRow("schema-1") << false;
+    QTest::newRow("schema-2-tickets") << true;
+}
+
+void SupportTicketFlowTests::legacyAdminLoginKeepsSchema()
+{
+    QFETCH(bool, tickets);
+    Fixture f; QVERIFY2(f.initialize(true, tickets, false), qPrintable(f.error));
+    QVERIFY(!f.repository->supportsAdminAccounts());
+    QCOMPARE(f.repository->supportsSupportTickets(), tickets);
+    const auto original = f.repository->findAdminById(1).value();
+    const auto snapshot = f.businessSnapshot();
+    AdminFacade admin(f.service.get());
+    const auto login = admin.login("admin", "123456");
+    QVERIFY(login.ok());
+    QVERIFY(!login.data.value("admin").toObject().value("adminAccountsAvailable").toBool());
+    QVERIFY(admin.getDashboard(7).ok());
+    QVERIFY(admin.listOrders().ok());
+    QVERIFY(admin.listStations().ok());
+    QCOMPARE(admin.listAdmins().message, QStringLiteral("ADMIN_ACCOUNTS_MIGRATION_REQUIRED"));
+    QCOMPARE(admin.createAdmin({}).code, ErrorCode::ServiceUnavailable);
+    QCOMPARE(admin.updateAdmin({}).code, ErrorCode::ServiceUnavailable);
+    QCOMPARE(admin.changePassword("123456", "Changed-789").code, ErrorCode::ServiceUnavailable);
+    QCOMPARE(f.repository->findAdminById(1)->passwordHash, original.passwordHash);
+    QCOMPARE(f.businessSnapshot(), snapshot);
+    if (tickets) {
+        const auto created = f.service->createSupportTicket(f.token, toJson(draft()));
+        QVERIFY(created.ok());
+        QVERIFY(admin.listSupportTickets().ok());
+        QVERIFY(admin.updateSupportTicket({{"ticketId", created.data.value("ticket").toObject().value("ticketId")},
+            {"status", "RESOLVED"}, {"reply", "legacy schema remains supported"}}).ok());
+    } else QCOMPARE(admin.listSupportTickets().code, ErrorCode::ServiceUnavailable);
+    QVERIFY(!admin.login("admin", "wrong").ok());
+    QVERIFY(!admin.listSupportTickets().ok());
+    QVERIFY(!admin.listOrders().ok());
+    QVERIFY(f.sql("PRAGMA user_version;"));
+    QCOMPARE(f.error.trimmed(), tickets ? QStringLiteral("2") : QStringLiteral("1"));
+}
+
+void SupportTicketFlowTests::adminAuthorizationIsRechecked()
+{
+    QFETCH(bool, sqlite);
+    Fixture f; QVERIFY2(f.initialize(sqlite), qPrintable(f.error));
+    const auto ticket = f.service->createSupportTicket(f.token, toJson(draft()));
+    QVERIFY(ticket.ok());
+    const QJsonObject update{{"ticketId", ticket.data.value("ticket").toObject().value("ticketId")},
+        {"status", "RESOLVED"}, {"reply", "checked"}};
+    QVERIFY(!f.service->listAdminSupportTickets(0).ok());
+    QVERIFY(!f.service->updateAdminSupportTicket(0, update).ok());
+    AdminFacade system(f.service.get()); QVERIFY(system.login("admin", "123456").ok());
+    for (const auto &role : {QStringLiteral("SYS_ADMIN"), QStringLiteral("STATION_ADMIN"), QStringLiteral("USER_ADMIN")}) {
+        const auto created = system.createAdmin({{"username", role}, {"initialPassword", "Initial-123"},
+            {"displayName", "test"}, {"role", role},
+            {"stationIds", role == "STATION_ADMIN" ? QJsonArray{1} : QJsonArray{}}});
+        QVERIFY(created.ok());
+        const qint64 id = created.data.value("admin").toObject().value("adminId").toInteger();
+        AdminFacade actor(f.service.get()); QVERIFY(actor.login(role, "Initial-123").ok());
+        QCOMPARE(actor.listSupportTickets().message, QStringLiteral("PASSWORD_CHANGE_REQUIRED"));
+        QCOMPARE(actor.updateSupportTicket(update).message, QStringLiteral("PASSWORD_CHANGE_REQUIRED"));
+        QVERIFY(actor.changePassword("Initial-123", "Changed-456").ok());
+        QVERIFY(!actor.listSupportTickets().ok());
+        QVERIFY(actor.login(role, "Changed-456").ok());
+        if (role == "SYS_ADMIN") {
+            QVERIFY(actor.listSupportTickets().ok());
+            QVERIFY(actor.updateSupportTicket(update).ok());
+            QVERIFY(system.updateAdmin({{"adminId", id}, {"displayName", "demoted"},
+                {"role", "USER_ADMIN"}, {"status", "ACTIVE"}, {"reason", "test role change"},
+                {"stationIds", QJsonArray{}}}).ok());
+        }
+        QCOMPARE(actor.listSupportTickets().code, ErrorCode::Forbidden);
+        QCOMPARE(actor.updateSupportTicket(update).code, ErrorCode::Forbidden);
+        auto record = f.repository->findAdminById(id).value();
+        record.status = "DISABLED";
+        QVERIFY(f.repository->updateAdmin(record));
+        QCOMPARE(actor.listSupportTickets().code, ErrorCode::InvalidSession);
+        QCOMPARE(actor.updateSupportTicket(update).code, ErrorCode::InvalidSession);
+        QVERIFY(!actor.login(role, "Changed-456").ok());
+        QVERIFY(!actor.listSupportTickets().ok());
+    }
+    QVERIFY(system.listSupportTickets().ok());
+    QVERIFY(!system.login("admin", "wrong").ok());
+    QVERIFY(!system.listSupportTickets().ok());
+    QVERIFY(!system.listOrders().ok());
+}
+
+void SupportTicketFlowTests::mixedAdminAndTicketRollback()
+{
+    QFETCH(bool, sqlite);
+    Fixture f; QVERIFY2(f.initialize(sqlite), qPrintable(f.error));
+    const auto originalAdmin = f.repository->findAdminById(1).value();
+    const auto originalTicket = f.service->createSupportTicket(f.token, toJson(draft()));
+    QVERIFY(originalTicket.ok());
+    const auto id = originalTicket.data.value("ticket").toObject().value("ticketId").toInteger();
+    auto ticket = f.repository->findSupportTicket(id).value();
+    auto admin = originalAdmin;
+    admin.username = "rollback.admin";
+    QVERIFY(f.repository->beginTransaction());
+    const auto pendingAdmin = f.repository->createAdmin(admin);
+    QVERIFY(pendingAdmin.adminId > 1);
+    admin = originalAdmin; admin.displayName = "rollback edit";
+    QVERIFY(f.repository->updateAdmin(admin));
+    ticket.reply = "rollback reply";
+    QVERIFY(f.repository->updateSupportTicket(ticket));
+    ticket.submissionId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const auto pendingTicket = f.repository->createSupportTicket(ticket);
+    QVERIFY(pendingTicket.ticketId > id);
+    f.repository->rollbackTransaction();
+    QCOMPARE(f.repository->findAdminById(1)->displayName, originalAdmin.displayName);
+    QVERIFY(!f.repository->findAdminByUsername("rollback.admin"));
+    QVERIFY(f.repository->findSupportTicket(id)->reply.isEmpty());
+    QVERIFY(!f.repository->findSupportTicket(pendingTicket.ticketId));
+    admin = originalAdmin; admin.username = "after.rollback";
+    QCOMPARE(f.repository->createAdmin(admin).adminId, pendingAdmin.adminId);
+    QCOMPARE(f.repository->createSupportTicket(ticket).ticketId, pendingTicket.ticketId);
+}
+
+void SupportTicketFlowTests::upgradePreservesTickets()
+{
+    Fixture f; QVERIFY2(f.initialize(true, true, false), qPrintable(f.error));
+    const auto business = f.businessSnapshot();
+    const auto created = f.service->createSupportTicket(f.token, toJson(draft()));
+    QVERIFY(created.ok());
+    const auto id = created.data.value("ticket").toObject().value("ticketId").toInteger();
+    AdminFacade admin(f.service.get()); QVERIFY(admin.login("admin", "123456").ok());
+    const auto updated = admin.updateSupportTicket({{"ticketId", id}, {"status", "RESOLVED"}, {"reply", "keep reply"}});
+    QVERIFY(updated.ok());
+    const auto credential = f.repository->findAdminById(1)->passwordHash;
+    auto *storage = static_cast<Repository *>(f.repository.get());
+    admin.logout(); storage->close();
+    QFile migration(QStringLiteral(CHARGING_ADMIN_MIGRATION_PATH));
+    QVERIFY(migration.open(QIODevice::ReadOnly));
+    QVERIFY2(f.sql(migration.readAll()), qPrintable(f.error));
+    QVERIFY2(storage->open(f.path(), &f.error), qPrintable(f.error));
+    QVERIFY(storage->supportsAdminAccounts() && storage->supportsSupportTickets());
+    QCOMPARE(storage->findAdminById(1)->passwordHash, credential);
+    QCOMPARE(f.service->getSupportTicket(f.token, {{"ticketId", id}}).data, updated.data);
+    QCOMPARE(f.businessSnapshot(), business);
+    QVERIFY(admin.login("admin", "123456").ok());
+    QCOMPARE(storage->findAdminById(1)->passwordAlgorithm, QStringLiteral("PBKDF2_SHA256"));
+    QVERIFY(admin.listSupportTickets().ok());
+    QVERIFY(admin.listAdmins().ok());
+}
+
+void SupportTicketFlowTests::mismatchedSchemaVersionsAreRejected()
+{
+    Fixture f; QVERIFY2(f.initialize(true), qPrintable(f.error));
+    auto *storage = static_cast<Repository *>(f.repository.get());
+    storage->close();
+    // Simulate the alternate "version 2" layout from the reverted administrator branch.
+    QVERIFY(f.sql("PRAGMA user_version = 2;"));
+    QVERIFY(!storage->open(f.path(), &f.error));
+    QVERIFY(f.error.contains(QStringLiteral("layout mismatch")));
+    QVERIFY(!storage->supportsAdminAccounts() && !storage->supportsSupportTickets());
+    QVERIFY(f.sql("PRAGMA user_version = 3; DROP TABLE admin_audit_logs;"));
+    QVERIFY(!storage->open(f.path(), &f.error));
+    QVERIFY(f.error.contains(QStringLiteral("extension schema")));
+    QVERIFY(!storage->supportsAdminAccounts() && !storage->supportsSupportTickets());
 }
 
 QTEST_GUILESS_MAIN(SupportTicketFlowTests)

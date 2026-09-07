@@ -10,6 +10,7 @@ namespace charging::server {
 // lifetime of server-app and is never selected by the default startup path.
 class InMemoryRepository final : public IRepository {
 public:
+    [[nodiscard]] bool supportsAdminAccounts() const override { return true; }
     InMemoryRepository();
 
     [[nodiscard]] bool lastOperationSucceeded() const noexcept override;
@@ -31,6 +32,21 @@ public:
 
     [[nodiscard]] std::optional<AdminRecord>
     findAdminByUsername(const QString &username) const override;
+    [[nodiscard]] std::optional<AdminRecord>
+    findAdminById(qint64 adminId) const override;
+    [[nodiscard]] QList<AdminRecord> listAdmins() const override;
+    [[nodiscard]] AdminRecord createAdmin(AdminRecord admin) override;
+    [[nodiscard]] bool updateAdmin(const AdminRecord &admin) override;
+    [[nodiscard]] bool replaceAdminStationScopes(
+        qint64 adminId,
+        const QList<qint64> &stationIds,
+        qint64 grantedByAdminId,
+        const QString &grantedAt) override;
+    [[nodiscard]] bool appendAdminAudit(qint64 actorAdminId,
+                                        const QString &action,
+                                        qint64 targetAdminId,
+                                        const QString &detailsJson,
+                                        const QString &createdAt) override;
 
     [[nodiscard]] std::optional<charging::protocol::UserDto>
     findUserByPhone(const QString &phone) const override;
@@ -89,6 +105,7 @@ private:
     QList<charging::protocol::PileDto> piles_;
     QList<charging::protocol::OrderDto> orders_;
     qint64 nextUserId_ = 1;
+    qint64 nextAdminId_ = 2;
     qint64 nextStationId_ = 1;
     qint64 nextPileId_ = 1;
     qint64 nextOrderId_ = 1007;
@@ -97,10 +114,12 @@ private:
 
     struct Snapshot {
         QList<charging::protocol::UserDto> users;
+        QList<AdminRecord> admins;
         QList<charging::protocol::StationDto> stations;
         QList<charging::protocol::PileDto> piles;
         QList<charging::protocol::OrderDto> orders;
         qint64 nextUserId;
+        qint64 nextAdminId;
         qint64 nextStationId;
         qint64 nextPileId;
         qint64 nextOrderId;

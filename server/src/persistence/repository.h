@@ -23,6 +23,7 @@ public:
     [[nodiscard]] bool isOpen() const noexcept;
     [[nodiscard]] bool lastOperationSucceeded() const noexcept override;
     [[nodiscard]] bool supportsSupportTickets() const override;
+    [[nodiscard]] bool supportsAdminAccounts() const override { return isOpen() && adminAccountsAvailable_; }
     [[nodiscard]] std::optional<charging::protocol::SupportTicketDto>
     findSupportTicket(qint64 ticketId) const override;
     [[nodiscard]] std::optional<charging::protocol::SupportTicketDto>
@@ -40,6 +41,21 @@ public:
 
     [[nodiscard]] std::optional<AdminRecord>
     findAdminByUsername(const QString &username) const override;
+    [[nodiscard]] std::optional<AdminRecord>
+    findAdminById(qint64 adminId) const override;
+    [[nodiscard]] QList<AdminRecord> listAdmins() const override;
+    [[nodiscard]] AdminRecord createAdmin(AdminRecord admin) override;
+    [[nodiscard]] bool updateAdmin(const AdminRecord &admin) override;
+    [[nodiscard]] bool replaceAdminStationScopes(
+        qint64 adminId,
+        const QList<qint64> &stationIds,
+        qint64 grantedByAdminId,
+        const QString &grantedAt) override;
+    [[nodiscard]] bool appendAdminAudit(qint64 actorAdminId,
+                                        const QString &action,
+                                        qint64 targetAdminId,
+                                        const QString &detailsJson,
+                                        const QString &createdAt) override;
 
     [[nodiscard]] std::optional<charging::protocol::UserDto>
     findUserByPhone(const QString &phone) const override;
@@ -97,6 +113,7 @@ private:
     QSqlDatabase database_;
     bool transactionOpen_ = false;
     bool supportTicketsAvailable_ = false;
+    bool adminAccountsAvailable_ = false;
     mutable bool lastOperationSucceeded_ = true;
 };
 

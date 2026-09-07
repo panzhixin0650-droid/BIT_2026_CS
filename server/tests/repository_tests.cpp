@@ -70,7 +70,11 @@ bool initializeDemoDatabase(const QString &databasePath, QString *error = nullpt
     return runSqlFile(databasePath,
                       QStringLiteral(CHARGING_DATABASE_MIGRATION_PATH), error)
         && runSqlFile(databasePath,
-                      QStringLiteral(CHARGING_DATABASE_SEED_PATH), error);
+                      QStringLiteral(CHARGING_DATABASE_SEED_PATH), error)
+        && runSqlFile(databasePath,
+                      QStringLiteral(CHARGING_TICKET_MIGRATION_PATH), error)
+        && runSqlFile(databasePath,
+                      QStringLiteral(CHARGING_ADMIN_MIGRATION_PATH), error);
 }
 
 template<typename Container, typename Predicate>
@@ -91,6 +95,7 @@ private slots:
     void deletesOnlyStationsWithoutOrders();
     void createsAndDeletesPileWithoutOrders();
     void stationCreationRollsBackCompletely();
+    void managesAdminAccountsPersistently();
 };
 
 void RepositoryTests::rejectsMissingAndWrongSchema()
@@ -131,6 +136,9 @@ void RepositoryTests::readsSeedAndDerivedFields()
     QVERIFY(repository.lastOperationSucceeded());
     QVERIFY(admin.has_value());
     QCOMPARE(admin->displayName, QStringLiteral("演示管理员"));
+    QCOMPARE(admin->role, QStringLiteral("SYS_ADMIN"));
+    QCOMPARE(admin->status, QStringLiteral("ACTIVE"));
+    QVERIFY(admin->stationIds.isEmpty());
 
     const auto user = repository.findUserByPhone(QStringLiteral("13800000001"));
     QVERIFY(user.has_value());
@@ -221,6 +229,57 @@ void RepositoryTests::writesPersistAcrossReopen()
     QVERIFY(station.has_value());
     QCOMPARE(station->totalPileCount, qint64{2});
     QCOMPARE(station->availablePileCount, qint64{2});
+}
+
+void RepositoryTests::managesAdminAccountsPersistently()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString databasePath = directory.filePath(QStringLiteral("demo.db"));
+    QString error;
+    QVERIFY2(initializeDemoDatabase(databasePath, &error), qPrintable(error));
+
+    qint64 adminId = 0;
+    {
+        Repository repository(QStringLiteral("repository-test-admin-write"));
+        QVERIFY2(repository.open(databasePath, &error), qPrintable(error));
+        QVERIFY(repository.beginTransaction());
+        AdminRecord admin;
+        admin.username = QStringLiteral("station_admin");
+        admin.passwordHash = QStringLiteral(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        admin.passwordAlgorithm = QStringLiteral("SHA256_LEGACY");
+        admin.displayName = QStringLiteral("站点管理员") ;
+        admin.role = QStringLiteral("STATION_ADMIN");
+        admin.status = QStringLiteral("ACTIVE");
+        admin.mustChangePassword = true;
+        admin.createdAt = QStringLiteral("2026-09-07T00:00:00Z");
+        admin.updatedAt = admin.createdAt;
+        admin = repository.createAdmin(admin);
+        QVERIFY(repository.lastOperationSucceeded());
+        QVERIFY(admin.adminId > 0);
+        adminId = admin.adminId;
+        QVERIFY(repository.replaceAdminStationScopes(
+            adminId, {1, 2}, 1, QStringLiteral("2026-09-07T00:00:00Z")));
+        QVERIFY(repository.appendAdminAudit(
+            1, QStringLiteral("ADMIN_CREATE"), adminId, QStringLiteral("{}"),
+            QStringLiteral("2026-09-07T00:00:00Z")));
+        QVERIFY(repository.commitTransaction());
+    }
+
+    Repository repository(QStringLiteral("repository-test-admin-read"));
+    QVERIFY2(repository.open(databasePath, &error), qPrintable(error));
+    auto admin = repository.findAdminById(adminId);
+    QVERIFY(admin.has_value());
+    QCOMPARE(admin->username, QStringLiteral("station_admin"));
+    QCOMPARE(admin->stationIds, QList<qint64>({1, 2}));
+    admin->displayName = QStringLiteral("新站点管理员");
+    admin->updatedAt = QStringLiteral("2026-09-07T01:00:00Z");
+    QVERIFY(repository.updateAdmin(*admin));
+    const auto updated = repository.findAdminByUsername(QStringLiteral("station_admin"));
+    QVERIFY(updated.has_value());
+    QCOMPARE(updated->displayName, QStringLiteral("新站点管理员"));
+    QCOMPARE(updated->version, qint64{1});
 }
 
 void RepositoryTests::deletesOnlyStationsWithoutOrders()
