@@ -56,6 +56,13 @@ public:
     [[nodiscard]] ServiceResult stopOrder(const QString &token, const QJsonObject &input);
     [[nodiscard]] ServiceResult payOrder(const QString &token, const QJsonObject &input);
 
+    [[nodiscard]] ServiceResult createSupportTicket(const QString &token, const QJsonObject &input);
+    [[nodiscard]] ServiceResult listSupportTickets(const QString &token, const QJsonObject &input) const;
+    [[nodiscard]] ServiceResult getSupportTicket(const QString &token, const QJsonObject &input) const;
+    // Local administrator calls only; re-check identity and role on every operation.
+    [[nodiscard]] ServiceResult listAdminSupportTickets(qint64 actorAdminId, std::optional<qint64> beforeId = {}) const;
+    [[nodiscard]] ServiceResult updateAdminSupportTicket(qint64 actorAdminId, const QJsonObject &input);
+
     [[nodiscard]] ServiceResult loginAdmin(const QString &username,
                                            const QString &password);
     [[nodiscard]] ServiceResult getAdminProfile(qint64 actorAdminId) const;

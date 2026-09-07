@@ -1,4 +1,4 @@
--- Idempotent development data for the current schema-version-2 Demo.
+-- Idempotent development data for the current five-table Demo.
 -- Relative order dates are evaluated when this seed is first applied.
 
 PRAGMA foreign_keys = ON;
@@ -9,24 +9,12 @@ INSERT OR IGNORE INTO admins (
     admin_id,
     username,
     password_hash,
-    password_algorithm,
-    display_name,
-    role,
-    status,
-    must_change_password,
-    created_at,
-    updated_at
+    display_name
 ) VALUES (
     1,
     'admin',
     '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92',
-    'SHA256_LEGACY',
-    '演示管理员',
-    'SYS_ADMIN',
-    'ACTIVE',
-    0,
-    strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
-    strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+    '演示管理员'
 );
 
 INSERT OR IGNORE INTO users (

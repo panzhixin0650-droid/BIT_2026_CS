@@ -1,13 +1,13 @@
 # 服务端业务逻辑与管理员端交互逻辑
 
-> 状态：已实现；管理员账号管理和 RBAC 见 ADR 0008
+> 状态：已实现；管理员账号管理和 RBAC 见 ADR 0009
 >
 > 日期：2026-09-03
 > 范围：`server/` 服务端和同进程 Qt 管理员端
 
 ## 1. 设计边界
 
-当前以五张核心表和两张管理员附属表为事实基础：`users`、`admins`、`charging_stations`、`charging_piles`、`charging_orders`、`admin_station_scopes`、`admin_audit_logs`。Repository 是唯一 SQL 入口，ApplicationService 负责校验、授权和状态变更，电桩仍由 `MockPile` 表示。
+当前以五张核心表、工单和两张管理员附属表为事实基础：`users`、`admins`、`charging_stations`、`charging_piles`、`charging_orders`、`support_tickets`、`admin_station_scopes`、`admin_audit_logs`。Repository 是唯一 SQL 入口，ApplicationService 负责校验、授权和状态变更，电桩仍由 `MockPile` 表示。
 
 管理员能力仍通过同进程 `AdminFacade` 调用，不新增 TCP 接口。UI 不出现 SQLite、Repository、TCP、Mock、数据库文件、开发模式等技术概念。
 
@@ -153,7 +153,7 @@
 
 ### P2：已单独确认并实现管理员管理
 
-管理员账号、RBAC 和密码管理已经按 ADR 0008、正式契约和 `002_admin_accounts.sql` 实现。分页和联表用户信息、报修工单/故障恢复、设备命令日志仍需单独确认；不能因为 UI 想展示就直接新增表或网络接口。
+管理员账号、RBAC 和密码管理已经按 ADR 0009、正式契约和 `003_admin_accounts.sql` 实现。分页和联表用户信息、报修工单/故障恢复、设备命令日志仍需单独确认；不能因为 UI 想展示就直接新增表或网络接口。
 
 ## 9. 管理员账号与权限
 
@@ -162,8 +162,11 @@
 - `USER_ADMIN` 可查看用户与订单、冻结或解冻用户，不管理站点、电桩或管理员账号。
 - 新账号必须修改初始密码。密码修改成功后退出当前会话；旧库 SHA-256 摘要在成功登录时自动升级为 PBKDF2-SHA256。
 - 创建、更新、登录和修改密码写入管理员审计记录。站点范围以 `admin_station_scopes` 为准，任何写操作都在 ApplicationService 再次校验，不依赖菜单是否可见。
+- 上述账号管理、改密和审计仅在 schema 3 启用。旧 schema 1/2 保留固定账号登录和原业务，
+  未升级时明确提示功能未启用，不自动迁移。schema 2/3 的工单每次读写重新检查系统管理员权限，
+  用户／站点管理员无全量工单权限。失败登录、退出及改密退出清空工单页面与身份。
 
-管理员管理的完整决策与字段见 [`../docs/decisions/0008-admin-account-rbac.md`](../docs/decisions/0008-admin-account-rbac.md)，操作方法见 [`使用说明.md`](使用说明.md#10-管理员管理与密码)。
+管理员管理的完整决策与字段见 [`../docs/decisions/0009-admin-account-rbac.md`](../docs/decisions/0009-admin-account-rbac.md)，操作方法见 [`使用说明.md`](使用说明.md#10-管理员管理与密码)。
 
 ## 10. 调研依据
 

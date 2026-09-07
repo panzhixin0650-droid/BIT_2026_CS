@@ -718,6 +718,29 @@ void TcpChargingApi::handleResponse(const protocol::ResponseEnvelope &response)
         return;
     }
 
+    if (response.type == protocol::MessageType::SupportTicketCreate
+        || response.type == protocol::MessageType::SupportTicketDetail) {
+        TicketPayload payload;
+        if (!readDto(response.data, "ticket", &payload.ticket, &error)) {
+            emitMalformedPayload(response, error);
+            return;
+        }
+        if (response.type == protocol::MessageType::SupportTicketCreate)
+            emit supportTicketCreated(TicketResult{metadata, payload});
+        else emit supportTicketDetailed(TicketResult{metadata, payload});
+        return;
+    }
+    if (response.type == protocol::MessageType::SupportTicketList) {
+        TicketListPayload payload;
+        if (!readDtoList(response.data, "items", &payload.items, &error)
+            || !readBool(response.data, "hasMore", &payload.hasMore, &error)
+            || payload.items.size() > 10 || (payload.hasMore && payload.items.size() != 10)) {
+            emitMalformedPayload(response, QStringLiteral("invalid ticket page"));
+            return;
+        }
+        emit supportTicketsListed(TicketListResult{metadata, payload});
+        return;
+    }
     emitMalformedPayload(response, QStringLiteral("unsupported response type"));
 }
 
@@ -823,6 +846,12 @@ void TcpChargingApi::emitFailure(const QString &requestId,
         emit chargingStopCompleted(ChargingStopResult{response, std::nullopt});
     } else if (type == QString::fromLatin1(protocol::MessageType::OrderPay)) {
         emit paymentCompleted(PaymentResult{response, std::nullopt});
+    } else if (type == protocol::MessageType::SupportTicketCreate) {
+        emit supportTicketCreated(TicketResult{response, std::nullopt});
+    } else if (type == protocol::MessageType::SupportTicketList) {
+        emit supportTicketsListed(TicketListResult{response, std::nullopt});
+    } else if (type == protocol::MessageType::SupportTicketDetail) {
+        emit supportTicketDetailed(TicketResult{response, std::nullopt});
     }
 }
 
@@ -837,6 +866,34 @@ void TcpChargingApi::emitMalformedPayload(
                 response.type,
                 protocol::ErrorCode::ServiceUnavailable,
                 QStringLiteral("服务响应数据无效，请稍后重试"));
+}
+
+QString TcpChargingApi::createSupportTicket(const protocol::SupportTicketDraft &draft)
+{
+    protocol::SupportTicketDraft validated;
+    if (!protocol::fromJson(protocol::toJson(draft), &validated))
+        return rejectInvalid(protocol::MessageType::SupportTicketCreate, QStringLiteral("请检查工单标题和摘要"));
+    return submit(protocol::MessageType::SupportTicketCreate, protocol::toJson(draft), true);
+}
+
+QString TcpChargingApi::listSupportTickets(std::optional<qint64> beforeId)
+{
+    QJsonObject data;
+    if (beforeId) {
+        qint64 id = 0;
+        if (!protocol::positiveTicketId(QJsonValue(*beforeId), &id))
+            return rejectInvalid(protocol::MessageType::SupportTicketList, QStringLiteral("工单分页编号无效"));
+        data.insert("beforeTicketId", *beforeId);
+    }
+    return submit(protocol::MessageType::SupportTicketList, data, true);
+}
+
+QString TcpChargingApi::getSupportTicket(qint64 ticketId)
+{
+    qint64 id = 0;
+    if (!protocol::positiveTicketId(QJsonValue(ticketId), &id))
+        return rejectInvalid(protocol::MessageType::SupportTicketDetail, QStringLiteral("工单编号无效"));
+    return submit(protocol::MessageType::SupportTicketDetail, {{"ticketId", ticketId}}, true);
 }
 
 }  // namespace charging::client

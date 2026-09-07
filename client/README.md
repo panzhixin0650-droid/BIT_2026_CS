@@ -88,6 +88,14 @@ cmake --build build/client
 ctest --test-dir build/client --output-on-failure
 ```
 
+## 模拟客服与工单
+
+客服助理的悬浮入口还可打开“真人客服”课程演示窗口（同窗标明 AI 模拟坐席），
+普通助理用 Luna，客服和摘要默认用 Sol，两者共用原 `baseUrl` 和 Key 配置。
+工单必须经用户预览确认；TCP 模式提交到服务端后，管理员可回复与更新状态，用户刷新查看。
+先按 [数据库说明](../database/README.md#启用客服工单扩展-schema-2) 启用 002 增量迁移；
+旧数据库仍支持原有业务，Mock 模式工单只保存在本进程。
+
 ## 运行模式与联调入口
 
 > **默认模式：** 不填写任何运行参数时，充电业务使用 `MockChargingApi`，地图使用

@@ -1,9 +1,22 @@
 -- Promote administrator account management and role-based access control.
--- Compatible with databases created by 001_initial_demo.sql.
+-- Requires the merged schema 2 (001 + 002_support_tickets.sql).
+-- Stop the server, back up the database and run with sqlite3 -batch -bail.
 
 PRAGMA foreign_keys = ON;
 
 BEGIN IMMEDIATE;
+
+CREATE TEMP TABLE migration_003_guard (value INTEGER NOT NULL CHECK (value = 1));
+INSERT INTO migration_003_guard
+SELECT CASE WHEN user_version = 2
+    AND (SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table'
+         AND name IN ('users', 'admins', 'charging_stations', 'charging_piles',
+                      'charging_orders', 'support_tickets')) = 6
+    AND (SELECT COUNT(*) FROM pragma_table_info('admins')) = 4
+    AND NOT EXISTS (SELECT 1 FROM sqlite_schema WHERE name IN
+                    ('admins_v1', 'admin_station_scopes', 'admin_audit_logs'))
+    THEN 1 ELSE 0 END FROM pragma_user_version;
+DROP TABLE migration_003_guard;
 
 ALTER TABLE admins RENAME TO admins_v1;
 
@@ -94,6 +107,6 @@ CREATE INDEX idx_admin_scopes_station ON admin_station_scopes(station_id, admin_
 CREATE INDEX idx_admin_audit_target_time
     ON admin_audit_logs(target_admin_id, created_at DESC);
 
-PRAGMA user_version = 2;
+PRAGMA user_version = 3;
 
 COMMIT;

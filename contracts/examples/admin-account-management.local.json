@@ -12,6 +12,7 @@
         "role": "SYS_ADMIN",
         "status": "ACTIVE",
         "mustChangePassword": false,
+        "adminAccountsAvailable": true,
         "stationIds": []
       }
     }
@@ -32,6 +33,7 @@
         "role": "STATION_ADMIN",
         "status": "ACTIVE",
         "mustChangePassword": true,
+        "adminAccountsAvailable": true,
         "stationIds": [1]
       }
     }

@@ -31,15 +31,18 @@
 | --- | --- |
 | Qt 用户端 | 页面、客户端控制层、`IChargingApi`；可切 Mock 或 TCP |
 | Qt 服务端/管理端 | TCP Gateway、业务服务、Repository、管理员 UI |
-| SQLite 数据库 | 5 张核心表 |
+| SQLite 数据库 | 5 张核心表；经 ADR 0008 单独启用的客服工单增量表 |
 | Web 大屏 | 读取服务端导出的 `dashboard.json`，用 ECharts 展示 |
 | 机器学习扩展 | `IPredictionProvider` + 固定/规则生成的 1h、6h、24h Mock 结果 |
 
-当前没有报修、人工客服工单、管理员账号管理、退款、预约违约、真实设备协议和模型训练平台。它们可以以后新增，但不能反向增加当前接口的实现负担。
+当前没有维修派单、真实人工坐席系统、管理员账号管理、退款、预约违约、真实设备协议和模型训练平台。它们可以以后新增，但不能反向增加当前接口的实现负担。
 
 用户已授权的只读 AI 问答按 [ADR 0005](../docs/decisions/0005-client-rag-assistant.md)
 接入客户端预留页，遵循[本地智能助理边界](client-assistant-local.md)。它使用本地知识
 和外部 HTTPS，不增加 V1 TCP 消息、数据库表或权威业务操作。
+
+用户另行授权的模拟客服与持久工单按 [ADR 0008](../docs/decisions/0008-support-ticket-desk.md)
+启用，仅新增[工单 V1 消息](support-tickets-v1.md)及一张工单表，不改变普通助理的只读边界。
 
 ---
 
@@ -326,6 +329,9 @@ DTO 表中列出的字段在成功响应里都必须出现；标为 `/null` 的�
 
 ### 6.1 系统、登录和资料
 
+客服工单作为兼容 V1 的独立增量，见[工单契约](support-tickets-v1.md)。
+它不改变下列既有消息、计费或状态；新增消息均需登录，模型不直接调用业务接口。
+
 | type | token | 请求 data | 成功响应 data | 含义 |
 | --- | :---: | --- | --- | --- |
 | `system.ping` | 否 | `{echo?: string}` | `{echo?: string, serverTime: datetime}` | 检查 TCP/分帧/JSON 链路 |
@@ -423,8 +429,9 @@ AdminProfileDto    = {
   adminId: integer, username: string, displayName: string,
   role: SYS_ADMIN|STATION_ADMIN|USER_ADMIN,
   status: ACTIVE|DISABLED, mustChangePassword: bool,
+  adminAccountsAvailable: bool,
   stationIds: integer[], lastLoginAt: datetime/null,
-  createdAt: datetime, updatedAt: datetime, version: integer
+  createdAt: datetime/null, updatedAt: datetime/null, version: integer
 }
 StationDetailDto   = {station: StationDto, piles: PileDto[]}
 StationCreateInput = {
@@ -440,7 +447,7 @@ StationCreateInput = {
 
 | 方法 | 输入 | 输出 | 含义 |
 | --- | --- | --- | --- |
-| `login` | `username, password` | `Result<{admin: AdminProfileDto}>` | 校验密码与账号状态；初始账号 `admin/123456`；旧 SHA-256 在成功登录后升级为带随机盐的 PBKDF2-SHA256 |
+| `login` | `username, password` | `Result<{admin: AdminProfileDto}>` | 校验密码与账号状态；初始账号 `admin/123456`；schema 3 中旧 SHA-256 在成功登录后升级为 PBKDF2-SHA256 |
 | `logout/currentAdmin` | 无 | `Result<AdminProfileDto>` | 清除进程内身份/读取当前身份；停用后下一次调用立即失效 |
 | `listAdmins` | `keyword?, status?` | `Result<AdminProfileDto[]>` | 仅系统管理员；可按账号、显示名和状态查询；不返回密码字段 |
 | `createAdmin` | `username, initialPassword, displayName, role, stationIds[]` | `Result<AdminProfileDto>` | 仅系统管理员；初始密码 8..128；站点管理员至少授权一个站点，其他角色范围为空 |
@@ -471,7 +478,13 @@ StationCreateInput = {
 - 站点授权沿用当前 V1 的整数 `stationId`，数据库用复合主键防止重复授权；前端显示站点名称，保存时是完整覆盖；
 - 新账号 `mustChangePassword=true`，修改初始密码前只能读取本人资料和改密；成功改密后退出登录；
 - 管理员账号只停用不删除；不得停用自己或改变自己的角色；停用或降级系统管理员时至少保留一个有效 `SYS_ADMIN`；
-- 管理员登录、创建、更新和改密写入 `admin_audit_logs`，审计详情不含密码或密码哈希；
+- schema 3 管理员登录、创建、更新和改密写入 `admin_audit_logs`，审计详情不含密码或密码哈希；
+- `adminAccountsAvailable=false` 表示 schema 1/2 的旧库兼容模式：固定管理员可登录并使用原业务，
+  不自动升级密码；新账号管理和改密返回 `50301 / ADMIN_ACCOUNTS_MIGRATION_REQUIRED`。
+  旧库没有管理员创建／更新时间，对应字段为 `null`，不编造历史时间。
+  启用这些功能需按顺序执行 002 工单、003 管理员迁移，见 [ADR 0009](../docs/decisions/0009-admin-account-rbac.md)；
+- schema 2/3 的工单处理仅允许系统管理员，每次重新检查身份、停用状态及首次改密；
+  用户／站点管理员无全量工单权限，见 [工单契约](support-tickets-v1.md)。登录失败、退出及改密退出清空工单授权；
 - 冻结用户不删除其历史订单和余额；用户存在 `RESERVED/CHARGING/PENDING_PAYMENT` 订单时暂不允许冻结，返回 `40902`，避免订单和电桩无人结束；
 - `getDashboard(days)` 的 `revenuePoints` 必须按中国业务日补齐为恰好 7 或 30 个点；不需要日期表；
 - 管理端自定义日期查询包含起止日，只改变 `revenuePoints`，今日/月/累计 KPI 的业务含义不变；

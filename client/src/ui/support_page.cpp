@@ -1,4 +1,5 @@
 #include "ui/support_page.h"
+#include "ui/busy_indicator.h"
 
 #include <QApplication>
 #include <QClipboard>
@@ -131,7 +132,10 @@ SupportPage::SupportPage(AssistantService &service, QWidget *parent)
     mode_->addItems({QStringLiteral("AI + 知识库"), QStringLiteral("仅本地知识库")});
     mode_->setCurrentIndex(service_.config().isReady() ? 0 : 1);
     status_ = textLabel({}, this, QStringLiteral("assistantStatus"));
+    busyIndicator_ = new BusyIndicator(this);
+    busyIndicator_->setObjectName(QStringLiteral("assistantBusySpinner"));
     modeRow->addWidget(mode_);
+    modeRow->addWidget(busyIndicator_);
     modeRow->addWidget(status_, 1);
     layout->addLayout(modeRow);
 
@@ -181,6 +185,17 @@ SupportPage::SupportPage(AssistantService &service, QWidget *parent)
     messagesLayout_->addStretch(1);
     scroll_->setWidget(canvas_);
     layout->addWidget(scroll_, 1);
+    deskEntry_ = new QPushButton(QStringLiteral("真人\n客服"), scroll_->viewport());
+    deskEntry_->setObjectName(QStringLiteral("supportDeskEntry"));
+    deskEntry_->setFixedSize(58, 58);
+    deskEntry_->setAccessibleName(QStringLiteral("转接课程演示客服与工单"));
+    deskEntry_->setToolTip(QStringLiteral("课程演示 · AI 模拟真人客服与工单"));
+    deskEntry_->setStyleSheet(QStringLiteral(
+        "QPushButton { background:#245c45; color:white; border:2px solid #d7e5ca;"
+        "border-radius:29px; font-size:12px; font-weight:600; padding:0; }"
+        "QPushButton:hover { background:#357358; }"));
+    scroll_->viewport()->installEventFilter(this);
+    connect(deskEntry_, &QPushButton::clicked, this, &SupportPage::supportDeskRequested);
 
     auto *composer = new QFrame(this);
     composer->setObjectName(QStringLiteral("assistantComposer"));
@@ -233,6 +248,8 @@ SupportPage::SupportPage(AssistantService &service, QWidget *parent)
     connect(bar, &QScrollBar::rangeChanged, this, [this]() {
         if (stickToBottom_) { scrollToBottom(); }
     });
+    waitingTimer_.setInterval(1000);
+    connect(&waitingTimer_, &QTimer::timeout, this, &SupportPage::updateControls);
     updateControls();
 }
 
@@ -352,6 +369,9 @@ void SupportPage::complete(quint64 id, const AssistantResult &result)
 void SupportPage::updateControls()
 {
     const bool busy = activeId_ != 0;
+    busyIndicator_->setRunning(busy);
+    if (busy && !waitingTimer_.isActive()) waitingTimer_.start();
+    if (!busy) waitingTimer_.stop();
     const auto size = input_->toPlainText().size();
     send_->setEnabled(!busy && turnCount_ < 24 && size <= 1200
                       && !input_->toPlainText().trimmed().isEmpty());
@@ -362,7 +382,8 @@ void SupportPage::updateControls()
     counter_->setText(size > 1200 ? QStringLiteral("超过字数限制：%1 / 1200").arg(size)
                                 : QStringLiteral("Shift+Enter 换行 · %1/1200").arg(size));
     if (busy) {
-        status_->setText(QStringLiteral("正在回答…"));
+        status_->setText(QStringLiteral("正在回复 · %1 秒 · 可停止")
+                             .arg(busyIndicator_->elapsedSeconds()));
     } else if (turnCount_ >= 24) {
         status_->setText(QStringLiteral("本次对话已达上限，请新建对话。"));
     } else if (mode_->currentIndex() == 0) {
@@ -396,6 +417,16 @@ void SupportPage::resetConversation()
     stickToBottom_ = true;
     updateControls();
     if (isVisible()) { input_->setFocus(); }
+}
+
+bool SupportPage::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == scroll_->viewport() && event->type() == QEvent::Resize && deskEntry_) {
+        deskEntry_->move(qMax(4, scroll_->viewport()->width() - 68),
+                          qMax(4, scroll_->viewport()->height() - 68));
+        deskEntry_->raise();
+    }
+    return QWidget::eventFilter(watched, event);
 }
 
 }  // namespace charging::client

@@ -13,6 +13,7 @@ AdminFacade::AdminFacade(ApplicationService *service)
 ServiceResult AdminFacade::login(const QString &username,
                                  const QString &password)
 {
+    currentAdminId_ = 0; // A failed login must not retain a previous administrator.
     ServiceResult result = service_ == nullptr
         ? ServiceResult::failure(charging::protocol::ErrorCode::InternalError,
                                  QStringLiteral("INTERNAL_ERROR"))
@@ -144,6 +145,20 @@ ServiceResult AdminFacade::setUserStatus(
 ServiceResult AdminFacade::listOrders() const
 {
     return service_->listAdminOrders(currentAdminId_);
+}
+
+ServiceResult AdminFacade::listSupportTickets(std::optional<qint64> beforeId) const
+{
+    if (currentAdminId_ <= 0 || !service_)
+        return ServiceResult::failure(charging::protocol::ErrorCode::Forbidden, QStringLiteral("FORBIDDEN"));
+    return service_->listAdminSupportTickets(currentAdminId_, beforeId);
+}
+
+ServiceResult AdminFacade::updateSupportTicket(const QJsonObject &input) const
+{
+    if (currentAdminId_ <= 0 || !service_)
+        return ServiceResult::failure(charging::protocol::ErrorCode::Forbidden, QStringLiteral("FORBIDDEN"));
+    return service_->updateAdminSupportTicket(currentAdminId_, input);
 }
 
 }  // namespace charging::server

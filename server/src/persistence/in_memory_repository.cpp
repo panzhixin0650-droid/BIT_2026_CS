@@ -124,7 +124,8 @@ bool InMemoryRepository::beginTransaction()
 {
     if (transaction_.has_value()) return false;
     transaction_ = Snapshot{users_, admins_, stations_, piles_, orders_, nextUserId_,
-                            nextAdminId_, nextStationId_, nextPileId_, nextOrderId_};
+                            nextAdminId_, nextStationId_, nextPileId_, nextOrderId_,
+                            tickets_, nextTicketId_};
     return true;
 }
 
@@ -148,6 +149,8 @@ void InMemoryRepository::rollbackTransaction()
     nextStationId_ = transaction_->nextStationId;
     nextPileId_ = transaction_->nextPileId;
     nextOrderId_ = transaction_->nextOrderId;
+    tickets_ = transaction_->tickets;
+    nextTicketId_ = transaction_->nextTicketId;
     transaction_.reset();
 }
 
@@ -601,6 +604,56 @@ StationDto InMemoryRepository::withPileCounts(StationDto station) const
         ? 0.0
         : static_cast<double>(online) * 100.0 / static_cast<double>(total);
     return station;
+}
+
+bool InMemoryRepository::supportsSupportTickets() const { return true; }
+
+std::optional<SupportTicketDto> InMemoryRepository::findSupportTicket(qint64 ticketId) const
+{
+    for (const auto &ticket : tickets_) if (ticket.ticketId == ticketId) return ticket;
+    return std::nullopt;
+}
+
+std::optional<SupportTicketDto> InMemoryRepository::findSupportSubmission(
+    qint64 userId, const QString &submissionId) const
+{
+    for (const auto &ticket : tickets_)
+        if (ticket.userId == userId && ticket.submissionId == submissionId) return ticket;
+    return std::nullopt;
+}
+
+QList<SupportTicketDto> InMemoryRepository::listSupportTickets(
+    std::optional<qint64> userId, std::optional<qint64> beforeId, int limit) const
+{
+    QList<SupportTicketDto> result;
+    for (auto it = tickets_.crbegin(); it != tickets_.crend(); ++it) {
+        if ((!userId || it->userId == *userId) && (!beforeId || it->ticketId < *beforeId))
+            result.append(*it);
+        if (result.size() >= qBound(1, limit, 101)) break;
+    }
+    return result;
+}
+
+SupportTicketDto InMemoryRepository::createSupportTicket(SupportTicketDto ticket)
+{
+    if (findSupportSubmission(ticket.userId, ticket.submissionId)) return {};
+    ticket.ticketId = nextTicketId_++;
+    ticket.status = TicketStatus::Open;
+    ticket.reply.clear();
+    tickets_.append(ticket);
+    return ticket;
+}
+
+bool InMemoryRepository::updateSupportTicket(const SupportTicketDto &ticket)
+{
+    for (auto &stored : tickets_) {
+        if (stored.ticketId != ticket.ticketId) continue;
+        stored.status = ticket.status;
+        stored.reply = ticket.reply;
+        stored.updatedAt = ticket.updatedAt;
+        return true;
+    }
+    return false;
 }
 
 }  // namespace charging::server

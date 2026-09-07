@@ -41,8 +41,6 @@ expect_sql_failure() {
 
 sqlite3 -batch -bail "$test_database" \
     < "$database_dir/migrations/001_initial_demo.sql"
-sqlite3 -batch -bail "$test_database" \
-    < "$database_dir/migrations/002_admin_accounts.sql"
 sqlite3 -batch -bail "$test_database" < "$database_dir/seeds/demo.sql"
 
 # The development seed is intentionally safe to run twice.
@@ -110,4 +108,49 @@ expect_sql_failure \
         '2026-09-03T00:00:00Z'
     );"
 
-echo 'database tests: OK'
+# Opt-in extension: baseline tests above still run against schema 1 unchanged.
+baseline_dump="$(sqlite3 "$test_database" '.dump users admins charging_stations charging_piles charging_orders')"
+sqlite3 -batch -bail "$test_database" < "$database_dir/migrations/002_support_tickets.sql"
+[[ "$(sqlite3 "$test_database" 'PRAGMA user_version')" == '2' ]]
+[[ "$(sqlite3 "$test_database" '.dump users admins charging_stations charging_piles charging_orders')" == "$baseline_dump" ]]
+sqlite3 -batch -bail "$test_database" < "$database_dir/tests/verify_support_tickets.sql"
+if sqlite3 -batch -bail "$test_database" < "$database_dir/migrations/002_support_tickets.sql" 2>/dev/null; then
+    echo 'FAIL: migration 002 must reject a non-v1 database' >&2
+    exit 1
+fi
+[[ "$(sqlite3 "$test_database" 'PRAGMA integrity_check')" == 'ok' ]]
+[[ -z "$(sqlite3 "$test_database" 'PRAGMA foreign_key_check')" ]]
+ticket_business_dump="$(sqlite3 "$test_database" '.dump users charging_stations charging_piles charging_orders support_tickets')"
+legacy_admins="$(sqlite3 "$test_database" 'SELECT admin_id, username, password_hash, display_name FROM admins ORDER BY admin_id;')"
+sqlite3 -batch -bail "$test_database" < "$database_dir/migrations/003_admin_accounts.sql"
+[[ "$(sqlite3 "$test_database" 'PRAGMA user_version')" == '3' ]]
+[[ "$(sqlite3 "$test_database" '.dump users charging_stations charging_piles charging_orders support_tickets')" == "$ticket_business_dump" ]]
+[[ "$(sqlite3 "$test_database" 'SELECT admin_id, username, password_hash, display_name FROM admins ORDER BY admin_id;')" == "$legacy_admins" ]]
+sqlite3 -batch -bail "$test_database" < "$database_dir/tests/verify_admin_accounts.sql"
+if sqlite3 -batch -bail "$test_database" < "$database_dir/migrations/003_admin_accounts.sql" 2>/dev/null; then
+    echo 'FAIL: migration 003 must reject a non-v2 database' >&2
+    exit 1
+fi
+
+# A missing prerequisite must fail without renaming any baseline tables.
+legacy_database="$test_tmpdir/legacy.db"
+sqlite3 -batch -bail "$legacy_database" < "$database_dir/migrations/001_initial_demo.sql"
+if sqlite3 -batch -bail "$legacy_database" < "$database_dir/migrations/003_admin_accounts.sql" 2>/dev/null; then
+    echo 'FAIL: migration 003 must require ticket migration 002' >&2
+    exit 1
+fi
+[[ "$(sqlite3 "$legacy_database" 'PRAGMA user_version')" == '1' ]]
+sqlite3 -batch -bail "$legacy_database" < "$database_dir/migrations/002_support_tickets.sql"
+# If a legacy account cannot satisfy the new constraints, the entire migration rolls back.
+sqlite3 -batch -bail "$legacy_database" "INSERT INTO admins VALUES (99, 'invalid user', lower(hex(zeroblob(32))), 'legacy');"
+if sqlite3 -batch -bail "$legacy_database" < "$database_dir/migrations/003_admin_accounts.sql" 2>/dev/null; then
+    echo 'FAIL: invalid legacy account should require manual review' >&2
+    exit 1
+fi
+[[ "$(sqlite3 "$legacy_database" 'PRAGMA user_version')" == '2' ]]
+[[ "$(sqlite3 "$legacy_database" "SELECT count(*) FROM pragma_table_info('admins');")" == '4' ]]
+[[ "$(sqlite3 "$legacy_database" "SELECT count(*) FROM admins WHERE username = 'invalid user';")" == '1' ]]
+[[ "$(sqlite3 "$legacy_database" "SELECT count(*) FROM sqlite_schema WHERE name IN ('admins_v1', 'admin_station_scopes', 'admin_audit_logs');")" == '0' ]]
+[[ "$(sqlite3 "$test_database" 'PRAGMA integrity_check')" == 'ok' ]]
+[[ -z "$(sqlite3 "$test_database" 'PRAGMA foreign_key_check')" ]]
+echo 'database tests: OK (schema 1 baseline + schema 2 tickets + schema 3 administrators)'

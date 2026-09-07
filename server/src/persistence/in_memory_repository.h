@@ -10,9 +10,22 @@ namespace charging::server {
 // lifetime of server-app and is never selected by the default startup path.
 class InMemoryRepository final : public IRepository {
 public:
+    [[nodiscard]] bool supportsAdminAccounts() const override { return true; }
     InMemoryRepository();
 
     [[nodiscard]] bool lastOperationSucceeded() const noexcept override;
+    [[nodiscard]] bool supportsSupportTickets() const override;
+    [[nodiscard]] std::optional<charging::protocol::SupportTicketDto>
+    findSupportTicket(qint64 ticketId) const override;
+    [[nodiscard]] std::optional<charging::protocol::SupportTicketDto>
+    findSupportSubmission(qint64 userId, const QString &submissionId) const override;
+    [[nodiscard]] QList<charging::protocol::SupportTicketDto>
+    listSupportTickets(std::optional<qint64> userId, std::optional<qint64> beforeId,
+                       int limit) const override;
+    [[nodiscard]] charging::protocol::SupportTicketDto
+    createSupportTicket(charging::protocol::SupportTicketDto ticket) override;
+    [[nodiscard]] bool updateSupportTicket(
+        const charging::protocol::SupportTicketDto &ticket) override;
     [[nodiscard]] bool beginTransaction() override;
     [[nodiscard]] bool commitTransaction() override;
     void rollbackTransaction() override;
@@ -96,6 +109,8 @@ private:
     qint64 nextStationId_ = 1;
     qint64 nextPileId_ = 1;
     qint64 nextOrderId_ = 1007;
+    QList<charging::protocol::SupportTicketDto> tickets_;
+    qint64 nextTicketId_ = 1;
 
     struct Snapshot {
         QList<charging::protocol::UserDto> users;
@@ -108,6 +123,8 @@ private:
         qint64 nextStationId;
         qint64 nextPileId;
         qint64 nextOrderId;
+        QList<charging::protocol::SupportTicketDto> tickets;
+        qint64 nextTicketId;
     };
     std::optional<Snapshot> transaction_;
 };

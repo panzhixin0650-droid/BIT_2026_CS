@@ -138,7 +138,7 @@ bool verifyAdminPassword(const AdminRecord &admin, const QString &password)
         && constantTimeEquals(expected, actual);
 }
 
-QJsonObject adminToJson(const AdminRecord &admin)
+QJsonObject adminToJson(const AdminRecord &admin, bool accountsAvailable = true)
 {
     QJsonArray scopes;
     for (qint64 stationId : admin.stationIds) scopes.append(stationId);
@@ -149,11 +149,12 @@ QJsonObject adminToJson(const AdminRecord &admin)
         {QStringLiteral("role"), admin.role},
         {QStringLiteral("status"), admin.status},
         {QStringLiteral("mustChangePassword"), admin.mustChangePassword},
+        {QStringLiteral("adminAccountsAvailable"), accountsAvailable},
         {QStringLiteral("stationIds"), scopes},
         {QStringLiteral("lastLoginAt"), admin.lastLoginAt.isEmpty()
              ? QJsonValue(QJsonValue::Null) : QJsonValue(admin.lastLoginAt)},
-        {QStringLiteral("createdAt"), admin.createdAt},
-        {QStringLiteral("updatedAt"), admin.updatedAt},
+        {QStringLiteral("createdAt"), admin.createdAt.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(admin.createdAt)},
+        {QStringLiteral("updatedAt"), admin.updatedAt.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(admin.updatedAt)},
         {QStringLiteral("version"), admin.version},
     };
 }
@@ -634,6 +635,9 @@ ServiceResult ApplicationService::loginAdmin(const QString &username,
         return ServiceResult::failure(kPrincipalDisabled,
                                       QStringLiteral("PRINCIPAL_DISABLED"));
     }
+    if (!repository_->supportsAdminAccounts()) {
+        return ServiceResult::success({{QStringLiteral("admin"), adminToJson(*admin, false)}});
+    }
     AdminRecord updated = *admin;
     if (updated.passwordAlgorithm == QStringLiteral("SHA256_LEGACY")) {
         updated.passwordHash = hashAdminPassword(password);
@@ -660,7 +664,7 @@ ServiceResult ApplicationService::getAdminProfile(qint64 actorAdminId) const
     ServiceResult failure;
     const auto admin = activeAdmin(repository_, actorAdminId, &failure, true);
     return admin.has_value()
-        ? ServiceResult::success({{QStringLiteral("admin"), adminToJson(*admin)}})
+        ? ServiceResult::success({{QStringLiteral("admin"), adminToJson(*admin, repository_->supportsAdminAccounts())}})
         : failure;
 }
 
@@ -672,6 +676,8 @@ ServiceResult ApplicationService::listAdminAccounts(qint64 actorAdminId,
     const auto actor = activeAdmin(repository_, actorAdminId, &failure);
     if (!actor.has_value()) return failure;
     if (actor->role != QStringLiteral("SYS_ADMIN")) return forbidden();
+    if (!repository_->supportsAdminAccounts()) return ServiceResult::failure(
+        ErrorCode::ServiceUnavailable, QStringLiteral("ADMIN_ACCOUNTS_MIGRATION_REQUIRED"));
     if (!status.isEmpty() && status != QStringLiteral("ACTIVE")
         && status != QStringLiteral("DISABLED")) return invalidRequest();
     const QList<AdminRecord> admins = repository_->listAdmins();
@@ -694,6 +700,8 @@ ServiceResult ApplicationService::createAdminAccount(qint64 actorAdminId,
     const auto actor = activeAdmin(repository_, actorAdminId, &failure);
     if (!actor.has_value()) return failure;
     if (actor->role != QStringLiteral("SYS_ADMIN")) return forbidden();
+    if (!repository_->supportsAdminAccounts()) return ServiceResult::failure(
+        ErrorCode::ServiceUnavailable, QStringLiteral("ADMIN_ACCOUNTS_MIGRATION_REQUIRED"));
     QString username;
     QString initialPassword;
     QString displayName;
@@ -766,6 +774,8 @@ ServiceResult ApplicationService::updateAdminAccount(qint64 actorAdminId,
     const auto actor = activeAdmin(repository_, actorAdminId, &failure);
     if (!actor.has_value()) return failure;
     if (actor->role != QStringLiteral("SYS_ADMIN")) return forbidden();
+    if (!repository_->supportsAdminAccounts()) return ServiceResult::failure(
+        ErrorCode::ServiceUnavailable, QStringLiteral("ADMIN_ACCOUNTS_MIGRATION_REQUIRED"));
     qint64 adminId = 0;
     QString displayName;
     QString role;
@@ -852,6 +862,8 @@ ServiceResult ApplicationService::changeAdminPassword(qint64 actorAdminId,
     ServiceResult failure;
     auto actor = activeAdmin(repository_, actorAdminId, &failure, true);
     if (!actor.has_value()) return failure;
+    if (!repository_->supportsAdminAccounts()) return ServiceResult::failure(
+        ErrorCode::ServiceUnavailable, QStringLiteral("ADMIN_ACCOUNTS_MIGRATION_REQUIRED"));
     if (currentPassword.isEmpty() || newPassword.size() < 8
         || newPassword.size() > 128 || currentPassword == newPassword) {
         return invalidRequest();
@@ -1605,6 +1617,123 @@ ServiceResult ApplicationService::listAdminOrders(qint64 actorAdminId) const
         items.append(toJson(order));
     }
     return ServiceResult::success({{QStringLiteral("items"), items}});
+}
+
+namespace {
+ServiceResult ticketsUnavailable()
+{
+    return ServiceResult::failure(ErrorCode::ServiceUnavailable,
+                                  QStringLiteral("SUPPORT_TICKETS_MIGRATION_REQUIRED"));
+}
+
+ServiceResult ticketPage(IRepository *repository, std::optional<qint64> userId,
+                         std::optional<qint64> beforeId)
+{
+    if (!repository || !repository->supportsSupportTickets()) return ticketsUnavailable();
+    auto tickets = repository->listSupportTickets(userId, beforeId, 11);
+    if (!repository->lastOperationSucceeded()) return internalError();
+    const bool hasMore = tickets.size() > 10;
+    if (hasMore) tickets.removeLast();
+    QJsonArray items;
+    for (const auto &ticket : tickets) items.append(toJson(ticket));
+    return ServiceResult::success({{"items", items}, {"hasMore", hasMore}});
+}
+}
+
+ServiceResult ApplicationService::createSupportTicket(const QString &token, const QJsonObject &input)
+{
+    ServiceResult failure;
+    const auto userId = authenticatedUserId(token, &failure);
+    if (!userId) return failure;
+    SupportTicketDraft draft;
+    if (!fromJson(input, &draft)) return invalidRequest();
+    if (!repository_->supportsSupportTickets()) return ticketsUnavailable();
+    RepositoryTransaction transaction(repository_);
+    if (!transaction.active()) return internalError();
+    const auto existing = repository_->findSupportSubmission(*userId, draft.submissionId);
+    if (!repository_->lastOperationSucceeded()) return internalError();
+    if (existing) {
+        if (toJson(static_cast<const SupportTicketDraft &>(*existing)) != toJson(draft))
+            return invalidRequest();
+        if (!transaction.commit()) return internalError();
+        return ServiceResult::success({{"ticket", toJson(*existing)}});
+    }
+    SupportTicketDto ticket;
+    static_cast<SupportTicketDraft &>(ticket) = draft;
+    ticket.userId = *userId;
+    ticket.createdAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    ticket.updatedAt = ticket.createdAt;
+    ticket = repository_->createSupportTicket(ticket);
+    if (!repository_->lastOperationSucceeded() || ticket.ticketId <= 0 || !transaction.commit())
+        return internalError();
+    return ServiceResult::success({{"ticket", toJson(ticket)}});
+}
+
+ServiceResult ApplicationService::listSupportTickets(const QString &token, const QJsonObject &input) const
+{
+    ServiceResult failure;
+    const auto userId = authenticatedUserId(token, &failure);
+    if (!userId) return failure;
+    std::optional<qint64> beforeId;
+    if (!input.isEmpty()) {
+        qint64 id = 0;
+        if (input.size() != 1 || !positiveTicketId(input.value("beforeTicketId"), &id))
+            return invalidRequest();
+        beforeId = id;
+    }
+    return ticketPage(repository_, *userId, beforeId);
+}
+
+ServiceResult ApplicationService::getSupportTicket(const QString &token, const QJsonObject &input) const
+{
+    ServiceResult failure;
+    const auto userId = authenticatedUserId(token, &failure);
+    if (!userId) return failure;
+    qint64 ticketId = 0;
+    if (input.size() != 1 || !positiveTicketId(input.value("ticketId"), &ticketId))
+        return invalidRequest();
+    if (!repository_->supportsSupportTickets()) return ticketsUnavailable();
+    const auto ticket = repository_->findSupportTicket(ticketId);
+    if (!repository_->lastOperationSucceeded()) return internalError();
+    if (!ticket || ticket->userId != *userId)
+        return ServiceResult::failure(ErrorCode::NotFound, QStringLiteral("NOT_FOUND"));
+    return ServiceResult::success({{"ticket", toJson(*ticket)}});
+}
+
+ServiceResult ApplicationService::listAdminSupportTickets(qint64 actorAdminId, std::optional<qint64> beforeId) const
+{
+    ServiceResult failure;
+    const auto actor = activeAdmin(repository_, actorAdminId, &failure);
+    if (!actor) return failure;
+    if (actor->role != QStringLiteral("SYS_ADMIN")) return forbidden();
+    if (beforeId && *beforeId < 1) return invalidRequest();
+    return ticketPage(repository_, {}, beforeId);
+}
+
+ServiceResult ApplicationService::updateAdminSupportTicket(qint64 actorAdminId, const QJsonObject &input)
+{
+    ServiceResult failure;
+    const auto actor = activeAdmin(repository_, actorAdminId, &failure);
+    if (!actor) return failure;
+    if (actor->role != QStringLiteral("SYS_ADMIN")) return forbidden();
+    qint64 ticketId = 0;
+    TicketStatus status;
+    if (input.size() != 3 || !positiveTicketId(input.value("ticketId"), &ticketId)
+        || !parseTicketStatus(input.value("status").toString(), &status)
+        || !input.value("reply").isString()
+        || !validTicketText(input.value("reply").toString(), 2000, status == TicketStatus::Resolved))
+        return invalidRequest();
+    if (!repository_ || !repository_->supportsSupportTickets()) return ticketsUnavailable();
+    RepositoryTransaction transaction(repository_);
+    if (!transaction.active()) return internalError();
+    auto ticket = repository_->findSupportTicket(ticketId);
+    if (!repository_->lastOperationSucceeded()) return internalError();
+    if (!ticket) return ServiceResult::failure(ErrorCode::NotFound, QStringLiteral("NOT_FOUND"));
+    ticket->status = status;
+    ticket->reply = input.value("reply").toString();
+    ticket->updatedAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    if (!repository_->updateSupportTicket(*ticket) || !transaction.commit()) return internalError();
+    return ServiceResult::success({{"ticket", toJson(*ticket)}});
 }
 
 }  // namespace charging::server

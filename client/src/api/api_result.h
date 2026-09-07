@@ -1,6 +1,7 @@
 #pragma once
 
 #include "charging/protocol/dto.h"
+#include "charging/protocol/support_ticket.h"
 #include "charging/protocol/protocol_constants.h"
 
 #include <QString>
@@ -110,6 +111,11 @@ using ChargingProgressResult = ApiResult<ChargingProgressPayload>;
 using ChargingStopResult = ApiResult<ChargingStopPayload>;
 using PaymentResult = ApiResult<PaymentPayload>;
 
+struct TicketPayload { protocol::SupportTicketDto ticket; };
+struct TicketListPayload { QList<protocol::SupportTicketDto> items; bool hasMore = false; };
+using TicketResult = ApiResult<TicketPayload>;
+using TicketListResult = ApiResult<TicketListPayload>;
+
 }  // namespace charging::client
 
 Q_DECLARE_METATYPE(charging::client::LoginResult)
@@ -124,3 +130,5 @@ Q_DECLARE_METATYPE(charging::client::OrderListResult)
 Q_DECLARE_METATYPE(charging::client::ChargingProgressResult)
 Q_DECLARE_METATYPE(charging::client::ChargingStopResult)
 Q_DECLARE_METATYPE(charging::client::PaymentResult)
+Q_DECLARE_METATYPE(charging::client::TicketResult)
+Q_DECLARE_METATYPE(charging::client::TicketListResult)

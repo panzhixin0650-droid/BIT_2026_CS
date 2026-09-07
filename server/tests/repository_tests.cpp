@@ -70,9 +70,11 @@ bool initializeDemoDatabase(const QString &databasePath, QString *error = nullpt
     return runSqlFile(databasePath,
                       QStringLiteral(CHARGING_DATABASE_MIGRATION_PATH), error)
         && runSqlFile(databasePath,
-                      QStringLiteral(CHARGING_DATABASE_MIGRATION_002_PATH), error)
+                      QStringLiteral(CHARGING_DATABASE_SEED_PATH), error)
         && runSqlFile(databasePath,
-                      QStringLiteral(CHARGING_DATABASE_SEED_PATH), error);
+                      QStringLiteral(CHARGING_TICKET_MIGRATION_PATH), error)
+        && runSqlFile(databasePath,
+                      QStringLiteral(CHARGING_ADMIN_MIGRATION_PATH), error);
 }
 
 template<typename Container, typename Predicate>

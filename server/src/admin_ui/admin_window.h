@@ -22,6 +22,7 @@ class QTreeWidgetItem;
 namespace charging::server {
 
 class AdminFacade;
+class SupportTicketsPage;
 class RevenueChart;
 class PileStatusChart;
 
@@ -130,6 +131,7 @@ private:
     bool sqliteRepository_ = false;
     QStackedWidget *rootStack_ = nullptr;
     QStackedWidget *contentStack_ = nullptr;
+    SupportTicketsPage *supportTicketsPage_ = nullptr;
     QToolButton *backButton_ = nullptr;
     QToolButton *refreshButton_ = nullptr;
     QToolButton *forwardButton_ = nullptr;
@@ -201,6 +203,8 @@ private:
     QSet<QString> selectedAdminRoles_;
     qint64 currentAdminId_ = 0;
     QString currentAdminRole_;
+    bool currentAdminAccountsAvailable_ = false;
+    QPushButton *changePasswordButton_ = nullptr;
     qint64 expandStationAfterRefresh_ = 0;
     qint64 focusPileAfterRefresh_ = 0;
     QTimer *stationClickTimer_ = nullptr;

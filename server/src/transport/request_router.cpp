@@ -58,6 +58,12 @@ charging::protocol::ResponseEnvelope RequestRouter::route(
         result = service_->stopOrder(request.token.value_or(QString{}), request.data);
     } else if (request.type == MessageType::OrderPay) {
         result = service_->payOrder(request.token.value_or(QString{}), request.data);
+    } else if (request.type == MessageType::SupportTicketCreate) {
+        result = service_->createSupportTicket(request.token.value_or(QString{}), request.data);
+    } else if (request.type == MessageType::SupportTicketList) {
+        result = service_->listSupportTickets(request.token.value_or(QString{}), request.data);
+    } else if (request.type == MessageType::SupportTicketDetail) {
+        result = service_->getSupportTicket(request.token.value_or(QString{}), request.data);
     } else {
         // The remaining routes are added in later, focused changes. Keeping
         // the fallback here makes unsupported messages fail predictably.

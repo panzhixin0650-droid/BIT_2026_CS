@@ -110,8 +110,9 @@ struct Fixture {
         if (!temporary.isValid()) return false;
         if (sqlite) {
             for (const char *path : {CHARGING_DATABASE_MIGRATION_PATH,
-                                     CHARGING_DATABASE_MIGRATION_002_PATH,
-                                     CHARGING_DATABASE_SEED_PATH}) {
+                                     CHARGING_DATABASE_SEED_PATH,
+                                     CHARGING_TICKET_MIGRATION_PATH,
+                                     CHARGING_ADMIN_MIGRATION_PATH}) {
                 QFile input(QString::fromUtf8(path));
                 if (!input.open(QIODevice::ReadOnly) || !sql(input.readAll())) return false;
             }

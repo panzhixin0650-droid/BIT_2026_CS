@@ -1,5 +1,6 @@
 #include "admin_ui/admin_facade.h"
 #include "admin_ui/admin_window.h"
+#include "admin_ui/support_tickets_page.h"
 #include "application/application_service.h"
 #include "application/session_store.h"
 #include "adapters/mock_pile.h"
@@ -11,9 +12,12 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QPlainTextEdit>
+#include <QComboBox>
 #include <QPushButton>
 #include <QScreen>
 #include <QTableWidget>
+#include <QToolButton>
 #include <QtTest>
 
 using namespace charging::server;
@@ -111,7 +115,48 @@ private slots:
     void loginSurfaceSurvivesPartialRepaints();
     void systemAdminCanOpenAdminManagementPage();
     void userAdminOnlySeesAuthorizedPages();
+    void supportTicketPageSavesAndLogoutClears();
+    void revokedTicketAccessClearsCachedPage();
 };
+
+void AdminUiTests::supportTicketPageSavesAndLogoutClears()
+{
+    LoginFixture fixture;
+    const auto token = fixture.service.loginUser({{"phone", "13800000001"}}).data.value("token").toString();
+    const auto result = fixture.service.createSupportTicket(token, {
+        {"submissionId", "b758e849-0cd0-4eb6-8aee-35c5c98fd553"},
+        {"title", "<script>test</script>"}, {"summary", QStringLiteral("用户确认的订单页面异常")},
+        {"sourceModel", "gpt-5.6-sol"}});
+    QVERIFY(result.ok());
+    fixture.window.show();
+    fixture.username->setText("admin"); fixture.password->setText("123456");
+    fixture.submit->click();
+    auto *navigation = fixture.window.findChild<QListWidget *>("navigation");
+    QVERIFY(navigation);
+    QCOMPARE(navigation->count(), 8);
+    navigation->setCurrentRow(6);
+    auto *page = fixture.window.findChild<QWidget *>("supportTicketsPage");
+    QVERIFY(page && page->isVisible());
+    auto *list = page->findChild<QListWidget *>("adminTicketList");
+    QCOMPARE(list->count(), 1);
+    QVERIFY(page->findChild<QPlainTextEdit *>("adminTicketSummary")->toPlainText().contains("<script>"));
+    auto *status = page->findChild<QComboBox *>("adminTicketStatus");
+    status->setCurrentIndex(status->findData("RESOLVED"));
+    page->findChild<QPushButton *>("adminTicketSave")->click();
+    QVERIFY(page->findChild<QLabel *>("adminTicketNotice")->text().contains(QStringLiteral("失败")));
+    page->findChild<QPlainTextEdit *>("adminTicketReply")->setPlainText(QStringLiteral("已核对，请刷新订单。"));
+    page->findChild<QPushButton *>("adminTicketSave")->click();
+    QVERIFY(page->findChild<QLabel *>("adminTicketNotice")->text().contains(QStringLiteral("已保存")));
+    const auto stored = fixture.service.getSupportTicket(token, {{"ticketId", 1}});
+    QCOMPARE(stored.data.value("ticket").toObject().value("status").toString(), QStringLiteral("RESOLVED"));
+    const QString directory = qEnvironmentVariable("CHARGING_UI_ARTIFACT_DIR");
+    if (!directory.isEmpty()) QVERIFY(fixture.window.grab().save(QDir(directory).filePath("admin-support-tickets.png")));
+    for (auto *button : fixture.window.findChildren<QPushButton *>()) {
+        if (button->text() == QStringLiteral("退出登录")) { button->click(); break; }
+    }
+    QCOMPARE(list->count(), 0);
+    QVERIFY(!fixture.facade.listSupportTickets().ok());
+}
 
 void AdminUiTests::loginFailurePreservesInputAndAllowsRetry()
 {
@@ -208,11 +253,28 @@ void AdminUiTests::systemAdminCanOpenAdminManagementPage()
     auto *table = fixture.window.findChild<QTableWidget *>(QStringLiteral("adminsTable"));
     QVERIFY(navigation != nullptr);
     QVERIFY(table != nullptr);
+    QCOMPARE(navigation->count(), 8);
     QVERIFY(!navigation->item(6)->isHidden());
-    navigation->setCurrentRow(6);
+    QVERIFY(!navigation->item(7)->isHidden());
+    navigation->setCurrentRow(7);
     QTRY_VERIFY(table->isVisible());
     QCOMPARE(table->rowCount(), 1);
     QCOMPARE(table->item(0, 1)->text(), QStringLiteral("admin"));
+    if (!qEnvironmentVariableIsEmpty("CHARGING_UI_ARTIFACT_DIR")) screenImage(fixture.window, "admin-management");
+    auto *tickets = fixture.window.findChild<QWidget *>(QStringLiteral("supportTicketsPage"));
+    QVERIFY(tickets);
+    navigation->setCurrentRow(6);
+    QVERIFY(tickets->isVisible());
+    QVERIFY(!table->isVisible());
+    if (!qEnvironmentVariableIsEmpty("CHARGING_UI_ARTIFACT_DIR")) screenImage(fixture.window, "ticket-management");
+    auto *refresh = fixture.window.findChild<QToolButton *>(QStringLiteral("adminPageRefresh"));
+    QVERIFY(refresh);
+    refresh->click();
+    QVERIFY(tickets->isVisible());
+    navigation->setCurrentRow(7);
+    refresh->click();
+    QVERIFY(table->isVisible());
+    QCOMPARE(table->rowCount(), 1);
 }
 
 void AdminUiTests::userAdminOnlySeesAuthorizedPages()
@@ -251,6 +313,38 @@ void AdminUiTests::userAdminOnlySeesAuthorizedPages()
     QVERIFY(!navigation->item(4)->isHidden());
     QVERIFY(!navigation->item(5)->isHidden());
     QVERIFY(navigation->item(6)->isHidden());
+    QVERIFY(navigation->item(7)->isHidden());
+    navigation->setCurrentRow(6); // A hidden item cannot be entered programmatically either.
+    QVERIFY(!fixture.window.findChild<QWidget *>(QStringLiteral("supportTicketsPage"))->isVisible());
+}
+
+void AdminUiTests::revokedTicketAccessClearsCachedPage()
+{
+    LoginFixture fixture;
+    const auto token = fixture.service.loginUser({{"phone", "13800000001"}}).data.value("token").toString();
+    const auto ticket = fixture.service.createSupportTicket(token, {
+        {"submissionId", "98d804af-47d8-4248-80d3-f7eaeec109ed"}, {"title", "private feedback"},
+        {"summary", "confirmed summary"}, {"sourceModel", ""}});
+    QVERIFY(ticket.ok());
+    fixture.window.show();
+    fixture.username->setText("admin"); fixture.password->setText("123456");
+    fixture.submit->click();
+    auto *navigation = fixture.window.findChild<QListWidget *>("navigation");
+    navigation->setCurrentRow(6);
+    auto *list = fixture.window.findChild<QListWidget *>("adminTicketList");
+    auto *summary = fixture.window.findChild<QPlainTextEdit *>("adminTicketSummary");
+    auto *reply = fixture.window.findChild<QPlainTextEdit *>("adminTicketReply");
+    QCOMPARE(list->count(), 1);
+    QVERIFY(!summary->toPlainText().isEmpty());
+    auto admin = fixture.repository.findAdminById(1).value();
+    admin.status = "DISABLED";
+    QVERIFY(fixture.repository.updateAdmin(admin));
+    reply->setPlainText("must not be saved");
+    fixture.window.findChild<QPushButton *>("adminTicketSave")->click();
+    QCOMPARE(list->count(), 0);
+    QVERIFY(summary->toPlainText().isEmpty() && reply->toPlainText().isEmpty());
+    const auto id = ticket.data.value("ticket").toObject().value("ticketId").toInteger();
+    QVERIFY(fixture.repository.findSupportTicket(id)->reply.isEmpty());
 }
 
 QTEST_MAIN(AdminUiTests)

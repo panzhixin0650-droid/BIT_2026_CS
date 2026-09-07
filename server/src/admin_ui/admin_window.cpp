@@ -1,6 +1,7 @@
 #include "admin_window.h"
 
 #include "admin_facade.h"
+#include "support_tickets_page.h"
 #include "pile_status_chart.h"
 #include "revenue_chart.h"
 
@@ -609,7 +610,7 @@ QWidget *AdminWindow::buildApplicationPage()
     navigation_->addItems({QStringLiteral("◉  运营监控"), QStringLiteral("▥  营收统计"),
                            QStringLiteral("⌂  充电站管理"), QStringLiteral("ϟ  充电桩管理"),
                            QStringLiteral("♙  用户管理"), QStringLiteral("≡  订单管理"),
-                           QStringLiteral("⚙  管理员管理")});
+                           QStringLiteral("☏  客服工单"), QStringLiteral("⚙  管理员管理")});
     sidebarLayout->addWidget(navigation_, 1);
     auto *accountPanel = new QFrame(sidebar);
     accountPanel->setStyleSheet(QStringLiteral(
@@ -624,16 +625,19 @@ QWidget *AdminWindow::buildApplicationPage()
     accountIdentity_ = new QLabel(QStringLiteral("未登录"), accountPanel);
     accountIdentity_->setWordWrap(true);
     accountLayout->addWidget(accountIdentity_);
-    auto *changePasswordButton = new QPushButton(QStringLiteral("修改密码"), accountPanel);
-    connect(changePasswordButton, &QPushButton::clicked, this, [this] {
+    changePasswordButton_ = new QPushButton(QStringLiteral("修改密码"), accountPanel);
+    changePasswordButton_->setObjectName(QStringLiteral("adminChangePassword"));
+    connect(changePasswordButton_, &QPushButton::clicked, this, [this] {
         showChangePasswordDialog(false);
     });
-    accountLayout->addWidget(changePasswordButton);
+    accountLayout->addWidget(changePasswordButton_);
     auto *logoutButton = new QPushButton(QStringLiteral("退出登录"), accountPanel);
     connect(logoutButton, &QPushButton::clicked, this, [this] {
         if (facade_ != nullptr) facade_->logout();
         currentAdminId_ = 0;
         currentAdminRole_.clear();
+        currentAdminAccountsAvailable_ = false;
+        supportTicketsPage_->clear();
         rootStack_->setCurrentIndex(0);
         passwordEdit_->clear();
         backHistory_.clear();
@@ -661,6 +665,7 @@ QWidget *AdminWindow::buildApplicationPage()
     backButton_->setAutoRaise(true);
     backButton_->setFixedSize(36, 36);
     refreshButton_ = new QToolButton(mainArea);
+    refreshButton_->setObjectName(QStringLiteral("adminPageRefresh"));
     refreshButton_->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
     refreshButton_->setIconSize(QSize(20, 20));
     refreshButton_->setToolTip(QStringLiteral("刷新当前页面"));
@@ -698,6 +703,8 @@ QWidget *AdminWindow::buildApplicationPage()
     contentStack_->addWidget(buildPilesPage());
     contentStack_->addWidget(buildUsersPage());
     contentStack_->addWidget(buildOrdersPage());
+    supportTicketsPage_ = new SupportTicketsPage(facade_, contentStack_);
+    contentStack_->addWidget(supportTicketsPage_);
     contentStack_->addWidget(buildAdminsPage());
     mainLayout->addWidget(contentStack_, 1);
     layout->addWidget(mainArea, 1);
@@ -1330,6 +1337,13 @@ void AdminWindow::attemptLogin()
         setLoginError(QStringLiteral("管理服务尚未初始化"));
         return;
     }
+    currentAdminId_ = 0;
+    currentAdminRole_.clear();
+    currentAdminAccountsAvailable_ = false;
+    supportTicketsPage_->clear();
+    backHistory_.clear();
+    forwardHistory_.clear();
+    rootStack_->setCurrentIndex(0);
     const ServiceResult result = facade_->login(usernameEdit_->text().trimmed(), passwordEdit_->text());
     if (!result.ok()) {
         setLoginError(QStringLiteral("账号或密码错误，请重试"));
@@ -1347,6 +1361,7 @@ void AdminWindow::attemptLogin()
             facade_->logout();
             currentAdminId_ = 0;
             currentAdminRole_.clear();
+            currentAdminAccountsAvailable_ = false;
         }
         return;
     }
@@ -1365,6 +1380,10 @@ void AdminWindow::applyAdminPermissions(const QJsonObject &admin)
     const bool systemAdmin = role == QStringLiteral("SYS_ADMIN");
     const bool stationAdmin = role == QStringLiteral("STATION_ADMIN");
     const bool userAdmin = role == QStringLiteral("USER_ADMIN");
+    currentAdminAccountsAvailable_ = admin.value(QStringLiteral("adminAccountsAvailable")).toBool();
+    changePasswordButton_->setEnabled(currentAdminAccountsAvailable_);
+    changePasswordButton_->setToolTip(currentAdminAccountsAvailable_ ? QString()
+        : QStringLiteral("管理员管理及改密尚未启用，请联系维护人员"));
     navigation_->item(0)->setHidden(userAdmin);
     navigation_->item(1)->setHidden(false);
     navigation_->item(2)->setHidden(userAdmin);
@@ -1372,6 +1391,7 @@ void AdminWindow::applyAdminPermissions(const QJsonObject &admin)
     navigation_->item(4)->setHidden(stationAdmin);
     navigation_->item(5)->setHidden(false);
     navigation_->item(6)->setHidden(!systemAdmin);
+    navigation_->item(7)->setHidden(!systemAdmin || !currentAdminAccountsAvailable_);
     if (accountIdentity_ != nullptr) {
         accountIdentity_->setText(QStringLiteral("%1\n%2")
             .arg(admin.value(QStringLiteral("displayName")).toString(),
@@ -1437,6 +1457,10 @@ bool AdminWindow::showChangePasswordDialog(bool required)
         }
         currentAdminId_ = 0;
         currentAdminRole_.clear();
+        currentAdminAccountsAvailable_ = false;
+        supportTicketsPage_->clear();
+        backHistory_.clear();
+        forwardHistory_.clear();
         rootStack_->setCurrentIndex(0);
         passwordEdit_->clear();
         QMessageBox::information(this, QStringLiteral("密码已修改"),
@@ -1448,7 +1472,12 @@ bool AdminWindow::showChangePasswordDialog(bool required)
 
 void AdminWindow::selectPage(int index)
 {
-    if (index < 0 || contentStack_ == nullptr) return;
+    if (index < 0 || contentStack_ == nullptr || index >= contentStack_->count()) return;
+    if (currentAdminId_ > 0 && navigation_->item(index)->isHidden()) {
+        const QSignalBlocker blocker(navigation_);
+        navigation_->setCurrentRow(contentStack_->currentIndex());
+        return;
+    }
     const int previousIndex = contentStack_->currentIndex();
     if (historyReady_ && !restoringHistory_ && previousIndex >= 0
         && previousIndex != index) {
@@ -1461,7 +1490,7 @@ void AdminWindow::selectPage(int index)
     static const QStringList titles{QStringLiteral("运营监控"), QStringLiteral("营收统计"),
                                     QStringLiteral("充电站管理"), QStringLiteral("充电桩管理"),
                                     QStringLiteral("用户管理"), QStringLiteral("订单管理"),
-                                    QStringLiteral("管理员管理")};
+                                    QStringLiteral("客服工单"), QStringLiteral("管理员管理")};
     contentStack_->setCurrentIndex(index);
     {
         const QSignalBlocker navigationBlocker(navigation_);
@@ -1479,7 +1508,8 @@ void AdminWindow::selectPage(int index)
     case 3: refreshPiles(); break;
     case 4: refreshUsers(); break;
     case 5: refreshOrders(); break;
-    case 6: refreshAdmins(); break;
+    case 6: supportTicketsPage_->refresh(); break;
+    case 7: refreshAdmins(); break;
     default: break;
     }
     updateNavigationButtons();
@@ -1499,12 +1529,16 @@ void AdminWindow::refreshAll()
         refreshUsers();
     }
     refreshOrders();
-    if (currentAdminRole_ == QStringLiteral("SYS_ADMIN")) refreshAdmins();
+    if (currentAdminRole_ == QStringLiteral("SYS_ADMIN") && currentAdminAccountsAvailable_) refreshAdmins();
 }
 
 void AdminWindow::refreshCurrentPage()
 {
     if (contentStack_ == nullptr) return;
+    if (contentStack_->currentIndex() == 6) {
+        supportTicketsPage_->refresh();
+        return;
+    }
 
     // This is a view refresh, not a data operation.  Reset all controls that
     // belong to the visible page while signals are blocked, then fetch that
@@ -1620,7 +1654,8 @@ void AdminWindow::refreshCurrentPage()
         refreshOrders();
         break;
     }
-    case 6: { // 管理员管理
+    case 6: supportTicketsPage_->refresh(); break;
+    case 7: { // 管理员管理
         const QSignalBlocker searchBlocker(adminSearch_);
         if (adminSearch_ != nullptr) adminSearch_->clear();
         appliedAdminSearch_.clear();
@@ -1644,7 +1679,7 @@ void AdminWindow::refreshCurrentPage()
 void AdminWindow::refreshAdmins()
 {
     if (facade_ == nullptr || adminsTable_ == nullptr
-        || currentAdminRole_ != QStringLiteral("SYS_ADMIN")) return;
+        || currentAdminRole_ != QStringLiteral("SYS_ADMIN") || !currentAdminAccountsAvailable_) return;
     const ServiceResult result = facade_->listAdmins(appliedAdminSearch_);
     if (!result.ok()) return showServiceError(result.code, result.message);
     QHash<qint64, QString> stationNames;
@@ -2998,6 +3033,7 @@ void AdminWindow::showServiceError(int code, const QString &message)
     else if (message == QStringLiteral("PRINCIPAL_DISABLED")) detail = QStringLiteral("管理员账号已停用。");
     else if (message == QStringLiteral("INVALID_CREDENTIALS")) detail = QStringLiteral("当前密码错误。");
     else if (message == QStringLiteral("PASSWORD_CHANGE_REQUIRED")) detail = QStringLiteral("请先修改初始密码。");
+    else if (message == QStringLiteral("ADMIN_ACCOUNTS_MIGRATION_REQUIRED")) detail = QStringLiteral("管理员管理及改密尚未启用，请联系维护人员。");
     else if (message == QStringLiteral("ROLE_FORBIDDEN")) detail = QStringLiteral("当前角色没有执行该操作的权限。");
     else if (message == QStringLiteral("STATION_SCOPE_FORBIDDEN")) detail = QStringLiteral("该充电站不在当前管理员的授权范围内。");
     QMessageBox::warning(this, QStringLiteral("操作失败"), detail);

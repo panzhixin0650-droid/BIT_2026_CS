@@ -1,4 +1,4 @@
-# ADR 0008：管理员账号管理与进程内 RBAC
+# ADR 0009：管理员账号管理与进程内 RBAC
 
 - 状态：已接受并实现
 - 日期：2026-09-07
@@ -25,7 +25,20 @@ V1 Demo 只有固定的 `admin/123456`，登录后也没有持续保存管理员
 
 ## 数据兼容
 
-`002_admin_accounts.sql` 兼容重建 `admins`，保留原管理员 ID、账号、密码哈希和显示名，并把原账号映射为启用的 `SYS_ADMIN`。迁移新增 `admin_station_scopes` 和 `admin_audit_logs`，结构版本升为 2。现有用户、站点、电桩、订单及订单价格快照不变。
+保留已合入的 `002_support_tickets.sql`。`003_admin_accounts.sql` 仅从工单 schema 2 升级到 3，
+兼容重建 `admins`，保留原管理员 ID、账号、密码哈希和显示名，并把原账号映射为启用的
+`SYS_ADMIN`。迁移新增 `admin_station_scopes` 和 `admin_audit_logs`；用户、站点、电桩、
+订单及价格快照、已有工单及回复均不变。迁移拒绝重复执行、缺失前置迁移及同版本异构库。
+
+服务端兼容 schema 1/2/3：旧库仍支持原业务及固定管理员登录，不自动改写密码或执行迁移；
+schema 2/3 支持工单。新管理员管理、改密和审计仅在 schema 3 启用；旧库返回
+`ADMIN_ACCOUNTS_MIGRATION_REQUIRED`，界面隐藏账号管理并禁用改密。
+已试用被撤销 PR 的“管理员 schema 2”不是工单 schema 2，须先备份并单独审计恢复，
+不得仅修改 `user_version` 或再次套用 002/003。
+
+工单管理复用管理员身份，不另存登录布尔授权；ApplicationService 每次读写重新校验
+账号状态、首次改密和 `SYS_ADMIN` 角色。站点／用户管理员不能读取或回复全量工单。
+退出、改密退出及登录失败清除授权和工单页面；界面隐藏不能替代服务端校验。
 
 ## 结果
 

@@ -15,10 +15,14 @@ namespace {
 
 using namespace charging::protocol;
 
-constexpr int kExpectedSchemaVersion = 2;
-
-QString adminSelectSql(const QString &whereClause = {})
+QString adminSelectSql(bool accountsAvailable, const QString &whereClause = {})
 {
+    if (!accountsAvailable) {
+        // Schema 1/2 retain their fixed administrator without rewriting credentials.
+        return QStringLiteral("SELECT admin_id, username, password_hash, 'SHA256_LEGACY', "
+                              "display_name, 'SYS_ADMIN', 'ACTIVE', 0, NULL, '', '', 0 FROM admins ")
+            + whereClause;
+    }
     return QStringLiteral(
                "SELECT admin_id, username, password_hash, password_algorithm, "
                "display_name, role, status, must_change_password, last_login_at, "
@@ -360,7 +364,8 @@ bool Repository::open(const QString &databasePath, QString *error)
     if (!version.exec(QStringLiteral("PRAGMA user_version")) || !version.next()) {
         return reject(version.lastError().text());
     }
-    if (version.value(0).toInt() != kExpectedSchemaVersion) {
+    const int schemaVersion = version.value(0).toInt();
+    if (schemaVersion < 1 || schemaVersion > 3) {
         return reject(QStringLiteral("unsupported database schema version: %1")
                           .arg(version.value(0).toInt()));
     }
@@ -368,14 +373,43 @@ bool Repository::open(const QString &databasePath, QString *error)
     QSqlQuery tables(database_);
     if (!tables.exec(QStringLiteral(
             "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' "
-            "AND name IN ('users', 'admins', 'admin_station_scopes', "
-            "'admin_audit_logs', 'charging_stations', 'charging_piles', "
+            "AND name IN ('users', 'admins', 'charging_stations', 'charging_piles', "
             "'charging_orders')"))
         || !tables.next()) {
         return reject(tables.lastError().text());
     }
-    if (tables.value(0).toInt() != 7) {
+    if (tables.value(0).toInt() != 5) {
         return reject(QStringLiteral("required Demo tables are missing"));
+    }
+
+    supportTicketsAvailable_ = false;
+    if (schemaVersion >= 2) {
+        QSqlQuery tickets(database_);
+        if (!tickets.exec(QStringLiteral(
+                "SELECT ticket_id, user_id, submission_id, title, summary, source_model, "
+                "status, reply, created_at, updated_at FROM support_tickets LIMIT 0")))
+            return reject(QStringLiteral("support ticket schema is missing or invalid"));
+        supportTicketsAvailable_ = true;
+    }
+
+    adminAccountsAvailable_ = false;
+    QSqlQuery adminSchema(database_);
+    if (!adminSchema.exec(adminSelectSql(schemaVersion == 3, QStringLiteral("LIMIT 0"))))
+        return reject(QStringLiteral("administrator schema is missing or invalid"));
+    if (schemaVersion == 3) {
+        for (const auto &sql : {
+                 QStringLiteral("SELECT admin_id, station_id, granted_by_admin_id, granted_at FROM admin_station_scopes LIMIT 0"),
+                 QStringLiteral("SELECT audit_id, actor_admin_id, action, target_admin_id, details_json, created_at FROM admin_audit_logs LIMIT 0")}) {
+            QSqlQuery extension(database_);
+            if (!extension.exec(sql)) return reject(QStringLiteral("administrator extension schema is missing or invalid"));
+        }
+        adminAccountsAvailable_ = true;
+    } else {
+        // The reverted PR used version 2 for a different layout. Do not guess or migrate it.
+        QSqlQuery legacy(database_);
+        if (!legacy.exec(QStringLiteral("SELECT COUNT(*) FROM pragma_table_info('admins')"))
+            || !legacy.next() || legacy.value(0).toInt() != 4)
+            return reject(QStringLiteral("legacy administrator layout mismatch; explicit migration recovery required"));
     }
 
     if (error != nullptr) {
@@ -386,6 +420,8 @@ bool Repository::open(const QString &databasePath, QString *error)
 
 void Repository::close()
 {
+    supportTicketsAvailable_ = false;
+    adminAccountsAvailable_ = false;
     rollbackTransaction();
     if (!database_.isValid()) {
         return;
@@ -438,7 +474,7 @@ std::optional<AdminRecord> Repository::findAdminByUsername(
     }
 
     QSqlQuery query(database_);
-    if (!query.prepare(adminSelectSql(QStringLiteral("WHERE username = :username")))) {
+    if (!query.prepare(adminSelectSql(adminAccountsAvailable_, QStringLiteral("WHERE username = :username")))) {
         failOperation(operation, query.lastError().text());
         return std::nullopt;
     }
@@ -456,6 +492,7 @@ std::optional<AdminRecord> Repository::findAdminByUsername(
         failOperation(operation, QStringLiteral("invalid admin record in database"));
         return std::nullopt;
     }
+    if (!adminAccountsAvailable_) return admin;
     QSqlQuery scopes(database_);
     if (!scopes.prepare(QStringLiteral(
             "SELECT station_id FROM admin_station_scopes "
@@ -478,7 +515,7 @@ std::optional<AdminRecord> Repository::findAdminById(qint64 adminId) const
     const QString operation = QStringLiteral("findAdminById");
     if (!requireOpen(operation)) return std::nullopt;
     QSqlQuery query(database_);
-    if (!query.prepare(adminSelectSql(QStringLiteral("WHERE admin_id = :admin_id")))) {
+    if (!query.prepare(adminSelectSql(adminAccountsAvailable_, QStringLiteral("WHERE admin_id = :admin_id")))) {
         failOperation(operation, query.lastError().text());
         return std::nullopt;
     }
@@ -493,6 +530,7 @@ std::optional<AdminRecord> Repository::findAdminById(qint64 adminId) const
         failOperation(operation, QStringLiteral("invalid admin record in database"));
         return std::nullopt;
     }
+    if (!adminAccountsAvailable_) return admin;
     QSqlQuery scopes(database_);
     if (!scopes.prepare(QStringLiteral(
             "SELECT station_id FROM admin_station_scopes "
@@ -516,7 +554,7 @@ QList<AdminRecord> Repository::listAdmins() const
     QList<AdminRecord> result;
     if (!requireOpen(operation)) return result;
     QSqlQuery query(database_);
-    if (!query.exec(adminSelectSql(QStringLiteral("ORDER BY admin_id")))) {
+    if (!query.exec(adminSelectSql(adminAccountsAvailable_, QStringLiteral("ORDER BY admin_id")))) {
         failOperation(operation, query.lastError().text());
         return {};
     }
@@ -528,6 +566,7 @@ QList<AdminRecord> Repository::listAdmins() const
         }
         result.append(admin);
     }
+    if (!adminAccountsAvailable_) return result;
     QSqlQuery scopes(database_);
     if (!scopes.exec(QStringLiteral(
             "SELECT admin_id, station_id FROM admin_station_scopes "
@@ -551,6 +590,10 @@ AdminRecord Repository::createAdmin(AdminRecord admin)
 {
     beginOperation();
     const QString operation = QStringLiteral("createAdmin");
+    if (!adminAccountsAvailable_) {
+        failOperation(operation, QStringLiteral("administrator migration required"));
+        return {};
+    }
     if (!requireOpen(operation)) return {};
     QSqlQuery query(database_);
     if (!query.prepare(QStringLiteral(
@@ -583,6 +626,10 @@ bool Repository::updateAdmin(const AdminRecord &admin)
 {
     beginOperation();
     const QString operation = QStringLiteral("updateAdmin");
+    if (!adminAccountsAvailable_) {
+        failOperation(operation, QStringLiteral("administrator migration required"));
+        return false;
+    }
     if (!requireOpen(operation)) return false;
     QSqlQuery query(database_);
     if (!query.prepare(QStringLiteral(
@@ -620,6 +667,10 @@ bool Repository::replaceAdminStationScopes(qint64 adminId,
 {
     beginOperation();
     const QString operation = QStringLiteral("replaceAdminStationScopes");
+    if (!adminAccountsAvailable_) {
+        failOperation(operation, QStringLiteral("administrator migration required"));
+        return false;
+    }
     if (!requireOpen(operation)) return false;
     QSqlQuery remove(database_);
     if (!remove.prepare(QStringLiteral(
@@ -661,6 +712,10 @@ bool Repository::appendAdminAudit(qint64 actorAdminId,
 {
     beginOperation();
     const QString operation = QStringLiteral("appendAdminAudit");
+    if (!adminAccountsAvailable_) {
+        failOperation(operation, QStringLiteral("administrator migration required"));
+        return false;
+    }
     if (!requireOpen(operation)) return false;
     QSqlQuery query(database_);
     if (!query.prepare(QStringLiteral(
@@ -1450,6 +1505,146 @@ bool Repository::updateOrder(const OrderDto &order, OrderStatus expectedStatus)
     query.bindValue(QStringLiteral(":expected_status"), toString(expectedStatus));
     if (!query.exec()) {
         failOperation(operation, query.lastError().text());
+        return false;
+    }
+    return query.numRowsAffected() == 1;
+}
+
+namespace {
+QString ticketSelect()
+{
+    return QStringLiteral("SELECT ticket_id, user_id, submission_id, title, summary, "
+                          "source_model, status, reply, created_at, updated_at FROM support_tickets ");
+}
+
+bool readTicket(const QSqlQuery &query, SupportTicketDto *ticket)
+{
+    return fromJson({{"ticketId", query.value(0).toLongLong()},
+                     {"userId", query.value(1).toLongLong()},
+                     {"submissionId", query.value(2).toString()},
+                     {"title", query.value(3).toString()}, {"summary", query.value(4).toString()},
+                     {"sourceModel", query.value(5).toString()}, {"status", query.value(6).toString()},
+                     {"reply", query.value(7).toString()}, {"createdAt", query.value(8).toString()},
+                     {"updatedAt", query.value(9).toString()}}, ticket);
+}
+}
+
+bool Repository::supportsSupportTickets() const
+{
+    return isOpen() && supportTicketsAvailable_;
+}
+
+std::optional<SupportTicketDto> Repository::findSupportTicket(qint64 ticketId) const
+{
+    beginOperation();
+    if (!requireOpen(QStringLiteral("findSupportTicket"))) return std::nullopt;
+    QSqlQuery query(database_);
+    query.prepare(ticketSelect() + QStringLiteral("WHERE ticket_id = :id"));
+    query.bindValue(":id", ticketId);
+    if (!query.exec()) {
+        failOperation(QStringLiteral("findSupportTicket"), query.lastError().text());
+        return std::nullopt;
+    }
+    if (!query.next()) return std::nullopt;
+    SupportTicketDto ticket;
+    if (!readTicket(query, &ticket)) {
+        failOperation(QStringLiteral("findSupportTicket"), QStringLiteral("invalid ticket row"));
+        return std::nullopt;
+    }
+    return ticket;
+}
+
+std::optional<SupportTicketDto> Repository::findSupportSubmission(
+    qint64 userId, const QString &submissionId) const
+{
+    beginOperation();
+    if (!requireOpen(QStringLiteral("findSupportSubmission"))) return std::nullopt;
+    QSqlQuery query(database_);
+    query.prepare(ticketSelect() + QStringLiteral("WHERE user_id = :user AND submission_id = :id"));
+    query.bindValue(":user", userId);
+    query.bindValue(":id", submissionId);
+    if (!query.exec()) {
+        failOperation(QStringLiteral("findSupportSubmission"), query.lastError().text());
+        return std::nullopt;
+    }
+    if (!query.next()) return std::nullopt;
+    SupportTicketDto ticket;
+    if (!readTicket(query, &ticket)) {
+        failOperation(QStringLiteral("findSupportSubmission"), QStringLiteral("invalid ticket row"));
+        return std::nullopt;
+    }
+    return ticket;
+}
+
+QList<SupportTicketDto> Repository::listSupportTickets(
+    std::optional<qint64> userId, std::optional<qint64> beforeId, int limit) const
+{
+    beginOperation();
+    if (!requireOpen(QStringLiteral("listSupportTickets"))) return {};
+    QString sql = ticketSelect() + QStringLiteral("WHERE 1=1 ");
+    if (userId) sql += QStringLiteral("AND user_id = :user ");
+    if (beforeId) sql += QStringLiteral("AND ticket_id < :before ");
+    sql += QStringLiteral("ORDER BY ticket_id DESC LIMIT :limit");
+    QSqlQuery query(database_);
+    query.prepare(sql);
+    if (userId) query.bindValue(":user", *userId);
+    if (beforeId) query.bindValue(":before", *beforeId);
+    query.bindValue(":limit", qBound(1, limit, 101));
+    if (!query.exec()) {
+        failOperation(QStringLiteral("listSupportTickets"), query.lastError().text());
+        return {};
+    }
+    QList<SupportTicketDto> tickets;
+    while (query.next()) {
+        SupportTicketDto ticket;
+        if (!readTicket(query, &ticket)) {
+            failOperation(QStringLiteral("listSupportTickets"), QStringLiteral("invalid ticket row"));
+            return {};
+        }
+        tickets.append(ticket);
+    }
+    return tickets;
+}
+
+SupportTicketDto Repository::createSupportTicket(SupportTicketDto ticket)
+{
+    beginOperation();
+    if (!requireOpen(QStringLiteral("createSupportTicket"))) return {};
+    QSqlQuery query(database_);
+    query.prepare(QStringLiteral(
+        "INSERT INTO support_tickets (user_id, submission_id, title, summary, source_model, "
+        "status, reply, created_at, updated_at) VALUES (:user, :id, :title, :summary, "
+        ":model, 'OPEN', '', :created, :updated)"));
+    query.bindValue(":user", ticket.userId);
+    query.bindValue(":id", ticket.submissionId);
+    query.bindValue(":title", ticket.title);
+    query.bindValue(":summary", ticket.summary);
+    query.bindValue(":model", ticket.sourceModel.isEmpty() ? QStringLiteral("") : ticket.sourceModel);
+    query.bindValue(":created", ticket.createdAt);
+    query.bindValue(":updated", ticket.updatedAt);
+    if (!query.exec()) {
+        failOperation(QStringLiteral("createSupportTicket"), query.lastError().text());
+        return {};
+    }
+    ticket.ticketId = query.lastInsertId().toLongLong();
+    ticket.status = TicketStatus::Open;
+    ticket.reply = QStringLiteral("");
+    return ticket;
+}
+
+bool Repository::updateSupportTicket(const SupportTicketDto &ticket)
+{
+    beginOperation();
+    if (!requireOpen(QStringLiteral("updateSupportTicket"))) return false;
+    QSqlQuery query(database_);
+    query.prepare(QStringLiteral("UPDATE support_tickets SET status = :status, reply = :reply, "
+                                 "updated_at = :updated WHERE ticket_id = :id"));
+    query.bindValue(":status", toString(ticket.status));
+    query.bindValue(":reply", ticket.reply.isEmpty() ? QStringLiteral("") : ticket.reply);
+    query.bindValue(":updated", ticket.updatedAt);
+    query.bindValue(":id", ticket.ticketId);
+    if (!query.exec()) {
+        failOperation(QStringLiteral("updateSupportTicket"), query.lastError().text());
         return false;
     }
     return query.numRowsAffected() == 1;

@@ -55,6 +55,8 @@ public:
         qint64 userId,
         charging::protocol::UserStatus status) const;
     [[nodiscard]] ServiceResult listOrders() const;
+    [[nodiscard]] ServiceResult listSupportTickets(std::optional<qint64> beforeId = {}) const;
+    [[nodiscard]] ServiceResult updateSupportTicket(const QJsonObject &input) const;
 
 private:
     ApplicationService *service_ = nullptr;
