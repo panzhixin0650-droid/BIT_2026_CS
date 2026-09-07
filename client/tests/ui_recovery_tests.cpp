@@ -9,6 +9,7 @@
 #include "ui/station_browser_controller.h"
 
 #include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QStackedWidget>
 #include <QTabWidget>
@@ -61,7 +62,8 @@ class UiRecoveryTests : public QObject {
     Q_OBJECT
 private:
     void login(MainWindow &window, DeferredApi &api, qint64 userId = 1) {
-        window.findChild<LoginPage *>()->loginRequested(QStringLiteral("13800000001"));
+        window.findChild<LoginPage *>()->loginRequested(QStringLiteral("13800000001"),
+                                                       QStringLiteral("123456"));
         auto result = api.reply<LoginResult>("auth.user.login");
         result.payload->user.userId = userId;
         result.payload->user.nickname = QStringLiteral("用户%1").arg(userId);
@@ -69,6 +71,90 @@ private:
         emit api.loginCompleted(result);
     }
 private slots:
+    void invalidVerificationCodeDoesNotCallApi_data() {
+        QTest::addColumn<QString>("code");
+        QTest::addColumn<QString>("message");
+        QTest::newRow("empty") << QString() << QStringLiteral("请输入6位数字验证码");
+        QTest::newRow("short") << QStringLiteral("12345") << QStringLiteral("请输入6位数字验证码");
+        QTest::newRow("letters") << QStringLiteral("abcdef") << QStringLiteral("请输入6位数字验证码");
+        QTest::newRow("wrong") << QStringLiteral("654321") << QStringLiteral("验证码不正确，请重试");
+    }
+
+    void invalidVerificationCodeDoesNotCallApi() {
+        QFETCH(QString, code);
+        QFETCH(QString, message);
+        DeferredApi api;
+        MainWindow window(api);
+        window.show();
+        window.findChild<QLineEdit *>(QStringLiteral("phoneInput"))->setText(QStringLiteral("13800000001"));
+        auto *input = window.findChild<QLineEdit *>(QStringLiteral("verificationCodeInput"));
+        input->setText(code);
+        window.findChild<QPushButton *>(QStringLiteral("loginButton"))->click();
+        QCOMPARE(api.serial, 0);
+        QCOMPARE(window.findChild<QLabel *>(QStringLiteral("loginErrorLabel"))->text(), message);
+        QVERIFY(window.findChild<LoginPage *>()->isVisible());
+        QVERIFY(input->isEnabled());
+    }
+
+    void sendCodeIsOnlyADemoHint() {
+        DeferredApi api;
+        MainWindow window(api);
+        window.show();
+        auto *phone = window.findChild<QLineEdit *>(QStringLiteral("phoneInput"));
+        auto *input = window.findChild<QLineEdit *>(QStringLiteral("verificationCodeInput"));
+        auto *send = window.findChild<QPushButton *>(QStringLiteral("sendVerificationCodeButton"));
+        auto *error = window.findChild<QLabel *>(QStringLiteral("loginErrorLabel"));
+        auto *hint = window.findChild<QLabel *>(QStringLiteral("verificationCodeHint"));
+        send->click();
+        QCOMPARE(error->text(), QStringLiteral("请输入11位数字手机号"));
+        QVERIFY(!hint->text().contains(QStringLiteral("123456")));
+        phone->setText(QStringLiteral("13800000001"));
+        send->click();
+        QVERIFY(error->isHidden());
+        QVERIFY(hint->text().contains(QStringLiteral("123456")));
+        QVERIFY(hint->text().contains(QStringLiteral("暂不发送短信")));
+        QVERIFY(input->text().isEmpty());
+        QCOMPARE(api.serial, 0);
+        QVERIFY(send->isEnabled());
+    }
+
+    void verificationLoginFailureRestoresAllControls_data() {
+        QTest::addColumn<int>("errorCode");
+        QTest::newRow("network") << protocol::ErrorCode::ServiceUnavailable;
+        QTest::newRow("frozen") << protocol::ErrorCode::Forbidden;
+    }
+
+    void verificationLoginFailureRestoresAllControls() {
+        QFETCH(int, errorCode);
+        DeferredApi api;
+        MainWindow window(api);
+        auto *page = window.findChild<LoginPage *>();
+        auto *phone = window.findChild<QLineEdit *>(QStringLiteral("phoneInput"));
+        auto *input = window.findChild<QLineEdit *>(QStringLiteral("verificationCodeInput"));
+        auto *send = window.findChild<QPushButton *>(QStringLiteral("sendVerificationCodeButton"));
+        auto *submit = window.findChild<QPushButton *>(QStringLiteral("loginButton"));
+        phone->setText(QStringLiteral("13800000001"));
+        input->setText(QStringLiteral("123456"));
+        submit->click();
+        QCOMPARE(api.calls[QStringLiteral("auth.user.login")], 1);
+        QVERIFY(!phone->isEnabled());
+        QVERIFY(!input->isEnabled());
+        QVERIFY(!send->isEnabled());
+        QVERIFY(!submit->isEnabled());
+        // Even direct repeated signals must not start another request while pending.
+        page->loginRequested(phone->text(), input->text());
+        QCOMPARE(api.calls[QStringLiteral("auth.user.login")], 1);
+        emit api.loginCompleted(api.reply<LoginResult>("auth.user.login", errorCode));
+        QVERIFY(phone->isEnabled());
+        QVERIFY(input->isEnabled());
+        QVERIFY(send->isEnabled());
+        QVERIFY(submit->isEnabled());
+        QVERIFY(!window.findChild<QLabel *>(QStringLiteral("loginErrorLabel"))->text().isEmpty());
+        QCOMPARE(input->text(), QStringLiteral("123456"));
+        submit->click();
+        QCOMPARE(api.calls[QStringLiteral("auth.user.login")], 2);
+    }
+
     void sessionExpiryDiscardsOtherPagesPendingResults() {
         DeferredApi api;
         MainWindow window(api);

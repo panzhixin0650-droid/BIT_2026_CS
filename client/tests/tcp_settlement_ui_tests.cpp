@@ -19,6 +19,7 @@
 #include <QTimer>
 #include <QtTest>
 
+#include <algorithm>
 #include <memory>
 
 using namespace charging;
@@ -151,6 +152,7 @@ void TcpSettlementUiTests::settlementNoticePreservesSession()
     QVERIFY(phone != nullptr);
     QVERIFY(loginButton != nullptr);
     phone->setText(QStringLiteral("13800000001"));
+    window.findChild<QLineEdit *>(QStringLiteral("verificationCodeInput"))->setText(QStringLiteral("123456"));
     QTest::mouseClick(loginButton, Qt::LeftButton);
     auto *currentCard = window.findChild<QWidget *>(QStringLiteral("currentOrderCard"));
     auto *navigation = window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
@@ -160,6 +162,12 @@ void TcpSettlementUiTests::settlementNoticePreservesSession()
     QVERIFY(refresh != nullptr);
     QTRY_VERIFY(currentCard->isVisible());
     QTRY_VERIFY(refresh->isEnabled());
+
+    const auto loginRequest = std::find_if(requests.cbegin(), requests.cend(), [](const auto &request) {
+        return request.type == QString::fromLatin1(protocol::MessageType::AuthUserLogin);
+    });
+    QVERIFY(loginRequest != requests.cend());
+    QCOMPARE(loginRequest->data, QJsonObject({{QStringLiteral("phone"), QStringLiteral("13800000001")}}));
 
     if (fromOrders) {
         navigation->setCurrentIndex(1);
