@@ -3,6 +3,8 @@
 #include "ui/main_window.h"
 #include "ui/scan_controller.h"
 #include "ui/support_page.h"
+#include <QPlainTextEdit>
+#include <QSignalSpy>
 
 #include <QAbstractButton>
 #include <QApplication>
@@ -55,6 +57,7 @@ private slots:
     void profileCanRefreshUpdateNicknameAndRecharge();
     void profileRejectsInvalidRechargeAmount();
     void logoutReturnsToLoginPage();
+    void scanRepairSubmitsToSharedTickets();
 };
 
 namespace {
@@ -90,6 +93,37 @@ void handleDialogWhenShown(MainWindow &window,
 }
 
 }  // namespace
+
+void MainWindowTests::scanRepairSubmitsToSharedTickets()
+{
+    MockChargingApi api;
+    MainWindow window(api);
+    window.show();
+    loginFixtureUser(window);
+    auto *navigation = window.findChild<QTabWidget *>("mainNavigation");
+    navigation->setCurrentIndex(2);
+    window.findChild<QLineEdit *>("scanPileCodeInput")->setText("PILE-A-01");
+    QSignalSpy created(&api, &IChargingApi::supportTicketCreated);
+    QSignalSpy started(&api, &IChargingApi::chargingStartCompleted);
+    window.findChild<QPushButton *>("scanRepairButton")->click();
+    auto *tabs = window.findChild<QTabWidget *>("deskTabs");
+    QVERIFY(tabs); QCOMPARE(tabs->currentIndex(), 1);
+    QCOMPARE(window.findChild<QLineEdit *>("repairPileCode")->text(), QStringLiteral("PILE-A-01"));
+    window.findChild<QPlainTextEdit *>("ticketSummary")->setPlainText(QStringLiteral("充电枪损坏"));
+    window.findChild<QPushButton *>("ticketSubmit")->click();
+    QTRY_COMPARE(created.size(), 1);
+    const auto result = qvariant_cast<TicketResult>(created.takeFirst().first());
+    QVERIFY(result.ok() && result.payload);
+    QCOMPARE(result.payload->ticket.pileCode, QStringLiteral("PILE-A-01"));
+    QCOMPARE(started.size(), 0);
+    auto invalid = static_cast<const charging::protocol::SupportTicketDraft &>(result.payload->ticket);
+    invalid.submissionId = "3aafde11-535e-4018-a752-ab7e686fa334";
+    invalid.pileCode = "MISSING";
+    QVERIFY(!api.createSupportTicket(invalid).isEmpty());
+    QTRY_COMPARE(created.size(), 1);
+    QCOMPARE(qvariant_cast<TicketResult>(created.takeFirst().first()).response.code,
+             charging::protocol::ErrorCode::NotFound);
+}
 
 void MainWindowTests::constructsCodeOnlyLoginPage()
 {

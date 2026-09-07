@@ -59,8 +59,12 @@ bool positiveTicketId(const QJsonValue &value, qint64 *id)
 
 QJsonObject toJson(const SupportTicketDraft &draft)
 {
-    return {{"submissionId", draft.submissionId}, {"title", draft.title},
+    QJsonObject json{{"submissionId", draft.submissionId}, {"title", draft.title},
             {"summary", draft.summary}, {"sourceModel", draft.sourceModel}};
+    if (!draft.pileCode.isEmpty() || !draft.faultType.isEmpty()) {
+        json.insert("repair", QJsonObject{{"pileCode", draft.pileCode}, {"faultType", draft.faultType}});
+    }
+    return json;
 }
 
 QJsonObject toJson(const SupportTicketDto &ticket)
@@ -81,13 +85,24 @@ bool fromJson(const QJsonObject &json, SupportTicketDraft *draft, QString *error
         "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\z"));
     static const QRegularExpression model(QStringLiteral("^[A-Za-z0-9._:-]{0,120}\\z"));
     const QStringList keys{"submissionId", "title", "summary", "sourceModel"};
-    bool valid = draft != nullptr && json.size() == keys.size();
+    bool valid = draft != nullptr && json.size() == keys.size() + (json.contains("repair") ? 1 : 0);
     for (const auto &key : keys) valid = valid && json.value(key).isString();
     SupportTicketDraft parsed{json.value("submissionId").toString(), json.value("title").toString(),
                               json.value("summary").toString(), json.value("sourceModel").toString()};
     valid = valid && uuid.match(parsed.submissionId).hasMatch()
         && validTicketText(parsed.title, 80) && validTicketText(parsed.summary, 4000)
         && model.match(parsed.sourceModel).hasMatch();
+    if (json.contains("repair")) {
+        const auto repair = json.value("repair").toObject();
+        parsed.pileCode = repair.value("pileCode").toString();
+        parsed.faultType = repair.value("faultType").toString();
+        static const QRegularExpression code(QStringLiteral("^[A-Za-z0-9_-]{1,64}\\z"));
+        valid = valid && json.value("repair").isObject() && repair.size() == 2
+            && repair.value("pileCode").isString() && repair.value("faultType").isString()
+            && code.match(parsed.pileCode).hasMatch()
+            && validTicketText(parsed.faultType, 64)
+            && parsed.faultType == parsed.faultType.trimmed();
+    }
     if (!valid) { if (error) *error = QStringLiteral("Invalid support ticket draft"); return false; }
     *draft = parsed;
     if (error) error->clear();
@@ -101,6 +116,7 @@ bool fromJson(const QJsonObject &json, SupportTicketDto *ticket, QString *error)
     for (const QString &key : {QStringLiteral("submissionId"), QStringLiteral("title"),
                               QStringLiteral("summary"), QStringLiteral("sourceModel")})
         draft.insert(key, json.value(key));
+    if (json.contains("repair")) draft.insert("repair", json.value("repair"));
     const auto utc = [](const QJsonValue &value) {
         return value.isString() && value.toString().endsWith('Z')
             && QDateTime::fromString(value.toString(), Qt::ISODate).isValid();

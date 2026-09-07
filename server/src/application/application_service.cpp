@@ -1648,6 +1648,9 @@ ServiceResult ApplicationService::createSupportTicket(const QString &token, cons
     SupportTicketDraft draft;
     if (!fromJson(input, &draft)) return invalidRequest();
     if (!repository_->supportsSupportTickets()) return ticketsUnavailable();
+    if (!draft.pileCode.isEmpty() && !repository_->supportsRepairTickets())
+        return ServiceResult::failure(ErrorCode::ServiceUnavailable,
+                                      QStringLiteral("REPAIR_TICKETS_MIGRATION_REQUIRED"));
     RepositoryTransaction transaction(repository_);
     if (!transaction.active()) return internalError();
     const auto existing = repository_->findSupportSubmission(*userId, draft.submissionId);
@@ -1657,6 +1660,13 @@ ServiceResult ApplicationService::createSupportTicket(const QString &token, cons
             return invalidRequest();
         if (!transaction.commit()) return internalError();
         return ServiceResult::success({{"ticket", toJson(*existing)}});
+    }
+    if (!draft.pileCode.isEmpty()) {
+        const auto piles = repository_->listPiles();
+        if (!repository_->lastOperationSucceeded()) return internalError();
+        bool found = false;
+        for (const auto &pile : piles) if (pile.pileCode == draft.pileCode) { found = true; break; }
+        if (!found) return ServiceResult::failure(ErrorCode::NotFound, QStringLiteral("REPAIR_PILE_NOT_FOUND"));
     }
     SupportTicketDto ticket;
     static_cast<SupportTicketDraft &>(ticket) = draft;

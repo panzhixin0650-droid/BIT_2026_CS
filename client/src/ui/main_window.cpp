@@ -348,7 +348,7 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
 
     assistantService_ = new AssistantService(assistantConfig, this);
     supportPage_ = new SupportPage(*assistantService_, mainTabs_);
-    connect(supportPage_, &SupportPage::supportDeskRequested, this, [this, &api, assistantConfig] {
+    const auto ensureSupportDesk = [this, &api, assistantConfig] {
         if (!supportDesk_) {
             const auto config = assistantConfig.forSupportDesk();
             auto *desk = new AssistantService(config, this, nullptr, AssistantPurpose::SupportDesk);
@@ -356,7 +356,14 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
             supportDesk_ = new SupportDeskDialog(api, *desk, *summary, this);
             connect(supportDesk_, &SupportDeskDialog::invalidSession, this, &MainWindow::showLoginPage);
         }
+    };
+    connect(supportPage_, &SupportPage::supportDeskRequested, this, [this, ensureSupportDesk] {
+        ensureSupportDesk();
         supportDesk_->openDesk(supportPage_->recentHistory());
+    });
+    connect(scanPage_, &ScanPage::repairRequested, this, [this, ensureSupportDesk](const QString &pileCode) {
+        ensureSupportDesk();
+        supportDesk_->openRepair(pileCode);
     });
 
     mainTabs_->addTab(homePage_,

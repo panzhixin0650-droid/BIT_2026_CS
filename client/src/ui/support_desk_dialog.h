@@ -5,6 +5,7 @@
 #include <QDialog>
 
 class QLabel;
+class QComboBox;
 class QLineEdit;
 class QPlainTextEdit;
 class QPushButton;
@@ -23,6 +24,7 @@ public:
     SupportDeskDialog(IChargingApi &api, AssistantService &desk, AssistantService &summarizer,
                       QWidget *parent = nullptr);
     void openDesk(const QList<AssistantTurn> &history = {});
+    void openRepair(const QString &pileCode);
     void resetSession();
 signals:
     void invalidSession(const QString &message);
@@ -55,6 +57,10 @@ private:
     QPushButton *stop_;
     QPushButton *generate_;
     QLineEdit *title_;
+    QWidget *repairFields_;
+    QLineEdit *repairPile_;
+    QComboBox *faultType_;
+    bool repairDraft_ = false;
     QPlainTextEdit *summary_;
     QLabel *draftNotice_;
     QPushButton *submit_;

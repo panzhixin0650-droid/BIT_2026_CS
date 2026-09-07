@@ -1,5 +1,9 @@
 # 核心协议 fixture
 
+扫一扫报修复用 `support.ticket.create`，参见
+[请求](repair-ticket-create.request.json)、[成功响应](repair-ticket-create.response.json)、
+[无效桩号响应](repair-ticket-create.not-found.response.json)及[工单契约](../support-tickets-v1.md)。
+
 本目录中的核心 TCP JSON 是客户端 Mock 与服务端协议测试共用的固定输入，不是数据库种子，也不定义契约之外的新业务语义。标为 `local` 的本地适配示例不属于 TCP 协议，见相应小节。
 
 ## 客户端本地智能助理示例

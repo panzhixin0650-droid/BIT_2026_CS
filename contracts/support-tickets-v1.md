@@ -6,7 +6,7 @@
 
 ## 数据
 
-工单草稿所有字段必填：
+普通工单草稿的以下四个字段必填：
 
 | 字段 | 类型 | 约束 |
 | --- | --- | --- |
@@ -16,6 +16,16 @@
 | `sourceModel` | string | AI 起草时为模型名；手工填写为空；最长 120，仅字母数字及 `._:-` |
 
 文本不接受除换行、回车、制表符以外的控制字符。所有字段按纯文本展示，不执行 HTML。
+
+根据 [ADR-0010](../docs/decisions/0010-scan-repair-tickets.md)，报修草稿可另带一个
+`repair: {pileCode: string, faultType: string}` 对象；存在时两个字段必须同时提供，
+且不接受其他子字段或 null。`pileCode` 为 1–64 位字母、数字、短横线或下划线，
+服务端验证该桩存在；`faultType` 为 1–64 字符非空纯文本且无首尾空白。
+UI 提供无法启动充电、充电中断、充电枪或线缆损坏、屏幕或扫码异常、其他故障五个选项。
+`summary` 用于故障描述，`sourceModel` 在扫一扫手工报修时为空。
+普通工单省略 repair；DTO 的报修记录原样返回 repair，列表及详情均包含它。
+报修不要求订单、桩空闲或站点启用；故障/离线/占用中的已存在桩也可以被报告。
+报修与普通工单统一分页，不通过标题文字推断类别。
 请求不得混入 `userId`、工单状态、管理员回复等额外字段。对话或模型输出均不是可信业务事实。
 
 `SupportTicketDto` 包含草稿四个字段，另含：
@@ -47,6 +57,10 @@ ID 使用与 V1 一致的 JSON 安全整数。状态和回复变更不表示任�
 首次创建状态固定为 `OPEN`、回复为空。相同用户、相同 `submissionId`、相同草稿
 返回已有工单（包括管理员后来更新的状态/回复），不得创建第二条。UUID 与内容不一致
 返回 `40001`，不覆盖原记录。`submissionId` 不是鉴权凭据，可由不同用户分别使用。
+幂等比较包含 repair 的桩编号与故障类型；同一提交编号不得改变设备信息。
+报修桩不存在返回 `40401 / REPAIR_PILE_NOT_FOUND`；未执行迁移 004 时返回
+`50301 / REPAIR_TICKETS_MIGRATION_REQUIRED`，明确失败后可修正/重试。
+连接中断或未知存储错误仍保留原编号和所有字段，显式重试不得产生第二张工单。
 
 记录不存在或不是当前用户的记录均返回 `40401`。非法字段/格式返回 `40001`。
 未应用数据库迁移或 Repository 不支持工单时返回 `50301`；内部存储失败返回 `50001`，
@@ -64,7 +78,11 @@ ID 使用与 V1 一致的 JSON 安全整数。状态和回复变更不表示任�
 记录必须填写回复；合法状态可由管理员纠正，不改变工单原作者、标题、正文或创建时间。
 管理员退出后清除工单访问授权。
 
-仅新增[迁移 002](../database/migrations/002_support_tickets.sql) 的 `support_tickets` 表。
+工单表由[迁移 002](../database/migrations/002_support_tickets.sql) 创建，
+[迁移 004](../database/migrations/004_repair_tickets.sql) 在 schema 3 上增加报修信息。
+schema 2/3 仍可使用普通工单；schema 4 同时支持两类工单，状态/回复/系统管理员权限一致。
+报修的提交、回复、解决仅更新工单，不自动结束订单、减免费用、置桩故障或恢复设备。
+`pile_code` 外键阻止删除或改名已关联的桩；历史客服单没有设备关联。
 保留旧 `user_version=1` 的业务可用性，schema 2/3 均支持工单。
 003 管理员迁移不重建工单、不改变用户 TCP 消息；完整对话、AI Key、
 用户 token、手机号与实时位置不进入工单字段；用户应在提交预览中移除不必要的个人信息。
@@ -72,3 +90,6 @@ ID 使用与 V1 一致的 JSON 安全整数。状态和回复变更不表示任�
 示例：[创建请求](examples/support-ticket-create.request.json)、
 [创建/详情响应](examples/support-ticket-create.response.json)、
 [列表响应](examples/support-ticket-list.response.json)。
+报修示例：[创建请求](examples/repair-ticket-create.request.json)、
+[响应](examples/repair-ticket-create.response.json)、
+[无效桩号](examples/repair-ticket-create.not-found.response.json)。

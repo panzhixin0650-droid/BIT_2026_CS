@@ -77,6 +77,21 @@ void ProtocolTests::supportTicketContract()
     const auto ticketJson = response.value("data").toObject().value("ticket").toObject();
     QVERIFY(fromJson(ticketJson, &ticket));
     QCOMPARE(toJson(ticket), ticketJson);
+    auto repairJson = draftJson;
+    repairJson.insert("repair", QJsonObject{{"pileCode", "PILE-A-01"}, {"faultType", "screen"}});
+    QVERIFY(fromJson(repairJson, &draft));
+    QCOMPARE(toJson(draft), repairJson);
+    auto repairTicket = ticketJson; repairTicket.insert("repair", repairJson.value("repair"));
+    QVERIFY(fromJson(repairTicket, &ticket));
+    QCOMPARE(toJson(ticket), repairTicket);
+    for (const auto &bad : QList<QJsonValue>{QJsonValue(QJsonValue::Null), QJsonValue("pile"),
+         QJsonObject{{"pileCode", "PILE-A-01"}},
+         QJsonObject{{"pileCode", ""}, {"faultType", "screen"}},
+         QJsonObject{{"pileCode", "PILE-A-01"}, {"faultType", QString(65, 'a')}},
+         QJsonObject{{"pileCode", "PILE-A-01"}, {"faultType", "screen"}, {"status", "RESOLVED"}}}) {
+        auto invalid = repairJson; invalid.insert("repair", bad);
+        QVERIFY(!fromJson(invalid, &draft));
+    }
     for (const auto &change : QList<QPair<QString, QJsonValue>>{
         {"userId", 5}, {"title", QString(81, 'a')}, {"summary", QString(4001, 'a')},
         {"title", QStringLiteral(" \n ")}, {"summary", QString(QChar(0))},
@@ -103,6 +118,8 @@ void ProtocolTests::supportTicketContract()
     ticket.title = QString(80, QChar(0x4e2d));
     ticket.summary = QString(4000, QChar(0x4e2d));
     ticket.reply = QString(2000, QChar(0x4e2d));
+    ticket.pileCode = QString(64, 'a');
+    ticket.faultType = QString(64, QChar(0x4e2d));
     QJsonArray items;
     for (int i = 0; i < 10; ++i) items.append(toJson(ticket));
     QVERIFY(!encodeFrame({{"items", items}, {"hasMore", true}}).isEmpty());

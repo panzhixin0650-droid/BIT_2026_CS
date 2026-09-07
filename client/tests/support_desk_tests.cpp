@@ -5,6 +5,7 @@
 #include "ui/support_page.h"
 
 #include <QDir>
+#include <QComboBox>
 #include <QFile>
 #include <QJsonArray>
 #include <QLabel>
@@ -91,7 +92,50 @@ private slots:
     void offlineManualTicketAndAccountIsolation();
     void floatingEntryAndSmallLayout();
     void liveProviderOptIn();
+    void repairDraftConfirmationRetryAndTracking();
 };
+
+void SupportDeskTests::repairDraftConfirmationRetryAndTracking()
+{
+    ControlledApi api;
+    AssistantConfig config;
+    AssistantService desk(config), summary(config);
+    SupportDeskDialog dialog(api, desk, summary);
+    dialog.openRepair("PILE-A-01");
+    QCOMPARE(child<QTabWidget>(dialog, "deskTabs")->currentIndex(), 1);
+    QCOMPARE(child<QLineEdit>(dialog, "repairPileCode")->text(), QStringLiteral("PILE-A-01"));
+    QVERIFY(api.drafts.isEmpty());
+    child<QPlainTextEdit>(dialog, "ticketSummary")->setPlainText(QStringLiteral("插枪后屏幕无响应"));
+    child<QComboBox>(dialog, "repairFaultType")->setCurrentIndex(3);
+    dialog.resize(400, 600);
+    screenshot(dialog, "repair-form");
+    dialog.openRepair("PILE-B-02");
+    QCOMPARE(child<QLineEdit>(dialog, "repairPileCode")->text(), QStringLiteral("PILE-A-01"));
+    auto *submit = child<QPushButton>(dialog, "ticketSubmit");
+    submit->click(); submit->click();
+    QCOMPARE(api.drafts.size(), 1);
+    QCOMPARE(api.drafts.first().pileCode, QStringLiteral("PILE-A-01"));
+    QCOMPARE(api.drafts.first().faultType, QStringLiteral("屏幕或扫码异常"));
+    api.fail();
+    QVERIFY(child<QLineEdit>(dialog, "repairPileCode")->isReadOnly());
+    QVERIFY(!child<QComboBox>(dialog, "repairFaultType")->isEnabled());
+    submit->click(); QCOMPARE(api.drafts.size(), 2);
+    QCOMPARE(protocol::toJson(api.drafts[0]), protocol::toJson(api.drafts[1]));
+    api.succeed(api.ids.last());
+    child<QTabWidget>(dialog, "deskTabs")->setCurrentIndex(2);
+    auto ticket = api.ticket(); ticket.status = protocol::TicketStatus::Resolved;
+    ticket.reply = QStringLiteral("已现场检查充电枪");
+    emit api.supportTicketsListed({{api.listId, protocol::MessageType::SupportTicketList, 0, "OK"},
+        TicketListPayload{{ticket}, false}});
+    QVERIFY(child<QPlainTextEdit>(dialog, "myTicketDetail")->toPlainText().contains(ticket.reply));
+    QVERIFY(child<QPlainTextEdit>(dialog, "myTicketDetail")->toPlainText().contains(ticket.pileCode));
+    QCOMPARE(api.businessWrites, 0);
+    dialog.resize(400, 600);
+    screenshot(dialog, "repair-ticket");
+    dialog.resetSession();
+    QVERIFY(child<QLineEdit>(dialog, "repairPileCode")->text().isEmpty());
+    QVERIFY(child<QListWidget>(dialog, "myTickets")->count() == 0);
+}
 
 void SupportDeskTests::sharedProviderModelsPromptsAndRedaction()
 {

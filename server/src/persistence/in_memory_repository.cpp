@@ -428,6 +428,11 @@ DeleteStationResult InMemoryRepository::deleteStation(qint64 stationId)
     if (hasOrders) {
         return DeleteStationResult::HasOrders;
     }
+    for (const auto &pile : piles_) {
+        if (pile.stationId != stationId) continue;
+        for (const auto &ticket : tickets_)
+            if (ticket.pileCode == pile.pileCode) return DeleteStationResult::StorageError;
+    }
 
     piles_.erase(std::remove_if(piles_.begin(), piles_.end(),
                                 [stationId](const PileDto &pile) {
@@ -498,6 +503,8 @@ DeletePileResult InMemoryRepository::deletePile(qint64 pileId)
         })) {
         return DeletePileResult::HasOrders;
     }
+    for (const auto &ticket : tickets_)
+        if (ticket.pileCode == found->pileCode) return DeletePileResult::StorageError;
     piles_.erase(found);
     return DeletePileResult::Deleted;
 }
@@ -510,6 +517,10 @@ bool InMemoryRepository::updatePile(const PileDto &pile)
                                     });
     if (found == piles_.end()) {
         return false;
+    }
+    if (found->pileCode != pile.pileCode) {
+        for (const auto &ticket : tickets_)
+            if (ticket.pileCode == found->pileCode) return false;
     }
     *found = pile;
     return true;

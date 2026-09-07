@@ -92,6 +92,8 @@ void SupportTicketsPage::refresh(bool more)
         tickets_.append(ticket);
         list_->addItem(QStringLiteral("#%1  %2\n用户 #%3 · %4")
             .arg(ticket.ticketId).arg(ticket.title).arg(ticket.userId).arg(ticketStatusLabel(ticket.status)));
+        if (!ticket.pileCode.isEmpty()) list_->item(list_->count() - 1)->setText(
+            QStringLiteral("[报修 · %1] ").arg(ticket.pileCode) + list_->item(list_->count() - 1)->text());
     }
     hasMore_ = result.data.value("hasMore").toBool();
     more_->setEnabled(hasMore_);
@@ -111,6 +113,9 @@ void SupportTicketsPage::selectTicket()
         .arg(ticket.ticketId).arg(ticket.title).arg(ticket.userId).arg(ticket.createdAt,
              ticket.sourceModel.isEmpty() ? QStringLiteral("手动填写") : ticket.sourceModel,
              ticket.summary, ticket.updatedAt));
+    if (!ticket.pileCode.isEmpty()) summary_->appendPlainText(
+        QStringLiteral("\n充电桩报修\n桩编号：%1\n故障类型：%2\n处理状态不自动改变电桩或订单状态。")
+            .arg(ticket.pileCode, ticket.faultType));
     status_->setCurrentIndex(status_->findData(toString(ticket.status)));
     reply_->setPlainText(ticket.reply);
 }
@@ -132,6 +137,8 @@ void SupportTicketsPage::save()
     tickets_[row] = updated;
     list_->item(row)->setText(QStringLiteral("#%1  %2\n用户 #%3 · %4")
         .arg(updated.ticketId).arg(updated.title).arg(updated.userId).arg(ticketStatusLabel(updated.status)));
+    if (!updated.pileCode.isEmpty()) list_->item(row)->setText(
+        QStringLiteral("[报修 · %1] ").arg(updated.pileCode) + list_->item(row)->text());
     selectTicket();
     notice_->setText(QStringLiteral("工单 #%1 处理结果已保存，用户刷新‘我的工单’即可查看。").arg(updated.ticketId));
 }

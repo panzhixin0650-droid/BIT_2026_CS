@@ -46,6 +46,7 @@ public:
 
     // Optional additive capability; old adapters remain valid for old workflows.
     [[nodiscard]] virtual bool supportsSupportTickets() const { return false; }
+    [[nodiscard]] virtual bool supportsRepairTickets() const { return false; }
     [[nodiscard]] virtual std::optional<charging::protocol::SupportTicketDto>
     findSupportTicket(qint64) const { return std::nullopt; }
     [[nodiscard]] virtual std::optional<charging::protocol::SupportTicketDto>

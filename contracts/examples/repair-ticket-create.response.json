@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "requestId": "repair-create-001",
+  "type": "support.ticket.create",
+  "code": 0,
+  "message": "OK",
+  "data": {
+    "ticket": {
+      "ticketId": 2,
+      "userId": 1,
+      "submissionId": "d09f491a-e13f-409f-9ff4-7d56a414ef41",
+      "title": "充电桩故障报修",
+      "summary": "插枪后屏幕无响应，无法开始充电。",
+      "sourceModel": "",
+      "repair": {"pileCode": "PILE-A-01", "faultType": "屏幕或扫码异常"},
+      "status": "OPEN",
+      "reply": "",
+      "createdAt": "2026-09-07T09:00:00Z",
+      "updatedAt": "2026-09-07T09:00:00Z"
+    }
+  }
+}
