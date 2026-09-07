@@ -470,7 +470,7 @@ MainWindow::~MainWindow()
         delete supportDesk_;
         supportDesk_ = nullptr;
     }
-    // Child pages emit navigationClosed while the window is being hidden.
+    // Child pages may emit navigationClosed while the window is being torn down.
     // Disconnect their controller before ownedMapService_ is destroyed.
     delete mapController_;
     mapController_ = nullptr;

@@ -45,6 +45,7 @@ private slots:
     void simulatedScanStartsChargingAndRefreshesHome();
     void scannerAdapterCanSubmitDecodedPileCode();
     void chargingProgressCanRefreshAndStopWithConfirmation();
+    void stoppingFromOrderDetailRefreshesOpenStationDetail();
     void pendingOrderLinksRechargeAndCanBeSettled();
     void profileCanRefreshUpdateNicknameAndRecharge();
     void profileRejectsInvalidRechargeAmount();
@@ -1224,6 +1225,76 @@ void MainWindowTests::chargingProgressCanRefreshAndStopWithConfirmation()
     QCOMPARE(status->text(), QStringLiteral("已完成"));
 }
 
+void MainWindowTests::stoppingFromOrderDetailRefreshesOpenStationDetail()
+{
+    MockChargingApi api;
+    MainWindow window(api);
+    window.show();
+    loginFixtureUser(window);
+
+    auto *navigation =
+        window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
+    navigation->setCurrentIndex(2);
+    auto *pileCodeInput =
+        window.findChild<QLineEdit *>(QStringLiteral("scanPileCodeInput"));
+    auto *startButton =
+        window.findChild<QPushButton *>(QStringLiteral("scanStartButton"));
+    pileCodeInput->setText(QStringLiteral("PILE-A-01"));
+    handleDialogWhenShown(
+        window,
+        QStringLiteral("chargingStartedDialog"),
+        [](QMessageBox *dialog) { dialog->button(QMessageBox::Ok)->click(); });
+    QTest::mouseClick(startButton, Qt::LeftButton);
+
+    QTRY_COMPARE(navigation->currentIndex(), 0);
+    QTRY_VERIFY(window.findChild<QWidget *>(
+                    QStringLiteral("stationCard_1")) != nullptr);
+    QTest::mouseClick(
+        window.findChild<QWidget *>(QStringLiteral("stationCard_1")),
+        Qt::LeftButton);
+    QTRY_VERIFY(window.findChild<QLabel *>(
+                    QStringLiteral("pileStatus_PILE-A-01")) != nullptr);
+    QCOMPARE(
+        window.findChild<QLabel *>(QStringLiteral("pileStatus_PILE-A-01"))->text(),
+        QStringLiteral("使用中"));
+
+    navigation->setCurrentIndex(1);
+    QTRY_VERIFY(window.findChild<QWidget *>(
+                    QStringLiteral("orderCard_1001")) != nullptr);
+    QTest::mouseClick(
+        window.findChild<QWidget *>(QStringLiteral("orderCard_1001")),
+        Qt::LeftButton);
+    QTRY_VERIFY(window.findChild<QPushButton *>(
+                    QStringLiteral("orderDetailStopButton")) != nullptr);
+    auto *detailStopButton = window.findChild<QPushButton *>(
+        QStringLiteral("orderDetailStopButton"));
+    QTRY_VERIFY(detailStopButton->isVisible());
+    QTimer::singleShot(10, &window, []() {
+        for (QWidget *topLevel : QApplication::topLevelWidgets()) {
+            auto *confirmation = qobject_cast<QMessageBox *>(topLevel);
+            if (confirmation != nullptr) {
+                confirmation->button(QMessageBox::Yes)->click();
+                return;
+            }
+        }
+    });
+    handleDialogWhenShown(
+        window,
+        QStringLiteral("chargingStoppedDialog"),
+        [](QMessageBox *dialog) { dialog->button(QMessageBox::Ok)->click(); });
+    QTest::mouseClick(detailStopButton, Qt::LeftButton);
+
+    navigation->setCurrentIndex(0);
+    auto *stationDetailPage =
+        window.findChild<QWidget *>(QStringLiteral("stationDetailPage"));
+    QTRY_VERIFY(stationDetailPage->isVisible());
+    QTRY_VERIFY(window.findChild<QLabel *>(
+                    QStringLiteral("pileStatus_PILE-A-01")) != nullptr);
+    QTRY_COMPARE(
+        window.findChild<QLabel *>(QStringLiteral("pileStatus_PILE-A-01"))->text(),
+        QStringLiteral("闲置 · 可预约"));
+}
+
 void MainWindowTests::pendingOrderLinksRechargeAndCanBeSettled()
 {
     MockChargingApi api;
@@ -1511,6 +1582,15 @@ void MainWindowTests::profileRejectsInvalidRechargeAmount()
 
     navigation->setCurrentWidget(profilePage);
     QTRY_COMPARE(messageLabel->text(), QStringLiteral("资料已刷新"));
+
+    amountInput->clear();
+    amountInput->setFocus();
+    QTest::keyClicks(amountInput, QStringLiteral("1e2"));
+    QCOMPARE(amountInput->text(), QStringLiteral("12"));
+    amountInput->clear();
+    QTest::keyClicks(amountInput, QStringLiteral("1E2"));
+    QCOMPARE(amountInput->text(), QStringLiteral("12"));
+
     amountInput->setText(QStringLiteral("0"));
     QTest::mouseClick(rechargeButton, Qt::LeftButton);
 
