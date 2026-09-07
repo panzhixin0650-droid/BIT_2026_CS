@@ -19,6 +19,7 @@ public:
     void prepareMap();
     void setRoute(const RouteResult &route);
     void clearRoute();
+    void retry();
     void zoomIn();
     void zoomOut();
     void fitRoute();
@@ -27,6 +28,7 @@ signals:
     void preloadReady();
     void loadingChanged(bool loading);
     void readyChanged(bool ready);
+    void retryAvailableChanged(bool available);
     void statusChanged(const QString &message, bool error);
 
 protected:
@@ -34,9 +36,26 @@ protected:
     void showEvent(QShowEvent *event) override;
 
 private:
+    enum class FailureReason {
+        MissingScriptUrl,
+        EmbeddedPageUnavailable,
+        PageLoadFailed,
+        BridgeUnavailable,
+        SdkRequestFailed,
+        SdkUnavailable,
+        MapInitializationFailed,
+        RouteRenderingFailed,
+        RenderProcessTerminated,
+        Timeout,
+    };
+
     void initialize(const QUrl &scriptUrl, bool reportFailure);
     void applyRoute();
-    void fail(bool reportFailure);
+    void fail(FailureReason reason, bool reportFailure,
+              const QString &detail = {});
+    [[nodiscard]] QString failureMessage(FailureReason reason,
+                                         const QString &detail) const;
+    [[nodiscard]] bool canRetry(FailureReason reason) const;
     void command(const QString &script);
 
     QWebEngineView *view_ = nullptr;

@@ -35,6 +35,7 @@ public:
     void showListError(const QString &message);
     void showListMessage(const QString &message, bool error = false);
     void showCurrentOrder(const std::optional<protocol::OrderDto> &order);
+    [[nodiscard]] bool isShowingStationDetail() const;
     void showListPage();
     void showDetailLoading();
     void showStationDetail(const StationDetailPayload &detail);
@@ -67,9 +68,6 @@ signals:
     void stopRequested(qint64 orderId);
     void detailBackRequested();
     void navigationClosed();
-
-protected:
-    void hideEvent(QHideEvent *event) override;
 
 private:
     void clearStationCards();

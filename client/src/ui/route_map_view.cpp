@@ -24,7 +24,8 @@ RouteMapView::RouteMapView(QWidget *parent) : QWidget(parent)
     timeout_.setSingleShot(true);
     timeout_.setInterval(15000);
     connect(&timeout_, &QTimer::timeout, this, [this]() {
-        fail(reportInitializationFailure_ || routePending_);
+        fail(FailureReason::Timeout,
+             reportInitializationFailure_ || routePending_);
     });
 }
 
@@ -79,13 +80,14 @@ void RouteMapView::setRoute(const RouteResult &route)
     paths_ = route.paths;
     routePending_ = true;
     emit readyChanged(false);
+    emit retryAvailableChanged(false);
     emit loadingChanged(true);
     emit statusChanged(QStringLiteral("正在加载地图…"), false);
     timeout_.setInterval(15000);
     timeout_.start();
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
     if (route.mapScriptUrl.isEmpty()) {
-        fail(true);
+        fail(FailureReason::MissingScriptUrl, true);
         return;
     }
     if (sdkLoaded_ && scriptUrl_ == route.mapScriptUrl) {
@@ -105,6 +107,7 @@ void RouteMapView::setRoute(const RouteResult &route)
     routePending_ = false;
     timeout_.stop();
     emit loadingChanged(false);
+    emit retryAvailableChanged(false);
     emit statusChanged(QStringLiteral("当前构建未启用 Qt WebEngine，请重新配置客户端"), true);
 #endif
 }
@@ -136,14 +139,31 @@ void RouteMapView::initialize(const QUrl &scriptUrl, bool reportFailure)
     QPointer<QWebEngineView> source(view_);
     connect(view_, &QWebEngineView::loadFinished, this, [this, source](bool loaded) {
         if (!source || source != view_ || !initializing_) return;
-        if (!loaded) { fail(reportInitializationFailure_); return; }
+        if (!loaded) {
+            fail(FailureReason::PageLoadFailed, reportInitializationFailure_);
+            return;
+        }
         QPointer<RouteMapView> guard(this);
-        view_->page()->runJavaScript(QStringLiteral(
-            "!!(window.bitMap && bitMap.state.sdkReady && typeof TMap !== 'undefined' && !bitMap.state.error)"),
+        view_->page()->runJavaScript(QStringLiteral(R"JS(
+            (() => {
+                if (!window.bitMap || !bitMap.state) return "bridge-unavailable";
+                if (bitMap.state.error) return "sdk-request-failed";
+                if (!bitMap.state.sdkReady || typeof TMap === "undefined")
+                    return "sdk-unavailable";
+                return "ready";
+            })()
+        )JS"),
             [guard, source](const QVariant &value) {
                 if (!guard || !source || source != guard->view_ || !guard->initializing_) return;
-                if (!value.toBool()) {
-                    guard->fail(guard->reportInitializationFailure_);
+                const QString diagnostic = value.toString();
+                if (diagnostic != QStringLiteral("ready")) {
+                    const FailureReason reason =
+                        diagnostic == QStringLiteral("sdk-request-failed")
+                        ? FailureReason::SdkRequestFailed
+                        : diagnostic == QStringLiteral("sdk-unavailable")
+                        ? FailureReason::SdkUnavailable
+                        : FailureReason::BridgeUnavailable;
+                    guard->fail(reason, guard->reportInitializationFailure_);
                     return;
                 }
                 guard->sdkLoaded_ = true;
@@ -154,13 +174,21 @@ void RouteMapView::initialize(const QUrl &scriptUrl, bool reportFailure)
             });
     });
     connect(view_, &QWebEngineView::renderProcessTerminated, this,
-            [this, source](QWebEnginePage::RenderProcessTerminationStatus, int) {
+            [this, source](QWebEnginePage::RenderProcessTerminationStatus status,
+                           int exitCode) {
                 if (source && source == view_)
-                    fail(reportInitializationFailure_ || routePending_
-                         || !paths_.isEmpty() || isVisible());
+                    fail(FailureReason::RenderProcessTerminated,
+                         reportInitializationFailure_ || routePending_
+                             || !paths_.isEmpty() || isVisible(),
+                         QStringLiteral("状态 %1，退出码 %2")
+                             .arg(static_cast<int>(status))
+                             .arg(exitCode));
             });
     QFile html(QStringLiteral(":/map/map.html"));
-    if (!html.open(QIODevice::ReadOnly)) { fail(reportFailure); return; }
+    if (!html.open(QIODevice::ReadOnly)) {
+        fail(FailureReason::EmbeddedPageUnavailable, reportFailure);
+        return;
+    }
     const QString content = QString::fromUtf8(html.readAll()).replace(
         QStringLiteral("__MAP_SCRIPT_URL__"), scriptUrl_.toString(QUrl::FullyEncoded).toHtmlEscaped());
     view_->setHtml(content, scriptUrl_.adjusted(QUrl::RemovePath | QUrl::RemoveQuery | QUrl::RemoveFragment));
@@ -176,16 +204,33 @@ void RouteMapView::applyRoute()
     const QString data = QString::fromUtf8(QJsonDocument(paths_).toJson(QJsonDocument::Compact));
     const quint64 generation = generation_;
     QPointer<RouteMapView> guard(this);
-    view_->page()->runJavaScript(QStringLiteral("bitMap.setRoute(%1)").arg(data),
+    view_->page()->runJavaScript(
+        QStringLiteral(R"JS(
+            (() => {
+                const drawn = bitMap.setRoute(%1);
+                if (drawn) return "ready";
+                return bitMap.state.ready
+                    ? "route-rendering-failed"
+                    : "map-initialization-failed";
+            })()
+        )JS").arg(data),
         [guard, generation](const QVariant &value) {
             if (!guard || generation != guard->generation_) return;
-            if (!value.toBool()) { guard->fail(true); return; }
+            const QString diagnostic = value.toString();
+            if (diagnostic != QStringLiteral("ready")) {
+                guard->fail(diagnostic == QStringLiteral("route-rendering-failed")
+                                ? FailureReason::RouteRenderingFailed
+                                : FailureReason::MapInitializationFailed,
+                            true);
+                return;
+            }
             guard->initialized_ = true;
             guard->routePending_ = false;
             guard->reportInitializationFailure_ = false;
             guard->timeout_.stop();
             emit guard->loadingChanged(false);
             emit guard->readyChanged(true);
+            emit guard->retryAvailableChanged(false);
             emit guard->statusChanged(QStringLiteral("路线已绘制 · 滚轮缩放，拖动平移"), false);
         });
 #endif
@@ -199,6 +244,7 @@ void RouteMapView::clearRoute()
     reportInitializationFailure_ = false;
     if (!initializing_) timeout_.stop();
     emit readyChanged(false);
+    emit retryAvailableChanged(false);
     emit loadingChanged(false);
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
     if (view_) {
@@ -209,7 +255,21 @@ void RouteMapView::clearRoute()
 #endif
 }
 
-void RouteMapView::fail(bool reportFailure)
+void RouteMapView::retry()
+{
+#ifdef CHARGING_CLIENT_HAS_WEBENGINE
+    if (initializing_ || paths_.isEmpty() || scriptUrl_.isEmpty()) return;
+    routePending_ = true;
+    emit readyChanged(false);
+    emit retryAvailableChanged(false);
+    emit loadingChanged(true);
+    emit statusChanged(QStringLiteral("正在重新加载地图…"), false);
+    initialize(scriptUrl_, true);
+#endif
+}
+
+void RouteMapView::fail(FailureReason reason, bool reportFailure,
+                        const QString &detail)
 {
     ++generation_;
     sdkLoaded_ = false;
@@ -230,7 +290,69 @@ void RouteMapView::fail(bool reportFailure)
     if (!reportFailure) return;
     emit readyChanged(false);
     emit loadingChanged(false);
-    emit statusChanged(QStringLiteral("地图加载失败或超时，请检查网络、Key 的 JavaScript API GL 权限后重新规划"), true);
+    emit retryAvailableChanged(canRetry(reason));
+    emit statusChanged(failureMessage(reason, detail), true);
+}
+
+QString RouteMapView::failureMessage(FailureReason reason,
+                                     const QString &detail) const
+{
+    QString message;
+    switch (reason) {
+    case FailureReason::MissingScriptUrl:
+        message = QStringLiteral(
+            "地图脚本地址为空：请检查腾讯地图 Key 是否已配置且格式正确。");
+        break;
+    case FailureReason::EmbeddedPageUnavailable:
+        message = QStringLiteral(
+            "客户端内置地图页面缺失：请重新构建或安装完整客户端。");
+        break;
+    case FailureReason::PageLoadFailed:
+        message = QStringLiteral(
+            "地图页面加载失败：请检查网络连接、代理或证书设置。");
+        break;
+    case FailureReason::BridgeUnavailable:
+        message = QStringLiteral(
+            "地图页面初始化异常：客户端地图脚本未能正常启动。");
+        break;
+    case FailureReason::SdkRequestFailed:
+        message = QStringLiteral(
+            "腾讯地图 SDK 脚本下载失败：请检查网络、代理，以及 Key 的 JavaScript API GL 权限或域名白名单。");
+        break;
+    case FailureReason::SdkUnavailable:
+        message = QStringLiteral(
+            "腾讯地图 SDK 未提供可用接口：请检查 Key 权限、配额和 SDK 服务状态。");
+        break;
+    case FailureReason::MapInitializationFailed:
+        message = QStringLiteral(
+            "地图实例初始化失败：可能是 SDK 配置、WebEngine 或显卡兼容问题。");
+        break;
+    case FailureReason::RouteRenderingFailed:
+        message = QStringLiteral(
+            "路线数据已获取，但地图绘制失败：可查看文字详情并重新加载地图。");
+        break;
+    case FailureReason::RenderProcessTerminated:
+        message = QStringLiteral(
+            "地图渲染进程异常退出：可能是 WebEngine、显卡驱动或内存问题。");
+        break;
+    case FailureReason::Timeout:
+        message = QStringLiteral(
+            "地图加载超时（15 秒）：网络较慢、SDK 未响应或 Key 权限校验未完成。");
+        break;
+    }
+    if (!detail.isEmpty()) message += QStringLiteral("（%1）").arg(detail);
+    if (canRetry(reason)) {
+        message += QStringLiteral(
+            " 请点击“重新加载地图”重试；已获取的路线文字仍可查看。");
+    }
+    return message;
+}
+
+bool RouteMapView::canRetry(FailureReason reason) const
+{
+    return reason != FailureReason::MissingScriptUrl
+        && reason != FailureReason::EmbeddedPageUnavailable
+        && !paths_.isEmpty() && !scriptUrl_.isEmpty();
 }
 
 void RouteMapView::command(const QString &script)
@@ -249,9 +371,8 @@ void RouteMapView::fitRoute() { command(QStringLiteral("bitMap.fit()")); }
 void RouteMapView::hideEvent(QHideEvent *event)
 {
     QWidget::hideEvent(event);
-    clearRoute();
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
-    if (view_ && sdkLoaded_) {
+    if (view_ && sdkLoaded_ && !initializing_) {
         view_->page()->setVisible(false);
         view_->page()->setLifecycleState(QWebEnginePage::LifecycleState::Frozen);
     }
@@ -265,6 +386,9 @@ void RouteMapView::showEvent(QShowEvent *event)
     if (view_) {
         view_->page()->setLifecycleState(QWebEnginePage::LifecycleState::Active);
         view_->page()->setVisible(true);
+        if (initialized_) {
+            view_->page()->runJavaScript(QStringLiteral("bitMap.resume()"));
+        }
     }
 #endif
 }

@@ -138,7 +138,10 @@ ProfilePage::ProfilePage(QWidget *parent)
     rechargeInput_ = new QLineEdit(walletCard);
     rechargeInput_->setObjectName(QStringLiteral("rechargeAmountInput"));
     rechargeInput_->setPlaceholderText(QStringLiteral("输入充值金额（元）"));
-    rechargeInput_->setValidator(new QDoubleValidator(0.01, 10000.0, 2, rechargeInput_));
+    auto *rechargeValidator =
+        new QDoubleValidator(0.01, 10000.0, 2, rechargeInput_);
+    rechargeValidator->setNotation(QDoubleValidator::StandardNotation);
+    rechargeInput_->setValidator(rechargeValidator);
     rechargeInput_->setAccessibleName(QStringLiteral("充值金额，单位元"));
     connect(rechargeInput_, &QLineEdit::textChanged, this, [amountGroup](const QString &text) {
         amountGroup->setExclusive(false);
