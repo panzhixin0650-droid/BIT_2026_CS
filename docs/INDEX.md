@@ -33,6 +33,7 @@
 | [`decisions/0004-client-cycling-navigation.md`](decisions/0004-client-cycling-navigation.md) | 用户端自行车骑行导航与腾讯地图适配 |
 | [`decisions/0005-client-rag-assistant.md`](decisions/0005-client-rag-assistant.md) | 用户端只读 RAG 问答；不启用人工客服工单 |
 | [`decisions/0006-client-api-map-navigation.md`](decisions/0006-client-api-map-navigation.md) | 四种方式统一 API 数据、自有地图布局与缩放交互 |
+| [`decisions/0007-client-demo-code-login.md`](decisions/0007-client-demo-code-login.md) | 用户端固定验证码登录交互，保留 V1 手机号自动注册与登录 |
 | [`../contracts/client-assistant-local.md`](../contracts/client-assistant-local.md) | 智能助理本地检索与外部 HTTPS 边界，不改变 V1 TCP |
 
 ## 规则

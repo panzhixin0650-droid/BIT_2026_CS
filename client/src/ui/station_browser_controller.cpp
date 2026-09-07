@@ -31,6 +31,7 @@ StationBrowserController::StationBrowserController(StationBrowserPage &page,
             this, &StationBrowserController::requestStop);
     connect(&page_, &StationBrowserPage::detailBackRequested, this, [this]() {
         pendingDetailRequestId_.clear();
+        selectedStationId_ = 0;
         page_.reset();
         refreshStations();
     });
@@ -368,6 +369,8 @@ void StationBrowserController::handleStop(const ChargingStopResult &result)
 void StationBrowserController::synchronizeChargingStop(
     const ChargingStopPayload &result)
 {
+    const bool refreshSelectedDetail = selectedStationId_ > 0
+        && page_.isShowingStationDetail();
     if (result.paid) {
         page_.showListMessage(
             QStringLiteral("充电已结束并自动结算，实付 ¥%1")
@@ -379,6 +382,9 @@ void StationBrowserController::synchronizeChargingStop(
             true);
     }
     refreshStations();
+    if (refreshSelectedDetail) {
+        requestStation(selectedStationId_);
+    }
 }
 
 void StationBrowserController::synchronizePendingOrderSettlement(
