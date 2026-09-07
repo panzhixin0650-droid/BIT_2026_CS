@@ -1,4 +1,5 @@
 #include "api/mock_charging_api.h"
+#include "navigation_paint_helpers.h"
 #include "ui/main_window.h"
 #include "ui/scan_controller.h"
 #include "ui/support_page.h"
@@ -6,7 +7,6 @@
 #include <QAbstractButton>
 #include <QApplication>
 #include <QComboBox>
-#include <QDir>
 #include <QFrame>
 #include <QIcon>
 #include <QLabel>
@@ -36,6 +36,8 @@ private slots:
     void verificationCodeRowFitsSmallWindow();
     void authenticatedShellHasFiveBottomEntries();
     void floatingNavigationResizesAndKeepsEntriesClickable();
+    void floatingNavigationSurvivesPartialRepaints_data();
+    void floatingNavigationSurvivesPartialRepaints();
     void clientUsesConsistentVisualTheme();
     void stationFiltersExpandAndPreserveQuery();
     void chargingHomeListsFiltersAndOpensStationDetail();
@@ -288,7 +290,7 @@ void MainWindowTests::floatingNavigationResizesAndKeepsEntriesClickable()
     QVERIFY(navigation && container);
     auto *bar = navigation->tabBar();
     QVERIFY(container->testAttribute(Qt::WA_TransparentForMouseEvents));
-    QVERIFY(container->graphicsEffect() != nullptr);
+    QVERIFY(container->graphicsEffect() == nullptr);
 
     // Resize the same shell back to narrow width to catch stale frame geometry.
     for (const QSize size : {QSize(360, 640), QSize(480, 860),
@@ -331,11 +333,11 @@ void MainWindowTests::floatingNavigationResizesAndKeepsEntriesClickable()
         QTest::keyClick(bar, Qt::Key_Right);
         QCOMPARE(navigation->currentIndex(), 4);
 
-        const auto screenshots = qEnvironmentVariable("CHARGING_NAVIGATION_SCREENSHOTS");
-        if (!screenshots.isEmpty()) {
-            const auto name = QStringLiteral("floating-nav-%1x%2.png")
-                                  .arg(size.width()).arg(size.height());
-            QVERIFY(window.grab().save(QDir(screenshots).filePath(name)));
+        const auto image = navigation_test::presentedNavigation(
+            *bar, QStringLiteral("floating-nav"));
+        if (!image.isNull()) {
+            const auto missing = navigation_test::missingNavigationContent(*bar, image);
+            QVERIFY2(missing.isEmpty(), qPrintable(missing));
         }
     }
     auto *logout = window.findChild<QPushButton *>(QStringLiteral("logoutButton"));
@@ -343,6 +345,84 @@ void MainWindowTests::floatingNavigationResizesAndKeepsEntriesClickable()
     QTest::mouseClick(logout, Qt::LeftButton);
     QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("loginPage"))->isVisible());
     QVERIFY(!container->isVisible());
+}
+
+void MainWindowTests::floatingNavigationSurvivesPartialRepaints_data()
+{
+    QTest::addColumn<QSize>("size");
+    QTest::newRow("narrow") << QSize(360, 640);
+    QTest::newRow("default-width") << QSize(480, 760);
+    QTest::newRow("wide") << QSize(900, 760);
+}
+
+void MainWindowTests::floatingNavigationSurvivesPartialRepaints()
+{
+    QFETCH(QSize, size);
+    MockChargingApi api;
+    MainWindow window(api);
+    window.resize(size);
+    window.show();
+    loginFixtureUser(window);
+    auto *navigation = window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
+    QVERIFY(navigation);
+    auto *bar = navigation->tabBar();
+    auto image = navigation_test::presentedNavigation(*bar, QStringLiteral("initial"));
+    if (image.isNull()) {
+        QSKIP("No window capture support; run with QT_QPA_PLATFORM=xcb under X11/Xvfb");
+    }
+    auto missing = navigation_test::missingNavigationContent(*bar, image);
+    QVERIFY2(missing.isEmpty(), qPrintable(missing));
+
+    // Repainting unchanged tabs must not accumulate translucent shadow layers.
+    for (int repetition = 0; repetition < 3; ++repetition) {
+        bar->update(QRegion(bar->tabRect(0)) | QRegion(bar->tabRect(4)));
+        const auto repainted = navigation_test::presentedNavigation(
+            *bar, QStringLiteral("unchanged-%1").arg(repetition));
+        QCOMPARE(repainted, image);
+    }
+
+    // Jump over intermediate tabs. Adjacent-only hover/click tests miss the bug.
+    for (int index : {0, 4, 1, 3, 0, 2, 4}) {
+        QTest::mouseMove(bar, bar->tabRect(index).center());
+        image = navigation_test::presentedNavigation(
+            *bar, QStringLiteral("hover-%1").arg(index));
+        missing = navigation_test::missingNavigationContent(*bar, image);
+        QVERIFY2(missing.isEmpty(), qPrintable(missing));
+
+        QTest::mouseClick(bar, Qt::LeftButton, Qt::NoModifier,
+                          bar->tabRect(index).center());
+        QTRY_COMPARE(navigation->currentIndex(), index);
+        // Explicitly coalesce two distant updates, regardless of platform mouse
+        // event timing. A live sibling effect repaints the clean middle as well.
+        QTest::qWait(60);
+        bar->update(QRegion(bar->tabRect(0)) | QRegion(bar->tabRect(4)));
+        image = navigation_test::presentedNavigation(
+            *bar, QStringLiteral("disjoint-%1").arg(index));
+        missing = navigation_test::missingNavigationContent(*bar, image);
+        QVERIFY2(missing.isEmpty(), qPrintable(missing));
+    }
+
+    window.hide();
+    window.show();
+    image = navigation_test::presentedNavigation(*bar, QStringLiteral("reshown"));
+    missing = navigation_test::missingNavigationContent(*bar, image);
+    QVERIFY2(missing.isEmpty(), qPrintable(missing));
+
+    window.showMinimized();
+    QTest::qWait(60);
+    window.showNormal();
+    image = navigation_test::presentedNavigation(*bar, QStringLiteral("restored"));
+    missing = navigation_test::missingNavigationContent(*bar, image);
+    QVERIFY2(missing.isEmpty(), qPrintable(missing));
+
+    auto *logout = window.findChild<QPushButton *>(QStringLiteral("logoutButton"));
+    QTRY_VERIFY(logout->isEnabled());
+    QTest::mouseClick(logout, Qt::LeftButton);
+    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("loginPage"))->isVisible());
+    loginFixtureUser(window);
+    image = navigation_test::presentedNavigation(*bar, QStringLiteral("relogin"));
+    missing = navigation_test::missingNavigationContent(*bar, image);
+    QVERIFY2(missing.isEmpty(), qPrintable(missing));
 }
 
 void MainWindowTests::clientUsesConsistentVisualTheme()

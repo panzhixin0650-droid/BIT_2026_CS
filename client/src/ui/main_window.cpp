@@ -21,10 +21,10 @@
 
 #include <QAbstractButton>
 #include <QFrame>
-#include <QGraphicsDropShadowEffect>
 #include <QLabel>
 #include <QMessageBox>
 #include <QPaintEvent>
+#include <QPainter>
 #include <QSizePolicy>
 #include <QStackedWidget>
 #include <QStyleOptionTab>
@@ -42,6 +42,8 @@ constexpr int navigationItemSize = 68;
 constexpr int navigationPadding = 12;
 constexpr int navigationBottomGap = 18;
 constexpr int navigationHeight = navigationItemSize + 2 * navigationPadding;
+constexpr int navigationShadowRadius = 13;
+constexpr int navigationShadowOffset = 3;
 
 class NavigationTabBar final : public QTabBar {
 public:
@@ -140,11 +142,6 @@ public:
         navigationContainer_->setAttribute(Qt::WA_TransparentForMouseEvents);
         navigationContainer_->stackUnder(tabBar());
 
-        auto *shadow = new QGraphicsDropShadowEffect(navigationContainer_);
-        shadow->setBlurRadius(26.0);
-        shadow->setColor(QColor(32, 61, 48, 40));
-        shadow->setOffset(0.0, 3.0);
-        navigationContainer_->setGraphicsEffect(shadow);
         tabBar()->installEventFilter(this);
     }
 
@@ -157,14 +154,39 @@ protected:
             qMax(0, width() - 2 * (outerMargin + navigationPadding)));
     }
 
+    void paintEvent(QPaintEvent *event) override
+    {
+        QTabWidget::paintEvent(event);
+        if (!tabBar()->isVisible()) return;
+
+        // Paint the shadow below both children, respecting the original dirty
+        // region. A live effect on the sibling frame expands disjoint tab
+        // updates to their bounding rectangle and erases the clean tabs between.
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(32, 61, 48, 2));
+        const QRectF frame = QRectF(navigationContainer_->geometry())
+                                 .translated(0, navigationShadowOffset);
+        for (int spread = navigationShadowRadius; spread > 0; --spread) {
+            const qreal radius = navigationHeight / 2.0 + spread;
+            painter.drawRoundedRect(frame.adjusted(-spread, -spread, spread, spread),
+                                    radius, radius);
+        }
+    }
+
     bool eventFilter(QObject *watched, QEvent *event) override
     {
         if (watched == tabBar()
             && (event->type() == QEvent::Move
                 || event->type() == QEvent::Resize
                 || event->type() == QEvent::Show)) {
+            const QRect oldFrame = navigationContainer_->geometry();
             navigationContainer_->setGeometry(tabBar()->geometry().adjusted(
                 -navigationPadding, 0, navigationPadding, -navigationBottomGap));
+            const int shadowMargin = navigationShadowRadius + navigationShadowOffset;
+            update(oldFrame.united(navigationContainer_->geometry()).adjusted(
+                -shadowMargin, -shadowMargin, shadowMargin, shadowMargin));
         }
         return QTabWidget::eventFilter(watched, event);
     }
