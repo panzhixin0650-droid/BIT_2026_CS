@@ -2,6 +2,7 @@
 
 #include "charging/protocol/dto.h"
 #include "local/map_types.h"
+#include "ui/demo_map_backdrop.h"
 
 #include <QHash>
 #include <QMargins>
@@ -21,6 +22,8 @@ class StationMapView final : public QWidget {
     Q_OBJECT
 public:
     explicit StationMapView(QWidget *parent = nullptr);
+    void preload();
+    [[nodiscard]] bool isReady() const;
     void setMapScriptUrl(const QUrl &url);
     void setCenter(const MapLocation &location);
     void setCurrentLocation(const std::optional<MapLocation> &location);
@@ -36,6 +39,7 @@ public:
 
 signals:
     void stationSelected(qint64 stationId);
+    void mapReady();
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -65,6 +69,10 @@ private:
     bool autoFit_ = true;
     bool dragging_ = false;
     bool webSceneDirty_ = false;
+    bool warming_ = false;
+    bool preloadStarted_ = false;
+    bool receivedStations_ = false;
+    DemoMapBackdrop demoBackdrop_;
     QUrl scriptUrl_;
     RouteMapView *webMap_ = nullptr;
     QWidget *controls_;

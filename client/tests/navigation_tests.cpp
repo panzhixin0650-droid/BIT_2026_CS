@@ -69,7 +69,8 @@ public:
       window.sdkCounts = {initializations:0, fits:0, zoom:12};
       window.sdkLayers = [];
       class Map {
-        constructor(element, options) { sdkCounts.initializations++; window.mapOptions = options; window.sdkMap = this; this.events = {}; }
+        constructor(element, options) { sdkCounts.initializations++; window.mapOptions = options; window.sdkMap = this; this.events = {};
+          window.initialViewport = {width:element.clientWidth, height:element.clientHeight}; }
         fitBounds(bounds) { sdkCounts.fits++; sdkCounts.zoom = 12; window.fittedBounds = bounds; }
         getZoom() { return sdkCounts.zoom; }
         setZoom(value) { sdkCounts.zoom = value; }
@@ -142,6 +143,8 @@ private slots:
     void leavingRejectsStaleRoutesAndGeocodes();
     void switchingMainTabsKeepsNavigationState();
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
+    void startupPreloadsHomeBeforeLogin();
+    void failedHomePreloadRetriesAfterLogin();
     void stationMarkersAndBridgeUseSharedCanvas();
     void floatingNavigationSurvivesEmbeddedMapRepaints();
     void startupPreloadReusesMapForFirstRoute();
@@ -310,7 +313,7 @@ void NavigationTests::startupPreloadReusesMapForFirstRoute()
     MainWindow window(api, service);
     window.show();
 
-    QTRY_COMPARE_WITH_TIMEOUT(server.sdkRequestCount, 1, 10000);
+    QTRY_COMPARE_WITH_TIMEOUT(server.sdkRequestCount, 2, 10000);
     auto *view = window.findChild<QWebEngineView *>(QStringLiteral("routeWebView"));
     QVERIFY(view);
     QTRY_VERIFY_WITH_TIMEOUT(
@@ -351,6 +354,85 @@ void NavigationTests::startupPreloadReusesMapForFirstRoute()
     QCOMPARE(evaluate(view, QStringLiteral("sdkCounts.initializations")).toInt(), 1);
 }
 
+void NavigationTests::startupPreloadsHomeBeforeLogin()
+{
+    ScriptServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    MockChargingApi api;
+    DeferredMap service;
+    service.preloadUrl = server.url();
+    MainWindow window(api, service);
+    auto *map = window.findChild<StationMapView *>();
+    QSignalSpy stations(&api, &IChargingApi::stationListCompleted);
+    QSignalSpy orders(&api, &IChargingApi::currentOrderCompleted);
+    QElapsedTimer startup;
+    startup.start();
+    window.show();
+    auto *phone = window.findChild<QLineEdit *>(QStringLiteral("phoneInput"));
+    phone->setFocus();
+    QTest::keyClicks(phone, QStringLiteral("13800000001"));
+    QTRY_VERIFY_WITH_TIMEOUT(map->isReady(), 4000);
+    const qint64 warmMs = startup.elapsed();
+    auto *view = map->findChild<QWebEngineView *>(QStringLiteral("stationWebView"));
+    QVERIFY(view);
+    QVERIFY(!map->isVisible());
+    QCOMPARE(stations.count(), 0);
+    QCOMPARE(orders.count(), 0);
+    QCOMPARE(QApplication::focusWidget(), phone);
+    QCOMPARE(evaluate(view, QStringLiteral("sdkCounts.initializations")).toInt(), 1);
+    const QString initialSize = evaluate(view, QStringLiteral("JSON.stringify(initialViewport)")).toString();
+    QVERIFY2(evaluate(view, QStringLiteral("initialViewport.width >= 320 && initialViewport.height >= 300")).toBool(),
+        qPrintable(QStringLiteral("JS %1; view %2×%3; map %4×%5")
+            .arg(initialSize).arg(view->width()).arg(view->height()).arg(map->width()).arg(map->height())));
+    QVERIFY(evaluate(view, QStringLiteral("sdkLayers[2].geometries.length === 0 && sdkLayers[3].geometries.length === 0")).toBool());
+    QVERIFY(evaluate(view, QStringLiteral("fittedBounds.points.length >= 2")).toBool());
+    QSignalSpy loads(view, &QWebEngineView::loadStarted);
+    // Simulate the available account-entry interval, without waiting on a
+    // blocking constructor / a timed JavaScript readiness poll in production.
+    QTest::qWait(qMax(0, 3200 - static_cast<int>(startup.elapsed())));
+    QTRY_COMPARE(server.sdkRequestCount, 2);
+    window.findChild<QLineEdit *>(QStringLiteral("verificationCodeInput"))->setText(QStringLiteral("123456"));
+    QElapsedTimer transition;
+    transition.start();
+    window.findChild<QPushButton *>(QStringLiteral("loginButton"))->click();
+    QTRY_VERIFY_WITH_TIMEOUT(map->isVisible() && map->isReady() && stations.count() == 1, 500);
+    QTRY_VERIFY_WITH_TIMEOUT(evaluate(view, QStringLiteral("sdkLayers[2].geometries.length === 2")).toBool(), 500);
+    const qint64 visibleMs = transition.elapsed();
+    qInfo("Home WebEngine + SDK test double warmed during login: %lld ms; login to reused map + markers: %lld ms",
+        static_cast<long long>(warmMs), static_cast<long long>(visibleMs));
+    QVERIFY(visibleMs < 500);
+    QCOMPARE(map->findChild<QWebEngineView *>(QStringLiteral("stationWebView")), view);
+    QCOMPARE(loads.count(), 0);
+    QCOMPARE(server.sdkRequestCount, 2);
+    QCOMPARE(evaluate(view, QStringLiteral("sdkCounts.initializations")).toInt(), 1);
+    QVERIFY(!window.findChild<QLabel *>(QStringLiteral("stationMapStatus"))->isVisible());
+}
+
+void NavigationTests::failedHomePreloadRetriesAfterLogin()
+{
+    ScriptServer server;
+    const QByteArray working = server.script;
+    server.script = "/* Unavailable SDK in background */";
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    MockChargingApi api;
+    DeferredMap service;
+    service.preloadUrl = server.url();
+    MainWindow window(api, service);
+    window.show();
+    auto *map = window.findChild<StationMapView *>();
+    QSignalSpy stations(&api, &IChargingApi::stationListCompleted);
+    QTRY_VERIFY_WITH_TIMEOUT(server.sdkRequestCount >= 1, 4000);
+    QTRY_VERIFY_WITH_TIMEOUT(!map->findChild<QWebEngineView *>(), 4000);
+    QVERIFY(!map->isReady());
+    QCOMPARE(stations.count(), 0);
+    QVERIFY(!window.findChild<QLabel *>(QStringLiteral("stationMapStatus"))->isVisible());
+    server.script = working;
+    login(window);
+    QTRY_VERIFY_WITH_TIMEOUT(map->isReady(), 4000);
+    QVERIFY(map->findChild<QWebEngineView *>());
+    QVERIFY(!window.findChild<QLabel *>(QStringLiteral("stationMapStatus"))->isVisible());
+}
+
 void NavigationTests::failedPreloadIsSilentAndRetries()
 {
     ScriptServer server;
@@ -382,6 +464,8 @@ void NavigationTests::mockModeDoesNotPreloadMap()
     window.show();
     QTest::qWait(400);
     QVERIFY(!window.findChild<QWebEngineView *>(QStringLiteral("routeWebView")));
+    QVERIFY(!window.findChild<QWebEngineView *>(QStringLiteral("stationWebView")));
+    QVERIFY(window.findChild<StationMapView *>()->isReady());
 }
 
 void NavigationTests::zoomFitAndRepeatedRoutesReuseMap()

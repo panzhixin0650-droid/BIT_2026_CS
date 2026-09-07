@@ -151,7 +151,7 @@ window.bitMap = (() => {
   function fitStations() {
     if (!state.ready || !scene) return false;
     autoFit = true;
-    const points = scene.stations.concat(scene.location ? [scene.location] : []).map(projected);
+    const points = (scene.defaultBounds || scene.stations.concat(scene.location ? [scene.location] : [])).map(projected);
     if (!points.length) return true;
     const area = viewport();
     const xs = points.map(p => p.x), ys = points.map(p => p.y);

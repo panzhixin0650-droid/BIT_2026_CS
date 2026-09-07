@@ -96,8 +96,9 @@ StationMapView::StationMapView(QWidget *parent) : QWidget(parent)
     connect(plus, &QPushButton::clicked, this, &StationMapView::zoomIn);
     connect(minus, &QPushButton::clicked, this, &StationMapView::zoomOut);
     connect(locate_, &QPushButton::clicked, this, [this] { if (location_) setCenter(*location_); });
-    modeLabel_ = new QLabel(QStringLiteral("DEMO MAP · 离线示意地图"), this);
+    modeLabel_ = new QLabel(QStringLiteral("沈阳 · 离线默认地图（示意）"), this);
     modeLabel_->setObjectName(QStringLiteral("stationMapMode"));
+    modeLabel_->setToolTip(QStringLiteral("内置原创地图示意，不是实测路网，不用于真实导航。"));
     modeLabel_->setAttribute(Qt::WA_TransparentForMouseEvents);
     statusLabel_ = new QLabel(this);
     statusLabel_->setObjectName(QStringLiteral("stationMapStatus"));
@@ -139,6 +140,9 @@ void StationMapView::setMapScriptUrl(const QUrl &url)
             updateControls();
         });
         connect(webMap_, &RouteMapView::retryAvailableChanged, retry_, &QWidget::setVisible);
+        connect(webMap_, &RouteMapView::readyChanged, this, [this](bool ready) {
+            if (ready) emit mapReady();
+        });
     }
     if (webMap_) webMap_->setVisible(!url.isEmpty());
     modeLabel_->setVisible(url.isEmpty());
@@ -146,6 +150,28 @@ void StationMapView::setMapScriptUrl(const QUrl &url)
     webSceneDirty_ = true;
     applyWebScene();
     update();
+}
+
+void StationMapView::preload()
+{
+    if (preloadStarted_) return;
+    preloadStarted_ = true;
+    warming_ = !isVisible();
+    // resizeEvent is deferred for a hidden widget. Size the nested canvas
+    // explicitly before it creates the browser and its initial tile viewport.
+    if (webMap_) webMap_->setGeometry(rect());
+    if (scriptUrl_.isEmpty()) {
+        fitStations();
+        demoBackdrop_.prepare(size(), center_, scale_, devicePixelRatioF());
+    }
+    webSceneDirty_ = true;
+    applyWebScene();
+    if (scriptUrl_.isEmpty()) emit mapReady();
+}
+
+bool StationMapView::isReady() const
+{
+    return scriptUrl_.isEmpty() ? demoBackdrop_.isReady() : (webMap_ && webMap_->isReady());
 }
 
 void StationMapView::setCurrentLocation(const std::optional<MapLocation> &location)
@@ -159,6 +185,7 @@ void StationMapView::setCurrentLocation(const std::optional<MapLocation> &locati
 
 void StationMapView::setStations(const QList<protocol::StationDto> &stations)
 {
+    receivedStations_ = true;
     stations_.clear();
     for (const auto &station : stations) {
         if (station.stationId > 0 && valid({{}, station.longitude, station.latitude})) stations_.append(station);
@@ -219,6 +246,9 @@ void StationMapView::fitStations()
     QList<QPointF> points;
     for (const auto &station : stations_) points.append(project({{}, station.longitude, station.latitude}));
     if (location_) points.append(project(*location_));
+    if (!receivedStations_) {
+        points = {project({{}, 123.40, 41.79}), project({{}, 123.43, 41.70})};
+    }
     if (!points.isEmpty()) {
         double left = points.first().x(), right = left, top = points.first().y(), bottom = top;
         for (const auto &point : points) {
@@ -260,7 +290,7 @@ void StationMapView::setViewportMargins(const QMargins &margins)
 
 void StationMapView::applyWebScene()
 {
-    if (!webMap_ || scriptUrl_.isEmpty() || !isVisible() || !webSceneDirty_) return;
+    if (!webMap_ || scriptUrl_.isEmpty() || (!isVisible() && !warming_) || !webSceneDirty_) return;
     QJsonArray stations;
     for (const auto &station : stations_) {
         auto item = coordinate({{}, station.longitude, station.latitude});
@@ -269,14 +299,22 @@ void StationMapView::applyWebScene()
         item.insert(QStringLiteral("available"), station.availablePileCount);
         stations.append(item);
     }
-    webMap_->setStationScene(scriptUrl_, QJsonObject{
-        {QStringLiteral("stations"), stations},
-        {QStringLiteral("location"), location_ ? QJsonValue(coordinate(*location_)) : QJsonValue(QJsonValue::Null)},
-        {QStringLiteral("selected"), selectedId_ > 0 ? QString::number(selectedId_) : QString{}},
+    QJsonObject scene{
+        {QStringLiteral("stations"), warming_ ? QJsonArray{} : stations},
+        {QStringLiteral("location"), !warming_ && location_ ? QJsonValue(coordinate(*location_)) : QJsonValue(QJsonValue::Null)},
+        {QStringLiteral("selected"), !warming_ && selectedId_ > 0 ? QString::number(selectedId_) : QString{}},
         {QStringLiteral("padding"), QJsonObject{{QStringLiteral("left"), margins_.left()},
             {QStringLiteral("top"), margins_.top()}, {QStringLiteral("right"), margins_.right()},
             {QStringLiteral("bottom"), margins_.bottom()}}}
-    });
+    };
+    // A public, fixed Shenyang viewport, never account data or a geocoding /
+    // station.list request before authentication. It covers the demo area at
+    // the same broad zoom that the first station response will use.
+    if (warming_ || !receivedStations_) {
+        scene.insert(QStringLiteral("defaultBounds"), QJsonArray{
+            coordinate({{}, 123.39, 41.70}), coordinate({{}, 123.44, 41.79})});
+    }
+    webMap_->setStationScene(scriptUrl_, scene);
     webSceneDirty_ = false;
 }
 
@@ -315,6 +353,13 @@ void StationMapView::resizeEvent(QResizeEvent *event)
 void StationMapView::showEvent(QShowEvent *event)
 {
     QWidget::showEvent(event);
+    if (warming_) {
+        warming_ = false;
+        webSceneDirty_ = true;
+    }
+    // One foreground attempt may take over a failed background warm-up. After
+    // that, the existing explicit Retry button owns recovery.
+    if (webMap_ && !webMap_->isPreloaded() && !webMap_->isLoading()) webSceneDirty_ = true;
     applyWebScene();
 }
 
@@ -367,50 +412,14 @@ void StationMapView::paintEvent(QPaintEvent *)
     painter.fillRect(rect(), QColor("#edf1e8"));
     if (!scriptUrl_.isEmpty()) return;
     painter.setRenderHint(QPainter::Antialiasing);
-    // Decorative roads and park blocks share the projection, so they move with
-    // markers. These are a schematic, not geographic data or navigable roads.
-    const auto point = [this](double lng, double lat) { return pointForLocation({{}, lng, lat}); };
-    const double unit = std::clamp(scale_ / 2000000.0, 0.5, 1.8);
-    for (int x = -8; x <= 8; ++x) {
-        for (int y = -12; y <= 12; ++y) {
-            QRectF block(point(123.42 + x * .027 + .002, 41.75 + y * .018 + .002),
-                         point(123.42 + x * .027 + .024, 41.75 + y * .018 + .015));
-            painter.setPen(Qt::NoPen);
-            painter.setBrush(QColor((x + y) % 5 == 0 ? "#d9e6ce" : "#e4e9df"));
-            painter.drawRoundedRect(block.normalized(), 5 * unit, 5 * unit);
-        }
-    }
-    painter.setBrush(Qt::NoBrush);
-    QPainterPath river;
-    river.moveTo(point(123.25, 41.752));
-    river.cubicTo(point(123.38, 41.737), point(123.42, 41.772), point(123.60, 41.745));
-    painter.setPen(QPen(QColor("#c3dbd5"), 22 * unit, Qt::SolidLine, Qt::RoundCap));
-    painter.drawPath(river);
-    for (int axis = 0; axis < 2; ++axis) {
-        for (int i = -12; i <= 12; ++i) {
-            const QPointF start = axis == 0 ? point(123.42 + i * .027, 41.48) : point(123.02, 41.75 + i * .018);
-            const QPointF end = axis == 0 ? point(123.42 + i * .027, 42.02) : point(123.82, 41.75 + i * .018);
-            painter.setPen(QPen(QColor("#dce2d5"), 7 * unit)); painter.drawLine(start, end);
-            painter.setPen(QPen(QColor("#fffef7"), 4 * unit)); painter.drawLine(start, end);
-        }
-    }
-    QPainterPath avenue;
-    avenue.moveTo(point(123.39, 41.86));
-    avenue.cubicTo(point(123.40, 41.76), point(123.45, 41.77), point(123.43, 41.64));
-    painter.setPen(QPen(QColor("#dedbc2"), 13 * unit)); painter.drawPath(avenue);
-    painter.setPen(QPen(QColor("#fff8df"), 9 * unit)); painter.drawPath(avenue);
-    QFont font = painter.font(); font.setPixelSize(16); font.setLetterSpacing(QFont::AbsoluteSpacing, 3);
-    painter.setFont(font); painter.setPen(QColor("#94a38f"));
-    painter.drawText(point(123.376, 41.788), QStringLiteral("和平区"));
-    painter.drawText(point(123.447, 41.724), QStringLiteral("浑南区"));
-    font.setPixelSize(11); painter.setFont(font); painter.setPen(QColor("#80a79d"));
-    painter.drawText(point(123.385, 41.754), QStringLiteral("示意水域"));
+    demoBackdrop_.paint(painter, size(), center_, scale_, devicePixelRatioF());
     if (location_) {
         const QPointF current = pointForLocation(*location_);
         painter.setPen(Qt::NoPen); painter.setBrush(QColor(42, 142, 140, 25));
         painter.drawEllipse(current, 22, 22);
         painter.setPen(QPen(Qt::white, 3)); painter.setBrush(QColor("#2a8e8c"));
         painter.drawEllipse(current, 8, 8);
+        QFont font = painter.font();
         font.setLetterSpacing(QFont::AbsoluteSpacing, 0); font.setPixelSize(11); painter.setFont(font);
         painter.setPen(QColor("#28766e"));
         painter.drawText(QRectF(current.x() - 48, current.y() + 15, 96, 20), Qt::AlignCenter, QStringLiteral("当前选定位置"));

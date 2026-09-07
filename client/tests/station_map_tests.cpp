@@ -6,19 +6,26 @@
 #include <QAbstractButton>
 #include <QCheckBox>
 #include <QDir>
+#include <QElapsedTimer>
+#include <QEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QPainter>
 #include <QScrollArea>
 #include <QSignalSpy>
 #include <QTabWidget>
+#include <QTimer>
 #include <QtTest>
+#include <cmath>
 
 using namespace charging::client;
 
 class StationMapTests final : public QObject {
     Q_OBJECT
 private slots:
+    void offlineHomePreloadsDuringLogin();
+    void offlineBackdropCachesViewport();
     void mapHomeFitsAndSelects_data();
     void mapHomeFitsAndSelects();
     void filteringClearsSelectionAndRetainsMap();
@@ -28,6 +35,16 @@ private slots:
 };
 
 namespace {
+class PaintProbe final : public QObject {
+public:
+    int paints = 0;
+    bool eventFilter(QObject *, QEvent *event) override
+    {
+        if (event->type() == QEvent::Paint) ++paints;
+        return false;
+    }
+};
+
 void login(MainWindow &window)
 {
     window.show();
@@ -44,6 +61,89 @@ void screenshot(MainWindow &window, const QString &name)
     QDir().mkpath(directory);
     QVERIFY(window.grab().save(directory + QLatin1Char('/') + name + QStringLiteral(".png")));
 }
+}
+
+void StationMapTests::offlineHomePreloadsDuringLogin()
+{
+    MockChargingApi api;
+    MainWindow window(api);
+    auto *map = window.findChild<StationMapView *>();
+    auto *phone = window.findChild<QLineEdit *>("phoneInput");
+    QVERIFY(map);
+    QSignalSpy stations(&api, &IChargingApi::stationListCompleted);
+    QSignalSpy orders(&api, &IChargingApi::currentOrderCompleted);
+    QSignalSpy ready(map, &StationMapView::mapReady);
+    QElapsedTimer startup;
+    startup.start();
+    QElapsedTimer heartbeatGap;
+    heartbeatGap.start();
+    qint64 longestGap = 0;
+    QTimer heartbeat;
+    heartbeat.setInterval(10);
+    connect(&heartbeat, &QTimer::timeout, &window, [&] {
+        longestGap = qMax(longestGap, heartbeatGap.restart());
+    });
+    heartbeat.start();
+    window.show();
+    phone->setFocus();
+    QTest::keyClicks(phone, QStringLiteral("13800000001"));
+    QTRY_VERIFY_WITH_TIMEOUT(map->isReady(), 1000);
+    const qint64 warmMs = startup.elapsed();
+    QTest::qWait(25);
+    QVERIFY2(longestGap < 250, "Default-map preparation blocked the GUI event loop");
+    QVERIFY(!map->isVisible());
+    QCOMPARE(ready.count(), 1);
+    QCOMPARE(stations.count(), 0);
+    QCOMPARE(orders.count(), 0);
+    QCOMPARE(QApplication::focusWidget(), phone);
+    QCOMPARE(phone->text(), QStringLiteral("13800000001"));
+
+    PaintProbe painted;
+    map->installEventFilter(&painted);
+    window.findChild<QLineEdit *>("verificationCodeInput")->setText(QStringLiteral("123456"));
+    QElapsedTimer transition;
+    transition.start();
+    window.findChild<QPushButton *>("loginButton")->click();
+    QTRY_VERIFY_WITH_TIMEOUT(map->isVisible() && painted.paints > 0
+        && window.findChild<QAbstractButton *>("stationMarker_2"), 500);
+    const qint64 firstPaintMs = transition.elapsed();
+    qInfo("Offline home ready during login: %lld ms; login to painted map + markers: %lld ms",
+        static_cast<long long>(warmMs), static_cast<long long>(firstPaintMs));
+    QVERIFY(firstPaintMs < 500);
+    QVERIFY(map->isReady());
+}
+
+void StationMapTests::offlineBackdropCachesViewport()
+{
+    DemoMapBackdrop backdrop;
+    const double pi = std::acos(-1.0);
+    const QPointF center((123.42 + 180) / 360,
+        (1 - std::asinh(std::tan(41.75 * pi / 180)) / pi) / 2);
+    const QSize size(480, 750);
+    QElapsedTimer timer;
+    timer.start();
+    backdrop.prepare(size, center, 1600000, 1);
+    const qint64 coldMs = timer.elapsed();
+    QVERIFY(backdrop.isReady());
+    timer.restart();
+    backdrop.prepare(size, center, 1600000, 1);
+    qInfo("Offline backdrop preparation: %lld ms; cached viewport: %lld ms",
+        static_cast<long long>(coldMs), static_cast<long long>(timer.elapsed()));
+    QImage first(size, QImage::Format_RGB32), second(size, QImage::Format_RGB32);
+    {
+        QPainter painter(&first);
+        backdrop.paint(painter, size, center, 1600000, 1);
+    }
+    {
+        QPainter painter(&second);
+        backdrop.paint(painter, size, center, 1600000, 1);
+    }
+    QCOMPARE(first, second);
+    {
+        QPainter painter(&second);
+        backdrop.paint(painter, size, center + QPointF(.0001, .0001), 1600000, 1);
+    }
+    QVERIFY(first != second);
 }
 
 void StationMapTests::mapHomeFitsAndSelects_data()

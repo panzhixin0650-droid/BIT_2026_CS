@@ -30,6 +30,8 @@ public:
     explicit RouteMapView(QWidget *parent = nullptr);
     ~RouteMapView() override;
     [[nodiscard]] bool isPreloaded() const { return sdkLoaded_; }
+    [[nodiscard]] bool isReady() const { return initialized_; }
+    [[nodiscard]] bool isLoading() const { return initializing_; }
     void preload(const QUrl &scriptUrl);
     void prepareMap();
     void setRoute(const RouteResult &route);

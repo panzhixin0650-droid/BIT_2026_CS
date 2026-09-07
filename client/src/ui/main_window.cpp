@@ -546,13 +546,21 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
             });
 
     const QUrl mapScriptUrl = mapService.mapScriptUrl();
-    if (!mapScriptUrl.isEmpty()) {
-        // Let the login window paint first, then warm WebEngine and the map SDK
-        // without requesting a route or exposing a loading state to the user.
-        QTimer::singleShot(250, this, [this, mapScriptUrl]() {
-            homePage_->preloadMap(mapScriptUrl);
-        });
-    }
+    // Let login paint first. During account entry, prepare the *home* canvas,
+    // including SDK parsing / map initialization / default-area tiles. Nothing
+    // authenticated is requested until showAuthenticatedHome(). Widgets stay
+    // on the GUI thread; WebEngine downloads and readiness are asynchronous.
+    QTimer::singleShot(80, this, [this, mapScriptUrl]() {
+        homePage_->prepareHomeMap(QSize(pages_->width(),
+            qMax(220, pages_->height() - navigationHeight - navigationBottomGap)));
+        // Navigation is secondary: do not compete with the home on the first
+        // login frame, but retain its existing SDK-only preload and reuse.
+        if (!mapScriptUrl.isEmpty()) {
+            QTimer::singleShot(500, this, [this, mapScriptUrl]() {
+                homePage_->preloadMap(mapScriptUrl);
+            });
+        }
+    });
 }
 
 MainWindow::~MainWindow()

@@ -51,6 +51,7 @@ public:
                         const MapLocation &start);
     void preloadMap(const QUrl &scriptUrl);
     void configureHomeMap(const QUrl &scriptUrl);
+    void prepareHomeMap(const QSize &availableSize);
     void setRouteBusy(bool busy);
     void showRouteMessage(const QString &message, bool error = false);
     void showRouteResult(const RouteResult &result);

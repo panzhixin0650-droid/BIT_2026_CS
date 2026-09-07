@@ -108,6 +108,8 @@ add_library(charging_client_ui STATIC
     src/ui/station_browser_page.h
     src/ui/station_map_view.cpp
     src/ui/station_map_view.h
+    src/ui/demo_map_backdrop.cpp
+    src/ui/demo_map_backdrop.h
     src/ui/station_preview_card.cpp
     src/ui/station_preview_card.h
 )

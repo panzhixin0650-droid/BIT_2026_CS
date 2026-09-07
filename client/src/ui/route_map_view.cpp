@@ -140,6 +140,12 @@ void RouteMapView::initialize(const QUrl &scriptUrl, bool reportFailure)
     view_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     view_->setContextMenuPolicy(Qt::NoContextMenu);
     layout()->addWidget(view_);
+    // Hidden QStackedWidget pages do not automatically receive their final
+    // layout. Warm the actual map at a useful viewport, not Chromium's tiny
+    // default size; no window is shown and login keeps keyboard focus.
+    layout()->activate();
+    view_->resize(contentsRect().size());
+    view_->page()->setBackgroundColor(QColor(QStringLiteral("#eef3ec")));
     view_->page()->setLifecycleState(QWebEnginePage::LifecycleState::Active);
     view_->page()->setVisible(true);
     QPointer<QWebEngineView> source(view_);

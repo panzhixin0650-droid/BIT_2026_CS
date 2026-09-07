@@ -12,9 +12,25 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QStackedWidget>
 #include <QVBoxLayout>
 
 namespace charging::client {
+
+void StationBrowserPage::prepareHomeMap(const QSize &availableSize)
+{
+    if (!isVisible()) {
+        ensurePolished();
+        resize(availableSize);
+        layout()->activate();
+        pages_->resize(contentsRect().size());
+        listPage_->resize(pages_->contentsRect().size());
+        listPage_->layout()->activate();
+        stationMap_->resize(listPage_->contentsRect().size());
+        layoutHomeOverlays();
+    }
+    stationMap_->preload();
+}
 
 void StationBrowserPage::setupMapHome()
 {
