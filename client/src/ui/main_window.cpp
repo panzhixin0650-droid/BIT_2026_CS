@@ -454,7 +454,7 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
 
 MainWindow::~MainWindow()
 {
-    // Child pages emit navigationClosed while the window is being hidden.
+    // Child pages may emit navigationClosed while the window is being torn down.
     // Disconnect their controller before ownedMapService_ is destroyed.
     delete mapController_;
     mapController_ = nullptr;

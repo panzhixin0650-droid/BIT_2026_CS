@@ -13,6 +13,7 @@
 #include <QSignalSpy>
 #include <QStackedWidget>
 #include <QTabBar>
+#include <QTabWidget>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QtTest>
@@ -129,6 +130,7 @@ private slots:
     void smallWindowFitsWithDetails_data();
     void smallWindowFitsWithDetails();
     void leavingRejectsStaleRoutesAndGeocodes();
+    void switchingMainTabsKeepsNavigationState();
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
     void startupPreloadReusesMapForFirstRoute();
     void failedPreloadIsSilentAndRetries();
@@ -209,6 +211,43 @@ void NavigationTests::leavingRejectsStaleRoutesAndGeocodes()
     QVERIFY(plan->isEnabled());
 }
 
+void NavigationTests::switchingMainTabsKeepsNavigationState()
+{
+    MockChargingApi api;
+    DeferredMap service;
+    MainWindow window(api, service);
+    window.show();
+    login(window);
+
+    auto *controller = window.findChild<MapController *>();
+    auto *tabs = window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
+    auto *navigationPage = window.findChild<QWidget *>(
+        QStringLiteral("stationNavigationPage"));
+    controller->openNavigation(station());
+    auto *plan = window.findChild<QPushButton *>(QStringLiteral("routePlanButton"));
+    plan->click();
+    QCOMPARE(service.sequence, 1);
+
+    tabs->setCurrentIndex(3);
+    QVERIFY(!service.cancelled.contains(QStringLiteral("route-1")));
+    RouteResult route;
+    route.requestId = QStringLiteral("route-1");
+    route.success = true;
+    route.message = QStringLiteral("离线路线已生成");
+    route.summary = QStringLiteral("驾车约 1 公里 · 3 分钟");
+    route.instructions = {QStringLiteral("沿演示道路前行")};
+    emit service.routeCompleted(route);
+
+    tabs->setCurrentIndex(0);
+    QVERIFY(navigationPage->isVisible());
+    QCOMPARE(window.findChild<QLabel *>(QStringLiteral("routeDisplay"))->text(),
+             route.summary);
+    QCOMPARE(window.findChild<QPlainTextEdit *>(
+                 QStringLiteral("routeDetails"))->toPlainText(),
+             route.instructions.first());
+    QVERIFY(!service.cancelled.contains(QStringLiteral("route-1")));
+}
+
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
 void NavigationTests::startupPreloadReusesMapForFirstRoute()
 {
@@ -242,6 +281,21 @@ void NavigationTests::startupPreloadReusesMapForFirstRoute()
     QCOMPARE(page->findChild<QWebEngineView *>(QStringLiteral("routeWebView")), view);
     QCOMPARE(loads.count(), 0);
     QCOMPARE(server.sdkRequestCount, 1);
+    QCOMPARE(evaluate(view, QStringLiteral("sdkCounts.initializations")).toInt(), 1);
+
+    auto *tabs = window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
+    tabs->setCurrentIndex(3);
+    QTRY_COMPARE(view->page()->lifecycleState(),
+                 QWebEnginePage::LifecycleState::Frozen);
+    tabs->setCurrentIndex(0);
+    QTRY_COMPARE(view->page()->lifecycleState(),
+                 QWebEnginePage::LifecycleState::Active);
+    QVERIFY(page->findChild<QWidget *>(
+                QStringLiteral("stationNavigationPage"))->isVisible());
+    QVERIFY(plus->isEnabled());
+    QCOMPARE(page->findChild<QWebEngineView *>(QStringLiteral("routeWebView")),
+             view);
+    QCOMPARE(loads.count(), 0);
     QCOMPARE(evaluate(view, QStringLiteral("sdkCounts.initializations")).toInt(), 1);
 }
 
@@ -328,6 +382,7 @@ void NavigationTests::zoomFitAndRepeatedRoutesReuseMap()
 void NavigationTests::failedSdkReleasesBusyState()
 {
     ScriptServer server;
+    const QByteArray workingScript = server.script;
     server.script = "/* SDK failed: TMap is unavailable */";
     QVERIFY(server.listen(QHostAddress::LocalHost));
     StationBrowserPage page;
@@ -336,12 +391,19 @@ void NavigationTests::failedSdkReleasesBusyState()
     page.showRouteResult(realRoute(server.url()));
     auto *plan = page.findChild<QPushButton *>(QStringLiteral("routePlanButton"));
     QTRY_VERIFY_WITH_TIMEOUT(plan->isEnabled(), 10000);
-    QVERIFY(page.findChild<QLabel *>(QStringLiteral("routeMessage"))->text().contains(QStringLiteral("失败")));
+    const QString message =
+        page.findChild<QLabel *>(QStringLiteral("routeMessage"))->text();
+    QVERIFY(message.contains(QStringLiteral("SDK 未提供可用接口")));
+    QVERIFY(message.contains(QStringLiteral("权限、配额")));
     QVERIFY(!page.findChild<QPushButton *>(QStringLiteral("mapZoomInButton"))->isEnabled());
     QVERIFY(page.findChild<QPushButton *>(QStringLiteral("routeDetailsButton"))->isEnabled());
-    server.script = ScriptServer().script;
-    page.showRouteResult(realRoute(server.url()));
+    auto *retry = page.findChild<QPushButton *>(QStringLiteral("mapRetryButton"));
+    QVERIFY(retry->isVisible());
+    QVERIFY(retry->isEnabled());
+    server.script = workingScript;
+    retry->click();
     QTRY_VERIFY_WITH_TIMEOUT(page.findChild<QPushButton *>(QStringLiteral("mapZoomInButton"))->isEnabled(), 10000);
+    QCOMPARE(server.sdkRequestCount, 2);
 }
 
 void NavigationTests::mapTimeoutReleasesBusyState()
@@ -356,8 +418,12 @@ void NavigationTests::mapTimeoutReleasesBusyState()
     auto *plan = page.findChild<QPushButton *>(QStringLiteral("routePlanButton"));
     QVERIFY(!plan->isEnabled());
     QTRY_VERIFY_WITH_TIMEOUT(plan->isEnabled(), 17000);
-    QVERIFY(page.findChild<QLabel *>(QStringLiteral("routeMessage"))->text().contains(QStringLiteral("超时")));
+    const QString message =
+        page.findChild<QLabel *>(QStringLiteral("routeMessage"))->text();
+    QVERIFY(message.contains(QStringLiteral("加载超时（15 秒）")));
+    QVERIFY(message.contains(QStringLiteral("网络较慢")));
     QVERIFY(!page.findChild<QPushButton *>(QStringLiteral("mapZoomInButton"))->isEnabled());
+    QVERIFY(page.findChild<QPushButton *>(QStringLiteral("mapRetryButton"))->isEnabled());
 }
 #endif
 

@@ -90,6 +90,12 @@ window.bitMap = (() => {
     map.setZoom(Math.max(3, Math.min(20, map.getZoom() + delta)));
     return true;
   }
+  function resume() {
+    if (!state.ready || !map) return false;
+    if (typeof map.resize === 'function') map.resize();
+    if (autoFit && bounds) fit();
+    return true;
+  }
   document.getElementById('map').addEventListener('wheel', () => { autoFit = false; }, { passive: true });
   document.getElementById('map').addEventListener('pointerdown', () => { autoFit = false; }, { passive: true });
   let resizeFrame;
@@ -101,7 +107,7 @@ window.bitMap = (() => {
       if (autoFit && bounds) fit();
     });
   }).observe(document.getElementById('map'));
-  return { state, sdkLoaded, init, fail, setRoute, clear, zoom, fit };
+  return { state, sdkLoaded, init, fail, setRoute, clear, zoom, fit, resume };
 })();
 </script>
 <script src="__MAP_SCRIPT_URL__" onload="bitMap.sdkLoaded()" onerror="bitMap.fail()"></script>
