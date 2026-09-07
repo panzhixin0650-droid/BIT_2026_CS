@@ -4,7 +4,6 @@
 #include "ui/charging_art.h"
 #include "ui/client_theme.h"
 #include "ui/route_map_view.h"
-#include <QHideEvent>
 #include <QPlainTextEdit>
 
 #include <QCheckBox>
@@ -562,7 +561,7 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     routeMessageLabel_->setObjectName(QStringLiteral("routeMessage"));
     routeMessageLabel_->setWordWrap(true);
     routeMessageLabel_->setTextFormat(Qt::PlainText);
-    routeMessageLabel_->setMaximumHeight(42);
+    routeMessageLabel_->setMaximumHeight(76);
     routeMessageLabel_->hide();
     routeDisplayLabel_ = new QLabel(
         QStringLiteral("选择出行方式后点击“开始导航”"), navigationPage_);
@@ -601,28 +600,41 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     auto *zoomIn = new QPushButton(QStringLiteral("＋"), navigationPage_);
     auto *zoomOut = new QPushButton(QStringLiteral("−"), navigationPage_);
     auto *fitRoute = new QPushButton(QStringLiteral("显示全程"), navigationPage_);
+    auto *retryMap = new QPushButton(QStringLiteral("重新加载"), navigationPage_);
     routeDetailsButton_ = new QPushButton(QStringLiteral("详情"), navigationPage_);
     zoomIn->setObjectName(QStringLiteral("mapZoomInButton"));
     zoomOut->setObjectName(QStringLiteral("mapZoomOutButton"));
     fitRoute->setObjectName(QStringLiteral("mapFitRouteButton"));
+    retryMap->setObjectName(QStringLiteral("mapRetryButton"));
     routeDetailsButton_->setObjectName(QStringLiteral("routeDetailsButton"));
     zoomIn->setAccessibleName(QStringLiteral("放大地图"));
     zoomOut->setAccessibleName(QStringLiteral("缩小地图"));
     zoomIn->setToolTip(QStringLiteral("放大地图（也可使用鼠标滚轮）"));
     zoomOut->setToolTip(QStringLiteral("缩小地图（也可使用鼠标滚轮）"));
     fitRoute->setToolTip(QStringLiteral("调整地图视野，显示完整路线"));
-    for (auto *button : {zoomIn, zoomOut, fitRoute, routeDetailsButton_}) {
+    retryMap->setAccessibleName(QStringLiteral("重新加载地图"));
+    retryMap->setToolTip(QStringLiteral("复用已获取的路线数据，重新加载地图画布"));
+    for (auto *button : {zoomIn, zoomOut, fitRoute}) {
         button->setStyleSheet(QStringLiteral("min-height: 30px; padding: 0 8px;"));
         button->setEnabled(false);
         mapToolbar->addWidget(button);
     }
     zoomIn->setFixedWidth(38);
     zoomOut->setFixedWidth(38);
+    retryMap->setStyleSheet(QStringLiteral("min-height: 30px; padding: 0 8px;"));
+    retryMap->setEnabled(false);
+    retryMap->hide();
+    routeDetailsButton_->setStyleSheet(
+        QStringLiteral("min-height: 30px; padding: 0 8px;"));
+    routeDetailsButton_->setEnabled(false);
     routeDetailsButton_->setCheckable(true);
     mapToolbar->insertStretch(3);
+    mapToolbar->addWidget(retryMap);
+    mapToolbar->addWidget(routeDetailsButton_);
     connect(zoomIn, &QPushButton::clicked, routeMapView_, &RouteMapView::zoomIn);
     connect(zoomOut, &QPushButton::clicked, routeMapView_, &RouteMapView::zoomOut);
     connect(fitRoute, &QPushButton::clicked, routeMapView_, &RouteMapView::fitRoute);
+    connect(retryMap, &QPushButton::clicked, routeMapView_, &RouteMapView::retry);
     connect(routeDetailsButton_, &QPushButton::toggled, routeDetails_, &QWidget::setVisible);
     connect(routeMapView_, &RouteMapView::preloadReady, this, [this]() {
         if (pages_->currentWidget() != navigationPage_) return;
@@ -635,13 +647,20 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
             });
     connect(routeMapView_, &RouteMapView::loadingChanged, this, [this](bool loading) {
         mapLoading_ = loading;
+        if (loading) routeDisplayStack_->setCurrentWidget(routeMapView_);
         updateRouteControls();
     });
+    connect(routeMapView_, &RouteMapView::retryAvailableChanged, this,
+            [retryMap](bool available) {
+                retryMap->setEnabled(available);
+                retryMap->setVisible(available);
+            });
     connect(routeMapView_, &RouteMapView::statusChanged, this,
             [this](const QString &message, bool error) {
                 showRouteMessage(message, error);
                 if (error) {
-                    routeDisplayLabel_->setText(QStringLiteral("地图暂不可用，请检查配置后重新规划。\n已获取的路线说明可在“详情”中查看。"));
+                    routeDisplayLabel_->setText(QStringLiteral(
+                        "地图未能显示，具体原因见上方。\n已获取的路线说明仍可在“详情”中查看。"));
                     routeDisplayStack_->setCurrentWidget(routeDisplayLabel_);
                 }
             });
@@ -959,6 +978,11 @@ void StationBrowserPage::showCurrentOrder(
     currentOrderCard_->show();
 }
 
+bool StationBrowserPage::isShowingStationDetail() const
+{
+    return pages_->currentWidget() == detailPage_;
+}
+
 void StationBrowserPage::showListPage()
 {
     navigationReturnPage_ = listPage_;
@@ -1131,19 +1155,6 @@ void StationBrowserPage::updateRouteControls()
     routeModeCombo_->setDisabled(busy);
     routePlanButton_->setDisabled(busy);
     routePlanButton_->setText(busy ? QStringLiteral("加载中…") : QStringLiteral("开始导航"));
-}
-
-void StationBrowserPage::hideEvent(QHideEvent *event)
-{
-    QWidget::hideEvent(event);
-    if (pages_->currentWidget() == navigationPage_) {
-        routeMapView_->clearRoute();
-        routeDisplayLabel_->setText(QStringLiteral("选择出行方式后点击“开始导航”"));
-        routeDisplayStack_->setCurrentWidget(routeDisplayLabel_);
-        routeSummaryLabel_->hide();
-        routeDetailsButton_->setChecked(false);
-        emit navigationClosed();
-    }
 }
 
 void StationBrowserPage::showRouteMessage(const QString &message, bool error)

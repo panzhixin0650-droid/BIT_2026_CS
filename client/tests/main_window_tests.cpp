@@ -12,6 +12,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QStackedWidget>
 #include <QTabBar>
 #include <QTabWidget>
@@ -30,6 +31,7 @@ private slots:
     void existingUserCanLogin();
     void newUserIsAutomaticallyRegistered();
     void invalidPhoneStaysOnLoginPage();
+    void verificationCodeRowFitsSmallWindow();
     void authenticatedShellHasFiveBottomEntries();
     void clientUsesConsistentVisualTheme();
     void stationFiltersExpandAndPreserveQuery();
@@ -43,6 +45,7 @@ private slots:
     void simulatedScanStartsChargingAndRefreshesHome();
     void scannerAdapterCanSubmitDecodedPileCode();
     void chargingProgressCanRefreshAndStopWithConfirmation();
+    void stoppingFromOrderDetailRefreshesOpenStationDetail();
     void pendingOrderLinksRechargeAndCanBeSettled();
     void profileCanRefreshUpdateNicknameAndRecharge();
     void profileRejectsInvalidRechargeAmount();
@@ -56,6 +59,7 @@ void loginFixtureUser(MainWindow &window)
     auto *phoneInput = window.findChild<QLineEdit *>(QStringLiteral("phoneInput"));
     auto *loginButton = window.findChild<QPushButton *>(QStringLiteral("loginButton"));
     phoneInput->setText(QStringLiteral("13800000001"));
+    window.findChild<QLineEdit *>(QStringLiteral("verificationCodeInput"))->setText(QStringLiteral("123456"));
     QTest::mouseClick(loginButton, Qt::LeftButton);
     auto *homePage = window.findChild<QWidget *>(QStringLiteral("authenticatedHomePage"));
     QTRY_VERIFY(homePage->isVisible());
@@ -99,6 +103,13 @@ void MainWindowTests::constructsCodeOnlyLoginPage()
     QVERIFY(loginPage != nullptr);
     QVERIFY(phoneInput != nullptr);
     QVERIFY(loginButton != nullptr);
+    auto *codeInput = window.findChild<QLineEdit *>(QStringLiteral("verificationCodeInput"));
+    auto *sendCode = window.findChild<QPushButton *>(QStringLiteral("sendVerificationCodeButton"));
+    QVERIFY(codeInput != nullptr);
+    QVERIFY(sendCode != nullptr);
+    QVERIFY(codeInput->text().isEmpty());
+    QCOMPARE(codeInput->maxLength(), 6);
+    QCOMPARE(sendCode->text(), QStringLiteral("发送验证码"));
     QCOMPARE(pages->currentWidget(), loginPage);
     QCOMPARE(loginButton->text(), QStringLiteral("登录"));
 }
@@ -110,17 +121,21 @@ void MainWindowTests::existingUserCanLogin()
     window.show();
 
     auto *phoneInput = window.findChild<QLineEdit *>(QStringLiteral("phoneInput"));
-    auto *loginButton = window.findChild<QPushButton *>(QStringLiteral("loginButton"));
     auto *homePage = window.findChild<QWidget *>(QStringLiteral("authenticatedHomePage"));
     auto *welcomeLabel = window.findChild<QLabel *>(QStringLiteral("welcomeLabel"));
     auto *noticeLabel = window.findChild<QLabel *>(QStringLiteral("loginNoticeLabel"));
 
     phoneInput->setText(QStringLiteral("13800000001"));
-    QTest::mouseClick(loginButton, Qt::LeftButton);
+    auto *codeInput = window.findChild<QLineEdit *>(QStringLiteral("verificationCodeInput"));
+    codeInput->setFocus();
+    QTest::keyClicks(codeInput, "a1234567");
+    QCOMPARE(codeInput->text(), QStringLiteral("123456"));
+    QTest::keyClick(codeInput, Qt::Key_Return);
 
     QTRY_VERIFY(homePage->isVisible());
     QCOMPARE(welcomeLabel->text(), QStringLiteral("你好，演示用户0001"));
     QCOMPARE(noticeLabel->text(), QStringLiteral("登录成功"));
+    QVERIFY(codeInput->text().isEmpty());
 }
 
 void MainWindowTests::newUserIsAutomaticallyRegistered()
@@ -136,11 +151,40 @@ void MainWindowTests::newUserIsAutomaticallyRegistered()
     auto *noticeLabel = window.findChild<QLabel *>(QStringLiteral("loginNoticeLabel"));
 
     phoneInput->setText(QStringLiteral("13912345678"));
+    auto *codeInput = window.findChild<QLineEdit *>(QStringLiteral("verificationCodeInput"));
+    codeInput->setText(QStringLiteral("123456"));
+    QSignalSpy loginSpy(&api, &IChargingApi::loginCompleted);
     QTest::mouseClick(loginButton, Qt::LeftButton);
 
     QTRY_VERIFY(homePage->isVisible());
     QCOMPARE(welcomeLabel->text(), QStringLiteral("你好，用户5678"));
     QCOMPARE(noticeLabel->text(), QStringLiteral("账号已自动注册并登录"));
+    QCOMPARE(loginSpy.count(), 1);
+    const auto firstLogin = qvariant_cast<LoginResult>(loginSpy.first().at(0));
+    QVERIFY(firstLogin.payload.has_value());
+    QVERIFY(firstLogin.payload->isNewUser);
+
+    auto *navigation = window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
+    navigation->setCurrentIndex(4);
+    auto *logoutButton = window.findChild<QPushButton *>(QStringLiteral("logoutButton"));
+    QTRY_VERIFY(logoutButton->isEnabled());
+    QTest::mouseClick(logoutButton, Qt::LeftButton);
+    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("loginPage"))->isVisible());
+    QVERIFY(codeInput->text().isEmpty());
+    QTest::mouseClick(loginButton, Qt::LeftButton);
+    QCOMPARE(loginSpy.count(), 1);
+    QCOMPARE(window.findChild<QLabel *>(QStringLiteral("loginErrorLabel"))->text(),
+             QStringLiteral("请输入6位数字验证码"));
+
+    codeInput->setText(QStringLiteral("123456"));
+    QTest::mouseClick(loginButton, Qt::LeftButton);
+    QTRY_VERIFY(homePage->isVisible());
+    QCOMPARE(loginSpy.count(), 2);
+    const auto secondLogin = qvariant_cast<LoginResult>(loginSpy.last().at(0));
+    QVERIFY(secondLogin.payload.has_value());
+    QVERIFY(!secondLogin.payload->isNewUser);
+    QCOMPARE(secondLogin.payload->user.userId, firstLogin.payload->user.userId);
+    QCOMPARE(noticeLabel->text(), QStringLiteral("登录成功"));
 }
 
 void MainWindowTests::invalidPhoneStaysOnLoginPage()
@@ -162,6 +206,30 @@ void MainWindowTests::invalidPhoneStaysOnLoginPage()
     QVERIFY(errorLabel->isVisible());
     QCOMPARE(errorLabel->text(), QStringLiteral("请输入11位数字手机号"));
     QVERIFY(loginButton->isEnabled());
+}
+
+void MainWindowTests::verificationCodeRowFitsSmallWindow()
+{
+    MockChargingApi api;
+    MainWindow window(api);
+    window.resize(360, 640);
+    window.show();
+    auto *scroll = window.findChild<QScrollArea *>(QStringLiteral("loginScrollArea"));
+    auto *codeInput = window.findChild<QLineEdit *>(QStringLiteral("verificationCodeInput"));
+    auto *sendCode = window.findChild<QPushButton *>(QStringLiteral("sendVerificationCodeButton"));
+    auto *loginButton = window.findChild<QPushButton *>(QStringLiteral("loginButton"));
+    QVERIFY(scroll && codeInput && sendCode && loginButton);
+    QTRY_VERIFY(scroll->widget()->width() <= scroll->viewport()->width());
+    QCOMPARE(scroll->horizontalScrollBar()->maximum(), 0);
+    scroll->ensureWidgetVisible(codeInput);
+    QTRY_VERIFY(codeInput->visibleRegion().contains(codeInput->rect().center()));
+    const QRect inputRect(codeInput->mapTo(scroll->viewport(), QPoint()), codeInput->size());
+    const QRect buttonRect(sendCode->mapTo(scroll->viewport(), QPoint()), sendCode->size());
+    QVERIFY(inputRect.right() < buttonRect.left());
+    QVERIFY(scroll->viewport()->rect().contains(inputRect));
+    QVERIFY(scroll->viewport()->rect().contains(buttonRect));
+    scroll->ensureWidgetVisible(loginButton);
+    QTRY_VERIFY(loginButton->visibleRegion().contains(loginButton->rect().center()));
 }
 
 void MainWindowTests::authenticatedShellHasFiveBottomEntries()
@@ -1157,6 +1225,76 @@ void MainWindowTests::chargingProgressCanRefreshAndStopWithConfirmation()
     QCOMPARE(status->text(), QStringLiteral("已完成"));
 }
 
+void MainWindowTests::stoppingFromOrderDetailRefreshesOpenStationDetail()
+{
+    MockChargingApi api;
+    MainWindow window(api);
+    window.show();
+    loginFixtureUser(window);
+
+    auto *navigation =
+        window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
+    navigation->setCurrentIndex(2);
+    auto *pileCodeInput =
+        window.findChild<QLineEdit *>(QStringLiteral("scanPileCodeInput"));
+    auto *startButton =
+        window.findChild<QPushButton *>(QStringLiteral("scanStartButton"));
+    pileCodeInput->setText(QStringLiteral("PILE-A-01"));
+    handleDialogWhenShown(
+        window,
+        QStringLiteral("chargingStartedDialog"),
+        [](QMessageBox *dialog) { dialog->button(QMessageBox::Ok)->click(); });
+    QTest::mouseClick(startButton, Qt::LeftButton);
+
+    QTRY_COMPARE(navigation->currentIndex(), 0);
+    QTRY_VERIFY(window.findChild<QWidget *>(
+                    QStringLiteral("stationCard_1")) != nullptr);
+    QTest::mouseClick(
+        window.findChild<QWidget *>(QStringLiteral("stationCard_1")),
+        Qt::LeftButton);
+    QTRY_VERIFY(window.findChild<QLabel *>(
+                    QStringLiteral("pileStatus_PILE-A-01")) != nullptr);
+    QCOMPARE(
+        window.findChild<QLabel *>(QStringLiteral("pileStatus_PILE-A-01"))->text(),
+        QStringLiteral("使用中"));
+
+    navigation->setCurrentIndex(1);
+    QTRY_VERIFY(window.findChild<QWidget *>(
+                    QStringLiteral("orderCard_1001")) != nullptr);
+    QTest::mouseClick(
+        window.findChild<QWidget *>(QStringLiteral("orderCard_1001")),
+        Qt::LeftButton);
+    QTRY_VERIFY(window.findChild<QPushButton *>(
+                    QStringLiteral("orderDetailStopButton")) != nullptr);
+    auto *detailStopButton = window.findChild<QPushButton *>(
+        QStringLiteral("orderDetailStopButton"));
+    QTRY_VERIFY(detailStopButton->isVisible());
+    QTimer::singleShot(10, &window, []() {
+        for (QWidget *topLevel : QApplication::topLevelWidgets()) {
+            auto *confirmation = qobject_cast<QMessageBox *>(topLevel);
+            if (confirmation != nullptr) {
+                confirmation->button(QMessageBox::Yes)->click();
+                return;
+            }
+        }
+    });
+    handleDialogWhenShown(
+        window,
+        QStringLiteral("chargingStoppedDialog"),
+        [](QMessageBox *dialog) { dialog->button(QMessageBox::Ok)->click(); });
+    QTest::mouseClick(detailStopButton, Qt::LeftButton);
+
+    navigation->setCurrentIndex(0);
+    auto *stationDetailPage =
+        window.findChild<QWidget *>(QStringLiteral("stationDetailPage"));
+    QTRY_VERIFY(stationDetailPage->isVisible());
+    QTRY_VERIFY(window.findChild<QLabel *>(
+                    QStringLiteral("pileStatus_PILE-A-01")) != nullptr);
+    QTRY_COMPARE(
+        window.findChild<QLabel *>(QStringLiteral("pileStatus_PILE-A-01"))->text(),
+        QStringLiteral("闲置 · 可预约"));
+}
+
 void MainWindowTests::pendingOrderLinksRechargeAndCanBeSettled()
 {
     MockChargingApi api;
@@ -1166,6 +1304,7 @@ void MainWindowTests::pendingOrderLinksRechargeAndCanBeSettled()
     auto *phoneInput = window.findChild<QLineEdit *>(QStringLiteral("phoneInput"));
     auto *loginButton = window.findChild<QPushButton *>(QStringLiteral("loginButton"));
     phoneInput->setText(QStringLiteral("13912345678"));
+    window.findChild<QLineEdit *>(QStringLiteral("verificationCodeInput"))->setText(QStringLiteral("123456"));
     QTest::mouseClick(loginButton, Qt::LeftButton);
     auto *navigation = window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
     QTRY_VERIFY(navigation->isVisible());
@@ -1443,6 +1582,15 @@ void MainWindowTests::profileRejectsInvalidRechargeAmount()
 
     navigation->setCurrentWidget(profilePage);
     QTRY_COMPARE(messageLabel->text(), QStringLiteral("资料已刷新"));
+
+    amountInput->clear();
+    amountInput->setFocus();
+    QTest::keyClicks(amountInput, QStringLiteral("1e2"));
+    QCOMPARE(amountInput->text(), QStringLiteral("12"));
+    amountInput->clear();
+    QTest::keyClicks(amountInput, QStringLiteral("1E2"));
+    QCOMPARE(amountInput->text(), QStringLiteral("12"));
+
     amountInput->setText(QStringLiteral("0"));
     QTest::mouseClick(rechargeButton, Qt::LeftButton);
 

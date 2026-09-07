@@ -11,6 +11,9 @@ namespace charging::client {
 namespace {
 
 const QRegularExpression kPhonePattern(QStringLiteral("^\\d{11}$"));
+const QRegularExpression kVerificationCodePattern(QStringLiteral("^[0-9]{6}$"));
+// UI-only course demo: not an SMS service or a server authentication credential.
+const QString kDemoVerificationCode = QStringLiteral("123456");
 
 }  // namespace
 
@@ -20,13 +23,28 @@ LoginController::LoginController(LoginPage &page, IChargingApi &api, QObject *pa
     , api_(api)
 {
     connect(&page_, &LoginPage::loginRequested, this, &LoginController::submitLogin);
+    connect(&page_, &LoginPage::verificationCodeRequested,
+            this, &LoginController::requestVerificationCode);
     connect(&api_,
             &IChargingApi::loginCompleted,
             this,
             &LoginController::handleLoginCompleted);
 }
 
-void LoginController::submitLogin(const QString &phone)
+void LoginController::requestVerificationCode(const QString &phone)
+{
+    if (!pendingRequestId_.isEmpty()) {
+        return;
+    }
+    if (!kPhonePattern.match(phone).hasMatch()) {
+        page_.setErrorMessage(QStringLiteral("请输入11位数字手机号"));
+        return;
+    }
+    page_.clearErrorMessage();
+    page_.showDemoVerificationCode(kDemoVerificationCode);
+}
+
+void LoginController::submitLogin(const QString &phone, const QString &verificationCode)
 {
     if (!pendingRequestId_.isEmpty()) {
         return;
@@ -34,6 +52,15 @@ void LoginController::submitLogin(const QString &phone)
 
     if (!kPhonePattern.match(phone).hasMatch()) {
         page_.setErrorMessage(QStringLiteral("请输入11位数字手机号"));
+        return;
+    }
+
+    if (!kVerificationCodePattern.match(verificationCode).hasMatch()) {
+        page_.setErrorMessage(QStringLiteral("请输入6位数字验证码"));
+        return;
+    }
+    if (verificationCode != kDemoVerificationCode) {
+        page_.setErrorMessage(QStringLiteral("验证码不正确，请重试"));
         return;
     }
 
@@ -65,6 +92,7 @@ void LoginController::handleLoginCompleted(const LoginResult &result)
     }
 
     page_.clearErrorMessage();
+    page_.clearVerificationCode();
     emit loginSucceeded(result.payload->user, result.payload->isNewUser);
 }
 

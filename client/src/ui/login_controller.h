@@ -20,7 +20,8 @@ signals:
     void loginSucceeded(const charging::protocol::UserDto &user, bool isNewUser);
 
 private:
-    void submitLogin(const QString &phone);
+    void submitLogin(const QString &phone, const QString &verificationCode);
+    void requestVerificationCode(const QString &phone);
     void handleLoginCompleted(const LoginResult &result);
     [[nodiscard]] QString errorMessage(const ApiResponse &response) const;
 

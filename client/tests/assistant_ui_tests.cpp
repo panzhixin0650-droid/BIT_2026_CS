@@ -191,6 +191,7 @@ void AssistantUiTests::fullWindowAtSmallSizes()
     window.resize(size);
     window.show();
     child<QLineEdit>(window, "phoneInput")->setText(QStringLiteral("13800000001"));
+    child<QLineEdit>(window, "verificationCodeInput")->setText(QStringLiteral("123456"));
     child<QPushButton>(window, "loginButton")->click();
     auto *tabs = child<QTabWidget>(window, "mainNavigation");
     QTRY_VERIFY(tabs->isVisible());
@@ -221,6 +222,7 @@ void AssistantUiTests::logoutClearsConversation()
     MainWindow window(api);
     window.show();
     child<QLineEdit>(window, "phoneInput")->setText(QStringLiteral("13800000001"));
+    child<QLineEdit>(window, "verificationCodeInput")->setText(QStringLiteral("123456"));
     child<QPushButton>(window, "loginButton")->click();
     auto *tabs = child<QTabWidget>(window, "mainNavigation");
     QTRY_VERIFY(tabs->isVisible());
@@ -246,6 +248,7 @@ void AssistantUiTests::liveFullWindow()
     MainWindow window(api, map, config);
     window.show();
     child<QLineEdit>(window, "phoneInput")->setText(QStringLiteral("13800000001"));
+    child<QLineEdit>(window, "verificationCodeInput")->setText(QStringLiteral("123456"));
     child<QPushButton>(window, "loginButton")->click();
     auto *tabs = child<QTabWidget>(window, "mainNavigation");
     QTRY_VERIFY(tabs->isVisible());
