@@ -6,7 +6,7 @@
 | --- | --- |
 | [`requirements/project-spec.doc`](requirements/project-spec.doc) | 课程验收的原始项目说明书 |
 | [`../contracts/overall-interface-v1.md`](../contracts/overall-interface-v1.md) | 当前跨模块接口、DTO、状态和错误码 |
-| [`design/demo-database-design.md`](design/demo-database-design.md) | 当前五表数据库设计与字段说明 |
+| [`design/demo-database-design.md`](design/demo-database-design.md) | 当前五张核心表、管理员附属表与字段说明 |
 | [`design/architecture/demo-architecture.png`](design/architecture/demo-architecture.png) | 当前架构图 PNG |
 | [`design/architecture/demo-architecture.svg`](design/architecture/demo-architecture.svg) | 可编辑架构图 SVG |
 
@@ -33,6 +33,7 @@
 | [`decisions/0004-client-cycling-navigation.md`](decisions/0004-client-cycling-navigation.md) | 用户端自行车骑行导航与腾讯地图适配 |
 | [`decisions/0005-client-rag-assistant.md`](decisions/0005-client-rag-assistant.md) | 用户端只读 RAG 问答；不启用人工客服工单 |
 | [`decisions/0006-client-api-map-navigation.md`](decisions/0006-client-api-map-navigation.md) | 四种方式统一 API 数据、自有地图布局与缩放交互 |
+| [`decisions/0008-admin-account-rbac.md`](decisions/0008-admin-account-rbac.md) | 管理员账号管理、三角色权限、站点范围和密码升级 |
 | [`../contracts/client-assistant-local.md`](../contracts/client-assistant-local.md) | 智能助理本地检索与外部 HTTPS 边界，不改变 V1 TCP |
 
 ## 规则

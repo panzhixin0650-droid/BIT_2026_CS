@@ -8,6 +8,10 @@
 Responses 请求及成功/失败事件，**不是 TCP 请求/响应**，不包含真实 Key、用户 token
 或业务数据，不可发送到项目服务端。边界见[本地智能助理契约](../client-assistant-local.md)。
 
+## 同进程管理员账号示例
+
+[`admin-account-management.local.json`](admin-account-management.local.json) 固定管理员登录、创建站点管理员和首次改密所需的 `AdminFacade` 输入与结果形状。该文件用于评审和本地测试，**不是 TCP 请求/响应**；返回对象不得包含密码或密码摘要。
+
 ## 成功主链路
 
 按以下顺序使用：
