@@ -1,4 +1,5 @@
 #include "api/mock_charging_api.h"
+#include "navigation_paint_helpers.h"
 #include "local/i_map_service.h"
 #include "ui/main_window.h"
 #include "ui/map_controller.h"
@@ -133,6 +134,7 @@ private slots:
     void leavingRejectsStaleRoutesAndGeocodes();
     void switchingMainTabsKeepsNavigationState();
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
+    void floatingNavigationSurvivesEmbeddedMapRepaints();
     void startupPreloadReusesMapForFirstRoute();
     void failedPreloadIsSilentAndRetries();
     void mockModeDoesNotPreloadMap();
@@ -250,6 +252,45 @@ void NavigationTests::switchingMainTabsKeepsNavigationState()
 }
 
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
+void NavigationTests::floatingNavigationSurvivesEmbeddedMapRepaints()
+{
+    ScriptServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    MockChargingApi api;
+    DeferredMap service;
+    MainWindow window(api, service);
+    window.resize(480, 760);
+    window.show();
+    login(window);
+    auto *tabs = window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
+    auto *bar = tabs->tabBar();
+    auto image = navigation_test::presentedNavigation(*bar, QStringLiteral("before-map"));
+    if (image.isNull()) {
+        QSKIP("No window capture support; run with QT_QPA_PLATFORM=xcb under X11/Xvfb");
+    }
+    auto missing = navigation_test::missingNavigationContent(*bar, image);
+    QVERIFY2(missing.isEmpty(), qPrintable(missing));
+
+    auto *page = window.findChild<StationBrowserPage *>();
+    page->showNavigation(station(), {QStringLiteral("起点"), 123.4, 41.79});
+    page->showRouteResult(realRoute(server.url()));
+    auto *plus = page->findChild<QPushButton *>(QStringLiteral("mapZoomInButton"));
+    QTRY_VERIFY_WITH_TIMEOUT(plus->isEnabled(), 10000);
+    for (int index : {0, 4, 1, 3, 0, 2, 4}) {
+        QTest::mouseClick(bar, Qt::LeftButton, Qt::NoModifier, bar->tabRect(index).center());
+        QTRY_COMPARE(tabs->currentIndex(), index);
+        QTest::qWait(60);
+        bar->update(QRegion(bar->tabRect(0)) | QRegion(bar->tabRect(4)));
+        image = navigation_test::presentedNavigation(
+            *bar, QStringLiteral("map-tab-%1").arg(index));
+        missing = navigation_test::missingNavigationContent(*bar, image);
+        QVERIFY2(missing.isEmpty(), qPrintable(missing));
+        tabs->setCurrentIndex(0);
+        QTRY_VERIFY(plus->isVisible());
+        QTest::mouseClick(plus, Qt::LeftButton);
+    }
+}
+
 void NavigationTests::startupPreloadReusesMapForFirstRoute()
 {
     ScriptServer server;

@@ -306,30 +306,41 @@ QTabWidget#mainNavigation::pane {
     border: none;
 }
 
+QTabWidget#mainNavigation::tab-bar {
+    alignment: center;
+}
+
+QFrame#navigationContainer {
+    background: #fffefa;
+    border: 1px solid #dfe7da;
+    border-radius: 46px;
+}
+
 QTabWidget#mainNavigation > QTabBar {
-    background: #ffffff;
-    border-top: 1px solid #e1e7dc;
+    background: transparent;
+    border: none;
+    margin: 0;
+    padding: 0;
 }
 
 QTabWidget#mainNavigation QTabBar::tab {
-    min-height: 48px;
-    padding: 0 4px;
+    padding: 0;
+    margin: 0;
     color: #697969;
-    background: #ffffff;
+    background: transparent;
     border: none;
-    border-top: 2px solid transparent;
+    border-radius: 18px;
     font-weight: 500;
 }
 
 QTabWidget#mainNavigation QTabBar::tab:hover {
     color: #245c45;
-    background: #f0f5e9;
 }
 
 QTabWidget#mainNavigation QTabBar::tab:selected {
     color: #245c45;
-    background: #f0f5e9;
-    border-top-color: #245c45;
+    background: #e8f1df;
+    border: 1px solid #d5e3cb;
     font-weight: 700;
 }
 
