@@ -1109,6 +1109,9 @@ QString MockChargingApi::createSupportTicket(const protocol::SupportTicketDraft 
             else result.payload = TicketPayload{ticket};
             break;
         }
+        if (result.ok() && !result.payload && !draft.pileCode.isEmpty()
+            && !pilesByCode_.contains(draft.pileCode))
+            result.response.code = protocol::ErrorCode::NotFound;
         if (result.ok() && !result.payload) {
             protocol::SupportTicketDto ticket;
             static_cast<protocol::SupportTicketDraft &>(ticket) = draft;

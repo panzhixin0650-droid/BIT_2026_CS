@@ -2,6 +2,7 @@
 #include "ui/busy_indicator.h"
 
 #include <QCloseEvent>
+#include <QComboBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -116,6 +117,23 @@ SupportDeskDialog::SupportDeskDialog(IChargingApi &api, AssistantService &desk,
     title_->setPlaceholderText(QStringLiteral("工单标题（1–80 字）"));
     draftLayout->addWidget(label(QStringLiteral("工单标题"), draft, "ticketTitleLabel"));
     draftLayout->addWidget(title_);
+    repairFields_ = new QWidget(draft);
+    auto *repairLayout = new QHBoxLayout(repairFields_);
+    repairLayout->setContentsMargins(0, 0, 0, 0);
+    repairPile_ = new QLineEdit(repairFields_);
+    repairPile_->setObjectName(QStringLiteral("repairPileCode"));
+    repairPile_->setMaxLength(64);
+    repairPile_->setPlaceholderText(QStringLiteral("报修桩编号"));
+    repairPile_->setAccessibleName(QStringLiteral("报修桩编号"));
+    faultType_ = new QComboBox(repairFields_);
+    faultType_->setObjectName(QStringLiteral("repairFaultType"));
+    faultType_->setAccessibleName(QStringLiteral("故障类型"));
+    faultType_->addItems({QStringLiteral("无法启动充电"), QStringLiteral("充电中断"),
+                         QStringLiteral("充电枪或线缆损坏"), QStringLiteral("屏幕或扫码异常"),
+                         QStringLiteral("其他故障")});
+    repairLayout->addWidget(repairPile_, 1);
+    repairLayout->addWidget(faultType_, 1);
+    draftLayout->addWidget(repairFields_);
     summary_ = new QPlainTextEdit(draft);
     summary_->setObjectName(QStringLiteral("ticketSummary"));
     summary_->setPlaceholderText(QStringLiteral("问题现象、操作步骤、希望如何处理（1–4000 字）"));
@@ -169,17 +187,21 @@ SupportDeskDialog::SupportDeskDialog(IChargingApi &api, AssistantService &desk,
         if (!createId_.isEmpty() || (draftLocked_ && !submitted_)) return;
         draftLocked_ = submitted_ = false;
         submissionId_.clear(); sourceModel_.clear();
+        repairDraft_ = false;
+        repairPile_->clear();
         title_->clear(); summary_->clear();
         draftNotice_->setText(QStringLiteral("新草稿尚未提交。"));
         updateControls();
     });
     for (auto *edit : {input_, summary_}) connect(edit, &QPlainTextEdit::textChanged, this, &SupportDeskDialog::updateControls);
     connect(title_, &QLineEdit::textChanged, this, &SupportDeskDialog::updateControls);
+    connect(repairPile_, &QLineEdit::textChanged, this, &SupportDeskDialog::updateControls);
     connect(refresh_, &QPushButton::clicked, this, [this] { refreshTickets(); });
     connect(more_, &QPushButton::clicked, this, [this] { refreshTickets(true); });
     connect(tickets_, &QListWidget::currentRowChanged, this, [this] { showTicket(); });
     connect(tabs_, &QTabWidget::currentChanged, this, [this](int index) {
         if (index == 2) refreshTickets();
+        updateControls();
     });
     connect(&desk_, &AssistantService::answerUpdated, this, [this](quint64 id, const QString &text) {
         if (id != chatId_) return;
@@ -227,6 +249,7 @@ SupportDeskDialog::SupportDeskDialog(IChargingApi &api, AssistantService &desk,
             const auto message = errorMessage(result.response);
             if (result.response.code != protocol::ErrorCode::ServiceUnavailable
                 && result.response.code != protocol::ErrorCode::InternalError) draftLocked_ = false;
+            if (result.response.message == QStringLiteral("REPAIR_TICKETS_MIGRATION_REQUIRED")) draftLocked_ = false;
             draftNotice_->setText(message + QStringLiteral(" 重试沿用同一提交编号，不会重复建单。"));
         }
         updateControls();
@@ -243,6 +266,8 @@ SupportDeskDialog::SupportDeskDialog(IChargingApi &api, AssistantService &desk,
             ticketRows_.append(ticket);
             tickets_->addItem(QStringLiteral("#%1  %2\n%3 · %4")
                 .arg(ticket.ticketId).arg(ticket.title, protocol::ticketStatusLabel(ticket.status), ticket.createdAt));
+            if (!ticket.pileCode.isEmpty()) tickets_->item(tickets_->count() - 1)->setText(
+                QStringLiteral("[报修 · %1] ").arg(ticket.pileCode) + tickets_->item(tickets_->count() - 1)->text());
             if (ticket.submissionId == submissionId_ && draftLocked_) {
                 submitted_ = true;
                 draftNotice_->setText(QStringLiteral("已核实工单 #%1 提交成功。请勿重复提交。").arg(ticket.ticketId));
@@ -280,9 +305,31 @@ void SupportDeskDialog::send()
     input_->clear(); renderChat(); updateControls();
 }
 
+void SupportDeskDialog::openRepair(const QString &pileCode)
+{
+    openDesk();
+    tabs_->setCurrentIndex(1);
+    if (!submitted_ && (draftLocked_ || !title_->text().isEmpty() || !summary_->toPlainText().isEmpty())) {
+        draftNotice_->setText(QStringLiteral("已保留当前草稿。请先提交，或点击‘新建草稿’后再次从扫一扫进入报修。"));
+        return;
+    }
+    cancelModels();
+    draftLocked_ = submitted_ = false;
+    submissionId_.clear(); sourceModel_.clear();
+    repairDraft_ = true;
+    repairPile_->setText(pileCode);
+    faultType_->setCurrentIndex(0);
+    title_->setText(QStringLiteral("充电桩故障报修"));
+    summary_->clear();
+    summary_->setPlaceholderText(QStringLiteral("请描述故障现象、发生时间及已尝试的操作"));
+    draftNotice_->setText(QStringLiteral("请核对桩编号、故障类型和描述。提交后可在‘我的工单’查看处理进度；报修不会自动结束充电。"));
+    updateControls();
+    (pileCode.isEmpty() ? static_cast<QWidget *>(repairPile_) : static_cast<QWidget *>(summary_))->setFocus();
+}
+
 void SupportDeskDialog::generateDraft()
 {
-    if (chatId_ || summaryId_ || history_.isEmpty() || draftLocked_) return;
+    if (chatId_ || summaryId_ || history_.isEmpty() || draftLocked_ || repairDraft_) return;
     tabs_->setCurrentIndex(1);
     summaryId_ = summarizer_.ask(QStringLiteral("请根据最近对话整理一份待我核对的客服工单摘要。"), history_, true);
     draftNotice_->setText(QStringLiteral("正在整理摘要；生成完成后需要你确认，尚未提交到服务器。"));
@@ -294,9 +341,15 @@ void SupportDeskDialog::submitDraft()
     if (!createId_.isEmpty() || summaryId_ || submitted_) return;
     if (submissionId_.isEmpty()) submissionId_ = QUuid::createUuid().toString(QUuid::WithoutBraces);
     protocol::SupportTicketDraft draft{submissionId_, title_->text().trimmed(), summary_->toPlainText().trimmed(), sourceModel_};
+    if (repairDraft_) {
+        draft.pileCode = repairPile_->text().trimmed();
+        draft.faultType = faultType_->currentText();
+    }
     protocol::SupportTicketDraft validated;
     if (!protocol::fromJson(protocol::toJson(draft), &validated)) {
-        draftNotice_->setText(QStringLiteral("请填写 1–80 字的标题和 1–4000 字的摘要，不含控制字符。")); return;
+        draftNotice_->setText(repairDraft_
+            ? QStringLiteral("请检查标题、描述和报修桩编号；桩编号仅支持字母、数字、短横线和下划线。")
+            : QStringLiteral("请填写 1–80 字的标题和 1–4000 字的摘要，不含控制字符。")); return;
     }
     draftLocked_ = true;
     createId_ = api_.createSupportTicket(draft);
@@ -336,6 +389,8 @@ void SupportDeskDialog::resetSession()
     createId_.clear(); listId_.clear();
     cancelModels();
     initialized_ = draftLocked_ = submitted_ = hasMore_ = false;
+    repairDraft_ = false;
+    repairPile_->clear();
     history_.clear(); transcript_.clear(); ticketRows_.clear();
     submissionId_.clear(); sourceModel_.clear();
     input_->clear(); title_->clear(); summary_->clear(); tickets_->clear(); ticketDetail_->clear();
@@ -405,7 +460,19 @@ void SupportDeskDialog::updateControls()
     const auto text = input_->toPlainText().trimmed();
     send_->setEnabled(!busy && !text.isEmpty() && text.size() <= 1200 && transcript_.size() < 24);
     stop_->setEnabled(busy);
-    generate_->setEnabled(!busy && !history_.isEmpty() && !draftLocked_);
+    generate_->setEnabled(!busy && !history_.isEmpty() && !draftLocked_ && !repairDraft_);
+    repairFields_->setVisible(repairDraft_);
+    const bool repairView = repairDraft_ && tabs_->currentIndex() == 1;
+    findChild<QLabel *>(QStringLiteral("deskHeading"))->setText(repairView
+        ? QStringLiteral("充电桩报修") : QStringLiteral("已切换至真人客服"));
+    findChild<QLabel *>(QStringLiteral("deskDisclosure"))->setVisible(!repairView);
+    notice_->setVisible(!repairView);
+    tabs_->setTabText(1, repairDraft_ ? QStringLiteral("报修单") : QStringLiteral("工单草稿"));
+    findChild<QLabel *>(QStringLiteral("ticketPrivacy"))->setText(repairDraft_
+        ? QStringLiteral("提交桩编号、故障类型、标题和描述，交由管理员跟进处理。")
+        : QStringLiteral("只上传下面的标题和摘要，不上传完整聊天记录。也可以直接手动填写。"));
+    repairPile_->setReadOnly(draftLocked_);
+    faultType_->setEnabled(!draftLocked_);
     input_->setReadOnly(busy);
     title_->setReadOnly(draftLocked_ || summaryId_);
     summary_->setReadOnly(draftLocked_ || summaryId_);
@@ -413,6 +480,7 @@ void SupportDeskDialog::updateControls()
         QStringLiteral("问题摘要 · %1/4000 字").arg(summary_->toPlainText().size()));
     submit_->setEnabled(!summaryId_ && createId_.isEmpty() && !submitted_
         && protocol::validTicketText(title_->text().trimmed(), 80)
+        && (!repairDraft_ || !repairPile_->text().trimmed().isEmpty())
         && protocol::validTicketText(summary_->toPlainText().trimmed(), 4000));
     submit_->setText(submitted_ ? QStringLiteral("已提交")
         : draftLocked_ ? QStringLiteral("重试同一工单") : QStringLiteral("确认提交"));
@@ -430,10 +498,16 @@ void SupportDeskDialog::showTicket()
     ticketDetail_->setPlainText(QStringLiteral("工单 #%1 · %2\n%3\n\n%4\n\n管理员回复：\n%5\n\n更新时间：%6")
         .arg(ticket.ticketId).arg(protocol::ticketStatusLabel(ticket.status), ticket.title, ticket.summary,
              ticket.reply.isEmpty() ? QStringLiteral("暂无回复") : ticket.reply, ticket.updatedAt));
+    if (!ticket.pileCode.isEmpty()) ticketDetail_->appendPlainText(
+        QStringLiteral("\n充电桩报修 · %1\n故障类型：%2").arg(ticket.pileCode, ticket.faultType));
 }
 
 QString SupportDeskDialog::errorMessage(const ApiResponse &response)
 {
+    if (response.message == QStringLiteral("REPAIR_TICKETS_MIGRATION_REQUIRED"))
+        return QStringLiteral("服务端尚未启用报修，请联系管理员升级报修功能。");
+    if (response.code == protocol::ErrorCode::NotFound)
+        return QStringLiteral("找不到该充电桩，请核对桩身编号后重试。");
     if (response.code == protocol::ErrorCode::InvalidSession) {
         const QString message = QStringLiteral("登录状态已失效，请重新登录。");
         emit invalidSession(message);

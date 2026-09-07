@@ -18,6 +18,9 @@ struct SupportTicketDraft {
     QString title;
     QString summary;
     QString sourceModel;
+    // Both empty for ordinary support; otherwise a device repair ticket.
+    QString pileCode;
+    QString faultType;
 };
 
 struct SupportTicketDto : SupportTicketDraft {

@@ -116,17 +116,25 @@ private slots:
     void systemAdminCanOpenAdminManagementPage();
     void userAdminOnlySeesAuthorizedPages();
     void supportTicketPageSavesAndLogoutClears();
+    void supportTicketPageSavesAndLogoutClears_data() {
+        QTest::addColumn<bool>("repair");
+        QTest::newRow("support") << false;
+        QTest::newRow("repair") << true;
+    }
     void revokedTicketAccessClearsCachedPage();
 };
 
 void AdminUiTests::supportTicketPageSavesAndLogoutClears()
 {
+    QFETCH(bool, repair);
     LoginFixture fixture;
     const auto token = fixture.service.loginUser({{"phone", "13800000001"}}).data.value("token").toString();
-    const auto result = fixture.service.createSupportTicket(token, {
+    QJsonObject draft{
         {"submissionId", "b758e849-0cd0-4eb6-8aee-35c5c98fd553"},
         {"title", "<script>test</script>"}, {"summary", QStringLiteral("用户确认的订单页面异常")},
-        {"sourceModel", "gpt-5.6-sol"}});
+        {"sourceModel", "gpt-5.6-sol"}};
+    if (repair) draft.insert("repair", QJsonObject{{"pileCode", "PILE-A-01"}, {"faultType", "screen"}});
+    const auto result = fixture.service.createSupportTicket(token, draft);
     QVERIFY(result.ok());
     fixture.window.show();
     fixture.username->setText("admin"); fixture.password->setText("123456");
@@ -139,6 +147,11 @@ void AdminUiTests::supportTicketPageSavesAndLogoutClears()
     QVERIFY(page && page->isVisible());
     auto *list = page->findChild<QListWidget *>("adminTicketList");
     QCOMPARE(list->count(), 1);
+    if (repair) {
+        QVERIFY(list->item(0)->text().contains(QStringLiteral("报修")));
+        QVERIFY(page->findChild<QPlainTextEdit *>("adminTicketSummary")->toPlainText().contains("PILE-A-01"));
+        QVERIFY(page->findChild<QPlainTextEdit *>("adminTicketSummary")->toPlainText().contains("screen"));
+    }
     QVERIFY(page->findChild<QPlainTextEdit *>("adminTicketSummary")->toPlainText().contains("<script>"));
     auto *status = page->findChild<QComboBox *>("adminTicketStatus");
     status->setCurrentIndex(status->findData("RESOLVED"));
@@ -149,6 +162,7 @@ void AdminUiTests::supportTicketPageSavesAndLogoutClears()
     QVERIFY(page->findChild<QLabel *>("adminTicketNotice")->text().contains(QStringLiteral("已保存")));
     const auto stored = fixture.service.getSupportTicket(token, {{"ticketId", 1}});
     QCOMPARE(stored.data.value("ticket").toObject().value("status").toString(), QStringLiteral("RESOLVED"));
+    if (repair) QVERIFY(list->item(0)->text().contains(QStringLiteral("报修")));
     const QString directory = qEnvironmentVariable("CHARGING_UI_ARTIFACT_DIR");
     if (!directory.isEmpty()) QVERIFY(fixture.window.grab().save(QDir(directory).filePath("admin-support-tickets.png")));
     for (auto *button : fixture.window.findChildren<QPushButton *>()) {

@@ -50,12 +50,13 @@ struct Fixture {
         error = QString::fromUtf8(process.readAll());
         return process.exitStatus() == QProcess::NormalExit && process.exitCode() == 0;
     }
-    bool initialize(bool sqlite, bool migrate = true, bool adminAccounts = true)
+    bool initialize(bool sqlite, bool migrate = true, bool adminAccounts = true, bool repairs = false)
     {
         if (sqlite) {
             QStringList paths{QStringLiteral(CHARGING_DATABASE_MIGRATION_PATH), QStringLiteral(CHARGING_DATABASE_SEED_PATH)};
             if (migrate) paths.append(QStringLiteral(CHARGING_TICKET_MIGRATION_PATH));
             if (migrate && adminAccounts) paths.append(QStringLiteral(CHARGING_ADMIN_MIGRATION_PATH));
+            if (repairs) paths.append(QStringLiteral(CHARGING_REPAIR_MIGRATION_PATH));
             for (const auto &path : paths) {
                 QFile file(path);
                 if (!file.open(QIODevice::ReadOnly) || !sql(file.readAll())) return false;
@@ -98,6 +99,14 @@ private slots:
     void legacySchemaKeepsBusinessWorking();
     void persistentAndStorageFailure();
     void realClientTcpToSqliteAndAdmin();
+    void realClientTcpToSqliteAndAdmin_data() {
+        QTest::addColumn<bool>("repair");
+        QTest::newRow("support") << false;
+        QTest::newRow("repair") << true;
+    }
+    void repairLifecycle_data() { backends(); }
+    void repairLifecycle();
+    void repairMigrationPreservesExistingTickets();
     void legacyAdminLoginKeepsSchema_data();
     void legacyAdminLoginKeepsSchema();
     void adminAuthorizationIsRechecked_data() { backends(); }
@@ -230,7 +239,8 @@ void SupportTicketFlowTests::persistentAndStorageFailure()
 
 void SupportTicketFlowTests::realClientTcpToSqliteAndAdmin()
 {
-    Fixture f; QVERIFY2(f.initialize(true), qPrintable(f.error));
+    QFETCH(bool, repair);
+    Fixture f; QVERIFY2(f.initialize(true, true, true, repair), qPrintable(f.error));
     RequestRouter router(f.service.get());
     TcpGateway gateway(&router);
     QVERIFY(gateway.start(0, QHostAddress::LocalHost));
@@ -243,11 +253,13 @@ void SupportTicketFlowTests::realClientTcpToSqliteAndAdmin()
     QVERIFY(!api.loginUser("13800000001").isEmpty());
     QTRY_COMPARE(login.size(), 1);
     QVERIFY(qvariant_cast<client::LoginResult>(login.takeFirst().first()).ok());
-    const auto input = draft();
+    auto input = draft();
+    if (repair) { input.pileCode = "PILE-A-01"; input.faultType = QStringLiteral("无法启动充电"); }
     const auto requestId = api.createSupportTicket(input);
     QTRY_COMPARE(create.size(), 1);
     auto created = qvariant_cast<client::TicketResult>(create.takeFirst().first());
     QVERIFY(created.ok() && created.payload);
+    QCOMPARE(created.payload->ticket.pileCode, input.pileCode);
     QCOMPARE(created.response.requestId, requestId);
     const auto id = created.payload->ticket.ticketId;
     QVERIFY(!api.createSupportTicket(input).isEmpty());
@@ -262,6 +274,7 @@ void SupportTicketFlowTests::realClientTcpToSqliteAndAdmin()
     QVERIFY(page.ok() && page.payload);
     QCOMPARE(page.payload->items.size(), 1);
     QVERIFY(page.payload->items.first().status == TicketStatus::Resolved);
+    QCOMPARE(page.payload->items.first().faultType, input.faultType);
     QVERIFY(!api.getSupportTicket(id).isEmpty());
     QTRY_COMPARE(detail.size(), 1);
     QVERIFY(qvariant_cast<client::TicketResult>(detail.takeFirst().first()).payload->ticket.reply.contains(QStringLiteral("管理员回复")));
@@ -442,6 +455,73 @@ void SupportTicketFlowTests::mismatchedSchemaVersionsAreRejected()
     QVERIFY(!storage->open(f.path(), &f.error));
     QVERIFY(f.error.contains(QStringLiteral("extension schema")));
     QVERIFY(!storage->supportsAdminAccounts() && !storage->supportsSupportTickets());
+}
+
+void SupportTicketFlowTests::repairLifecycle()
+{
+    QFETCH(bool, sqlite);
+    Fixture f; QVERIFY2(f.initialize(sqlite, true, true, true), qPrintable(f.error));
+    const auto business = f.businessSnapshot();
+    auto input = draft(); input.pileCode = "PILE-A-01"; input.faultType = QStringLiteral("充电中断");
+    const auto created = f.service->createSupportTicket(f.token, toJson(input));
+    QVERIFY2(created.ok(), qPrintable(created.message));
+    const auto id = created.data.value("ticket").toObject().value("ticketId").toInteger();
+    QCOMPARE(f.repository->findSupportTicket(id)->pileCode, input.pileCode);
+    QCOMPARE(f.service->createSupportTicket(f.token, toJson(input)).data, created.data);
+    auto invalid = input; invalid.faultType = QStringLiteral("其他故障");
+    QCOMPARE(f.service->createSupportTicket(f.token, toJson(invalid)).code, ErrorCode::InvalidRequest);
+    invalid.submissionId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    invalid.pileCode = "MISSING";
+    QCOMPARE(f.service->createSupportTicket(f.token, toJson(invalid)).code, ErrorCode::NotFound);
+    QCOMPARE(f.service->createSupportTicket("", toJson(input)).code, ErrorCode::InvalidSession);
+    const auto other = f.service->loginUser({{"phone", "13800000005"}}).data.value("token").toString();
+    QCOMPARE(f.service->getSupportTicket(other, {{"ticketId", id}}).code, ErrorCode::NotFound);
+    AdminFacade admin(f.service.get()); QVERIFY(admin.login("admin", "123456").ok());
+    QVERIFY(admin.updateSupportTicket({{"ticketId", id}, {"status", "IN_PROGRESS"}, {"reply", "checking"}}).ok());
+    QCOMPARE(admin.updateSupportTicket({{"ticketId", id}, {"status", "RESOLVED"}, {"reply", ""}}).code,
+             ErrorCode::InvalidRequest);
+    const auto resolved = admin.updateSupportTicket({{"ticketId", id}, {"status", "RESOLVED"}, {"reply", "已检查设备"}});
+    QVERIFY(resolved.ok());
+    QCOMPARE(f.service->createSupportTicket(f.token, toJson(input)).data, resolved.data);
+    if (sqlite) {
+        auto *storage = static_cast<Repository *>(f.repository.get());
+        storage->close(); QVERIFY2(storage->open(f.path(), &f.error), qPrintable(f.error));
+        QCOMPARE(f.service->getSupportTicket(f.token, {{"ticketId", id}}).data, resolved.data);
+    }
+    // Reporting and handling change no account, pile, or order state.
+    QCOMPARE(f.businessSnapshot(), business);
+    auto extraPile = f.repository->listPiles().first();
+    extraPile.pileCode = "REPAIR-ONLY"; extraPile.status = PileStatus::Idle;
+    extraPile = f.repository->createPile(extraPile);
+    QVERIFY(extraPile.pileId > 0);
+    auto extraReport = draft(); extraReport.pileCode = extraPile.pileCode; extraReport.faultType = "screen";
+    QVERIFY(f.service->createSupportTicket(f.token, toJson(extraReport)).ok());
+    QCOMPARE(f.repository->deletePile(extraPile.pileId), DeletePileResult::StorageError);
+    extraPile.pileCode = "RENAMED";
+    QVERIFY(!f.repository->updatePile(extraPile));
+    auto user = f.repository->findUserById(1).value(); user.status = UserStatus::Frozen;
+    QVERIFY(f.repository->updateUser(user));
+    QCOMPARE(f.service->createSupportTicket(f.token, toJson(input)).code, ErrorCode::Forbidden);
+}
+
+void SupportTicketFlowTests::repairMigrationPreservesExistingTickets()
+{
+    Fixture f; QVERIFY2(f.initialize(true), qPrintable(f.error));
+    const auto created = f.service->createSupportTicket(f.token, toJson(draft()));
+    QVERIFY(created.ok());
+    auto repair = draft(); repair.pileCode = "PILE-A-01"; repair.faultType = "screen";
+    QCOMPARE(f.service->createSupportTicket(f.token, toJson(repair)).message,
+             QStringLiteral("REPAIR_TICKETS_MIGRATION_REQUIRED"));
+    const auto business = f.businessSnapshot();
+    auto *storage = static_cast<Repository *>(f.repository.get()); storage->close();
+    QFile migration(QStringLiteral(CHARGING_REPAIR_MIGRATION_PATH)); QVERIFY(migration.open(QIODevice::ReadOnly));
+    const auto sql = migration.readAll(); QVERIFY2(f.sql(sql), qPrintable(f.error));
+    QVERIFY(!f.sql(sql)); // No accidental repeated migration.
+    QVERIFY2(storage->open(f.path(), &f.error), qPrintable(f.error));
+    QVERIFY(storage->supportsAdminAccounts() && storage->supportsRepairTickets());
+    QCOMPARE(f.service->getSupportTicket(f.token, {{"ticketId", 1}}).data, created.data);
+    QVERIFY(f.service->createSupportTicket(f.token, toJson(repair)).ok());
+    QCOMPARE(f.businessSnapshot(), business);
 }
 
 QTEST_GUILESS_MAIN(SupportTicketFlowTests)

@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "requestId": "repair-missing-001",
+  "type": "support.ticket.create",
+  "code": 40401,
+  "message": "REPAIR_PILE_NOT_FOUND",
+  "data": {}
+}

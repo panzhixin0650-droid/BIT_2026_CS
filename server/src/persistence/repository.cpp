@@ -365,7 +365,7 @@ bool Repository::open(const QString &databasePath, QString *error)
         return reject(version.lastError().text());
     }
     const int schemaVersion = version.value(0).toInt();
-    if (schemaVersion < 1 || schemaVersion > 3) {
+    if (schemaVersion < 1 || schemaVersion > 4) {
         return reject(QStringLiteral("unsupported database schema version: %1")
                           .arg(version.value(0).toInt()));
     }
@@ -392,11 +392,18 @@ bool Repository::open(const QString &databasePath, QString *error)
         supportTicketsAvailable_ = true;
     }
 
+    repairTicketsAvailable_ = false;
+    if (schemaVersion >= 4) {
+        QSqlQuery repairs(database_);
+        if (!repairs.exec(QStringLiteral("SELECT pile_code, fault_type FROM support_tickets LIMIT 0")))
+            return reject(QStringLiteral("repair ticket schema is missing or invalid"));
+        repairTicketsAvailable_ = true;
+    }
     adminAccountsAvailable_ = false;
     QSqlQuery adminSchema(database_);
-    if (!adminSchema.exec(adminSelectSql(schemaVersion == 3, QStringLiteral("LIMIT 0"))))
+    if (!adminSchema.exec(adminSelectSql(schemaVersion >= 3, QStringLiteral("LIMIT 0"))))
         return reject(QStringLiteral("administrator schema is missing or invalid"));
-    if (schemaVersion == 3) {
+    if (schemaVersion >= 3) {
         for (const auto &sql : {
                  QStringLiteral("SELECT admin_id, station_id, granted_by_admin_id, granted_at FROM admin_station_scopes LIMIT 0"),
                  QStringLiteral("SELECT audit_id, actor_admin_id, action, target_admin_id, details_json, created_at FROM admin_audit_logs LIMIT 0")}) {
@@ -420,6 +427,7 @@ bool Repository::open(const QString &databasePath, QString *error)
 
 void Repository::close()
 {
+    repairTicketsAvailable_ = false;
     supportTicketsAvailable_ = false;
     adminAccountsAvailable_ = false;
     rollbackTransaction();
@@ -1511,21 +1519,27 @@ bool Repository::updateOrder(const OrderDto &order, OrderStatus expectedStatus)
 }
 
 namespace {
-QString ticketSelect()
+QString ticketSelect(bool repairs)
 {
     return QStringLiteral("SELECT ticket_id, user_id, submission_id, title, summary, "
-                          "source_model, status, reply, created_at, updated_at FROM support_tickets ");
+                          "source_model, status, reply, created_at, updated_at, ")
+        + (repairs ? QStringLiteral("pile_code, fault_type ") : QStringLiteral("NULL, '' "))
+        + QStringLiteral("FROM support_tickets ");
 }
 
 bool readTicket(const QSqlQuery &query, SupportTicketDto *ticket)
 {
-    return fromJson({{"ticketId", query.value(0).toLongLong()},
+    QJsonObject json{{"ticketId", query.value(0).toLongLong()},
                      {"userId", query.value(1).toLongLong()},
                      {"submissionId", query.value(2).toString()},
                      {"title", query.value(3).toString()}, {"summary", query.value(4).toString()},
                      {"sourceModel", query.value(5).toString()}, {"status", query.value(6).toString()},
                      {"reply", query.value(7).toString()}, {"createdAt", query.value(8).toString()},
-                     {"updatedAt", query.value(9).toString()}}, ticket);
+                     {"updatedAt", query.value(9).toString()}};
+    if (!query.value(10).isNull())
+        json.insert("repair", QJsonObject{{"pileCode", query.value(10).toString()},
+                                          {"faultType", query.value(11).toString()}});
+    return fromJson(json, ticket);
 }
 }
 
@@ -1539,7 +1553,7 @@ std::optional<SupportTicketDto> Repository::findSupportTicket(qint64 ticketId) c
     beginOperation();
     if (!requireOpen(QStringLiteral("findSupportTicket"))) return std::nullopt;
     QSqlQuery query(database_);
-    query.prepare(ticketSelect() + QStringLiteral("WHERE ticket_id = :id"));
+    query.prepare(ticketSelect(repairTicketsAvailable_) + QStringLiteral("WHERE ticket_id = :id"));
     query.bindValue(":id", ticketId);
     if (!query.exec()) {
         failOperation(QStringLiteral("findSupportTicket"), query.lastError().text());
@@ -1560,7 +1574,7 @@ std::optional<SupportTicketDto> Repository::findSupportSubmission(
     beginOperation();
     if (!requireOpen(QStringLiteral("findSupportSubmission"))) return std::nullopt;
     QSqlQuery query(database_);
-    query.prepare(ticketSelect() + QStringLiteral("WHERE user_id = :user AND submission_id = :id"));
+    query.prepare(ticketSelect(repairTicketsAvailable_) + QStringLiteral("WHERE user_id = :user AND submission_id = :id"));
     query.bindValue(":user", userId);
     query.bindValue(":id", submissionId);
     if (!query.exec()) {
@@ -1581,7 +1595,7 @@ QList<SupportTicketDto> Repository::listSupportTickets(
 {
     beginOperation();
     if (!requireOpen(QStringLiteral("listSupportTickets"))) return {};
-    QString sql = ticketSelect() + QStringLiteral("WHERE 1=1 ");
+    QString sql = ticketSelect(repairTicketsAvailable_) + QStringLiteral("WHERE 1=1 ");
     if (userId) sql += QStringLiteral("AND user_id = :user ");
     if (beforeId) sql += QStringLiteral("AND ticket_id < :before ");
     sql += QStringLiteral("ORDER BY ticket_id DESC LIMIT :limit");
@@ -1610,11 +1624,21 @@ SupportTicketDto Repository::createSupportTicket(SupportTicketDto ticket)
 {
     beginOperation();
     if (!requireOpen(QStringLiteral("createSupportTicket"))) return {};
+    if (!ticket.pileCode.isEmpty() && !repairTicketsAvailable_) {
+        failOperation(QStringLiteral("createSupportTicket"), QStringLiteral("repair migration required"));
+        return {};
+    }
     QSqlQuery query(database_);
     query.prepare(QStringLiteral(
         "INSERT INTO support_tickets (user_id, submission_id, title, summary, source_model, "
-        "status, reply, created_at, updated_at) VALUES (:user, :id, :title, :summary, "
-        ":model, 'OPEN', '', :created, :updated)"));
+        "status, reply, created_at, updated_at")
+        + (repairTicketsAvailable_ ? QStringLiteral(", pile_code, fault_type") : QString())
+        + QStringLiteral(") VALUES (:user, :id, :title, :summary, :model, 'OPEN', '', :created, :updated")
+        + (repairTicketsAvailable_ ? QStringLiteral(", :pile, :fault") : QString()) + ')');
+    if (repairTicketsAvailable_) {
+        query.bindValue(":pile", ticket.pileCode.isEmpty() ? QVariant() : QVariant(ticket.pileCode));
+        query.bindValue(":fault", ticket.faultType.isEmpty() ? QStringLiteral("") : ticket.faultType);
+    }
     query.bindValue(":user", ticket.userId);
     query.bindValue(":id", ticket.submissionId);
     query.bindValue(":title", ticket.title);

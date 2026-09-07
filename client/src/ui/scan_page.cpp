@@ -85,6 +85,12 @@ ScanPage::ScanPage(QWidget *parent)
     scannerLayout->addWidget(pileCodeInput_);
     scannerLayout->addLayout(quickRow);
     scannerLayout->addWidget(startButton_);
+    repairButton_ = new QPushButton(QStringLiteral("充电桩报修"), scannerCard);
+    repairButton_->setObjectName(QStringLiteral("scanRepairButton"));
+    scannerLayout->addWidget(repairButton_);
+    connect(repairButton_, &QPushButton::clicked, this, [this] {
+        emit repairRequested(pileCodeInput_->text().trimmed());
+    });
     scannerLayout->addWidget(messageLabel_);
 
     layout->addWidget(heading);
@@ -126,6 +132,7 @@ void ScanPage::setLoading(bool loading)
 {
     pileCodeInput_->setDisabled(loading);
     startButton_->setDisabled(loading);
+    repairButton_->setDisabled(loading);
     if (loading) {
         showMessage(QStringLiteral("正在检查充电条件…"));
     }

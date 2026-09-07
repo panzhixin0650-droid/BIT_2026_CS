@@ -222,7 +222,8 @@ if(BUILD_TESTING)
         CHARGING_DATABASE_MIGRATION_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/migrations/001_initial_demo.sql"
         CHARGING_DATABASE_SEED_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/seeds/demo.sql"
         CHARGING_TICKET_MIGRATION_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/migrations/002_support_tickets.sql"
-        CHARGING_ADMIN_MIGRATION_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/migrations/003_admin_accounts.sql")
+        CHARGING_ADMIN_MIGRATION_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/migrations/003_admin_accounts.sql"
+        CHARGING_REPAIR_MIGRATION_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/migrations/004_repair_tickets.sql")
     target_link_libraries(charging_support_ticket_flow_tests PRIVATE
         charging_protocol Qt6::Core Qt6::Network Qt6::Sql Qt6::Test)
     add_test(NAME charging_support_ticket_flow_tests COMMAND charging_support_ticket_flow_tests)

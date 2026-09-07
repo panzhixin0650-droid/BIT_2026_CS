@@ -15,6 +15,7 @@ public:
 
     [[nodiscard]] bool lastOperationSucceeded() const noexcept override;
     [[nodiscard]] bool supportsSupportTickets() const override;
+    [[nodiscard]] bool supportsRepairTickets() const override { return true; }
     [[nodiscard]] std::optional<charging::protocol::SupportTicketDto>
     findSupportTicket(qint64 ticketId) const override;
     [[nodiscard]] std::optional<charging::protocol::SupportTicketDto>

@@ -1,5 +1,21 @@
 # 数据库责任区
 
+## 启用扫一扫报修（schema 4）
+
+报修复用客服工单，[迁移 004](migrations/004_repair_tickets.sql)只增加桩编号、故障类型和索引。
+先停止服务并备份数据库，按本文步骤完成 001、种子、002、003 后，对需要启用报修的库执行：
+
+```bash
+sqlite3 -batch -bail /absolute/path/to/demo.db < database/migrations/004_repair_tickets.sql
+sqlite3 /absolute/path/to/demo.db 'PRAGMA user_version; PRAGMA integrity_check; PRAGMA foreign_key_check;'
+```
+
+预期输出版本 `4`、`ok` 且外键检查无行。请将示例路径换成实际数据库路径。
+迁移保留历史客服单；有报修记录的桩禁止删除或改名，以保留设备关联。
+升级后的服务端仍支持 schema 1–3；schema 2/3 可用普通工单，报修会提示需要升级。
+迁移到 schema 4 后应使用本次新增的服务端，旧服务端不识别版本 4。
+测试命令 `bash database/tests/run.sh` 会在临时库验证全部四次迁移，不操作运行数据库。
+
 本目录提供当前课程 Demo 的 SQLite 五张核心业务表、客服工单及两张管理员附属表。
 编号迁移是结构事实源，演示种子用于本地开发和联调；运行时数据库不提交到仓库。
 

@@ -23,6 +23,7 @@ public:
     [[nodiscard]] bool isOpen() const noexcept;
     [[nodiscard]] bool lastOperationSucceeded() const noexcept override;
     [[nodiscard]] bool supportsSupportTickets() const override;
+    [[nodiscard]] bool supportsRepairTickets() const override { return isOpen() && repairTicketsAvailable_; }
     [[nodiscard]] bool supportsAdminAccounts() const override { return isOpen() && adminAccountsAvailable_; }
     [[nodiscard]] std::optional<charging::protocol::SupportTicketDto>
     findSupportTicket(qint64 ticketId) const override;
@@ -113,6 +114,7 @@ private:
     QSqlDatabase database_;
     bool transactionOpen_ = false;
     bool supportTicketsAvailable_ = false;
+    bool repairTicketsAvailable_ = false;
     bool adminAccountsAvailable_ = false;
     mutable bool lastOperationSucceeded_ = true;
 };

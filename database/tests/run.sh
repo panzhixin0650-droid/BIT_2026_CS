@@ -153,4 +153,23 @@ fi
 [[ "$(sqlite3 "$legacy_database" "SELECT count(*) FROM sqlite_schema WHERE name IN ('admins_v1', 'admin_station_scopes', 'admin_audit_logs');")" == '0' ]]
 [[ "$(sqlite3 "$test_database" 'PRAGMA integrity_check')" == 'ok' ]]
 [[ -z "$(sqlite3 "$test_database" 'PRAGMA foreign_key_check')" ]]
-echo 'database tests: OK (schema 1 baseline + schema 2 tickets + schema 3 administrators)'
+repair_business_dump="$(sqlite3 "$test_database" '.dump users admins charging_stations charging_piles charging_orders admin_station_scopes admin_audit_logs')"
+old_ticket_rows="$(sqlite3 "$test_database" 'SELECT ticket_id, user_id, submission_id, title, summary, source_model, status, reply, created_at, updated_at FROM support_tickets ORDER BY ticket_id;')"
+sqlite3 -batch -bail "$test_database" < "$database_dir/migrations/004_repair_tickets.sql"
+[[ "$(sqlite3 "$test_database" 'PRAGMA user_version')" == '4' ]]
+[[ "$(sqlite3 "$test_database" '.dump users admins charging_stations charging_piles charging_orders admin_station_scopes admin_audit_logs')" == "$repair_business_dump" ]]
+[[ "$(sqlite3 "$test_database" 'SELECT ticket_id, user_id, submission_id, title, summary, source_model, status, reply, created_at, updated_at FROM support_tickets ORDER BY ticket_id;')" == "$old_ticket_rows" ]]
+sqlite3 -batch -bail "$test_database" < "$database_dir/tests/verify_repair_tickets.sql"
+if sqlite3 -batch -bail "$test_database" < "$database_dir/migrations/004_repair_tickets.sql" 2>/dev/null; then
+    echo 'FAIL: migration 004 must require schema 3' >&2
+    exit 1
+fi
+expect_sql_failure 'repair requires an existing pile' 'FOREIGN KEY constraint failed' \
+    "UPDATE support_tickets SET pile_code = 'MISSING' WHERE ticket_id = 990;"
+expect_sql_failure 'repair requires a fault type' 'ck_ticket_repair' \
+    "UPDATE support_tickets SET fault_type = '' WHERE ticket_id = 990;"
+expect_sql_failure 'support cannot have a dangling fault type' 'ck_ticket_repair' \
+    "UPDATE support_tickets SET pile_code = NULL WHERE ticket_id = 990;"
+[[ "$(sqlite3 "$test_database" 'PRAGMA integrity_check')" == 'ok' ]]
+[[ -z "$(sqlite3 "$test_database" 'PRAGMA foreign_key_check')" ]]
+echo 'database tests: OK (schema 1 baseline + schema 2 tickets + schema 3 administrators + schema 4 repairs)'

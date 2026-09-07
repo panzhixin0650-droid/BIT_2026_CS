@@ -22,10 +22,12 @@ public:
 
 signals:
     void scanRequested(const QString &pileCode);
+    void repairRequested(const QString &pileCode);
 
 private:
     QLineEdit *pileCodeInput_ = nullptr;
     QPushButton *startButton_ = nullptr;
+    QPushButton *repairButton_ = nullptr;
     QLabel *messageLabel_ = nullptr;
 };
 
