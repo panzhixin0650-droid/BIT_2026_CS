@@ -51,6 +51,10 @@ add_library(charging_client_ui STATIC
     src/assistant/assistant_config.h
     src/assistant/assistant_service.cpp
     src/assistant/assistant_service.h
+    src/assistant/assistant_request_worker.cpp
+    src/assistant/assistant_request_worker.h
+    src/ui/busy_indicator.cpp
+    src/ui/busy_indicator.h
     src/assistant/knowledge_base.cpp
     src/assistant/knowledge_base.h
     src/ui/support_page.cpp
@@ -135,6 +139,12 @@ target_link_libraries(user-client
 
 if(BUILD_TESTING)
     find_package(Qt6 6.2 REQUIRED COMPONENTS Test)
+
+    add_executable(charging_client_assistant_responsiveness_tests tests/assistant_responsiveness_tests.cpp)
+    target_link_libraries(charging_client_assistant_responsiveness_tests PRIVATE charging_client_ui Qt6::Test)
+    add_test(NAME charging_client_assistant_responsiveness_tests COMMAND charging_client_assistant_responsiveness_tests)
+    set_tests_properties(charging_client_assistant_responsiveness_tests PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
 
     add_executable(charging_client_support_desk_tests tests/support_desk_tests.cpp)
     target_link_libraries(charging_client_support_desk_tests PRIVATE charging_client_ui Qt6::Test)

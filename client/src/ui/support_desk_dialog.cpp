@@ -1,4 +1,5 @@
 #include "ui/support_desk_dialog.h"
+#include "ui/busy_indicator.h"
 
 #include <QCloseEvent>
 #include <QHBoxLayout>
@@ -11,6 +12,7 @@
 #include <QShortcut>
 #include <QTabWidget>
 #include <QTextBrowser>
+#include <QTextCursor>
 #include <QUuid>
 #include <QVBoxLayout>
 
@@ -49,7 +51,8 @@ SupportDeskDialog::SupportDeskDialog(IChargingApi &api, AssistantService &desk,
         QPushButton { background: #e8eee2; color: #31543f; border: none;
             border-radius: 9px; padding: 9px 12px; }
         QPushButton#deskSend, QPushButton#ticketSubmit { background: #245c45; color: white; }
-        QPushButton:disabled { color: #929c92; background: #edf0e9; }
+        QPushButton:disabled, QPushButton#deskSend:disabled, QPushButton#ticketSubmit:disabled {
+            color: #929c92; background: #edf0e9; }
         QTabWidget::pane { border: none; }
         QTabBar::tab { padding: 10px 14px; background: transparent; color: #597668; }
         QTabBar::tab:selected { color: #245c45; border-bottom: 2px solid #245c45; }
@@ -61,6 +64,16 @@ SupportDeskDialog::SupportDeskDialog(IChargingApi &api, AssistantService &desk,
     root->addWidget(label(QStringLiteral("课程演示 · AI 模拟坐席  |  客服小悦 · 工号 008"), this, "deskDisclosure"));
     notice_ = label(QStringLiteral("仅发送你输入的内容和最近 4 轮对话；请勿提供密码、验证码或支付凭证。"), this, "deskNotice");
     root->addWidget(notice_);
+    auto *waiting = new QHBoxLayout;
+    busyIndicator_ = new BusyIndicator(this);
+    busyIndicator_->setObjectName(QStringLiteral("deskBusySpinner"));
+    busyStatus_ = label({}, this, "deskBusyStatus");
+    cancelWaiting_ = new QPushButton(QStringLiteral("停止"), this);
+    cancelWaiting_->setObjectName(QStringLiteral("deskCancelWaiting"));
+    waiting->addWidget(busyIndicator_);
+    waiting->addWidget(busyStatus_, 1);
+    waiting->addWidget(cancelWaiting_);
+    root->addLayout(waiting);
     tabs_ = new QTabWidget(this);
     tabs_->setObjectName(QStringLiteral("deskTabs"));
     root->addWidget(tabs_, 1);
@@ -147,6 +160,9 @@ SupportDeskDialog::SupportDeskDialog(IChargingApi &api, AssistantService &desk,
     auto *shortcut = new QShortcut(QKeySequence(QStringLiteral("Ctrl+Return")), input_);
     connect(shortcut, &QShortcut::activated, this, &SupportDeskDialog::send);
     connect(stop_, &QPushButton::clicked, this, [this] { cancelModels(); updateControls(); });
+    connect(cancelWaiting_, &QPushButton::clicked, this, [this] { cancelModels(); updateControls(); });
+    waitingTimer_.setInterval(1000);
+    connect(&waitingTimer_, &QTimer::timeout, this, &SupportDeskDialog::updateControls);
     connect(generate_, &QPushButton::clicked, this, &SupportDeskDialog::generateDraft);
     connect(submit_, &QPushButton::clicked, this, &SupportDeskDialog::submitDraft);
     connect(newDraft_, &QPushButton::clicked, this, [this] {
@@ -167,7 +183,7 @@ SupportDeskDialog::SupportDeskDialog(IChargingApi &api, AssistantService &desk,
     });
     connect(&desk_, &AssistantService::answerUpdated, this, [this](quint64 id, const QString &text) {
         if (id != chatId_) return;
-        pendingAnswer_ = text; renderChat();
+        updatePendingAnswer(text);
     });
     connect(&desk_, &AssistantService::finished, this, [this](quint64 id, const AssistantResult &result) {
         if (id != chatId_) return;
@@ -340,14 +356,52 @@ void SupportDeskDialog::renderChat()
             .arg(htmlText(question), htmlText(answer));
     };
     for (const auto &turn : transcript_) add(turn.question, turn.answer);
-    if (!pendingQuestion_.isEmpty()) add(pendingQuestion_, pendingAnswer_);
     chat_->setHtml(html);
+    if (!pendingQuestion_.isEmpty()) {
+        QTextCursor cursor(chat_->document());
+        cursor.movePosition(QTextCursor::End);
+        cursor.insertBlock();
+        cursor.insertHtml(QStringLiteral("<p align='right' style='color:#245c45'><b>你</b><br>%1</p>"
+                                         "<p><b>客服小悦</b><br></p>").arg(htmlText(pendingQuestion_)));
+        pendingAnswerPosition_ = cursor.position();
+        QTextCharFormat body;
+        body.setFontWeight(QFont::Normal);
+        body.setForeground(QColor(QStringLiteral("#203d33")));
+        cursor.insertText(pendingAnswer_, body);
+    }
+    chat_->verticalScrollBar()->setValue(bottom ? chat_->verticalScrollBar()->maximum() : previous);
+}
+
+void SupportDeskDialog::updatePendingAnswer(const QString &text)
+{
+    const bool bottom = chat_->verticalScrollBar()->value() >= chat_->verticalScrollBar()->maximum() - 24;
+    const int previous = chat_->verticalScrollBar()->value();
+    QTextCursor cursor(chat_->document());
+    cursor.movePosition(QTextCursor::End);
+    const bool append = text.startsWith(pendingAnswer_);
+    if (!append) {
+        cursor.setPosition(pendingAnswerPosition_);
+        cursor.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
+    }
+    QTextCharFormat body;
+    body.setFontWeight(QFont::Normal);
+    body.setForeground(QColor(QStringLiteral("#203d33")));
+    cursor.insertText(append ? text.mid(pendingAnswer_.size()) : text, body);
+    pendingAnswer_ = text;
     chat_->verticalScrollBar()->setValue(bottom ? chat_->verticalScrollBar()->maximum() : previous);
 }
 
 void SupportDeskDialog::updateControls()
 {
     const bool busy = chatId_ || summaryId_;
+    busyIndicator_->setRunning(busy);
+    busyStatus_->setVisible(busy);
+    cancelWaiting_->setVisible(busy);
+    if (busy && !waitingTimer_.isActive()) waitingTimer_.start();
+    if (!busy) waitingTimer_.stop();
+    if (busy) busyStatus_->setText(QStringLiteral("%1 · %2 秒 · 可停止")
+        .arg(summaryId_ ? QStringLiteral("正在生成摘要") : QStringLiteral("小悦正在回复"))
+        .arg(busyIndicator_->elapsedSeconds()));
     const auto text = input_->toPlainText().trimmed();
     send_->setEnabled(!busy && !text.isEmpty() && text.size() <= 1200 && transcript_.size() < 24);
     stop_->setEnabled(busy);

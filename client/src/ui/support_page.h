@@ -13,6 +13,8 @@ class QVBoxLayout;
 
 namespace charging::client {
 
+class BusyIndicator;
+
 class SupportPage final : public QWidget {
     Q_OBJECT
 public:
@@ -34,6 +36,8 @@ private:
     AssistantService &service_;
     QComboBox *mode_ = nullptr;
     QLabel *status_ = nullptr;
+    BusyIndicator *busyIndicator_ = nullptr;
+    QTimer waitingTimer_;
     QLabel *privacy_ = nullptr;
     QScrollArea *scroll_ = nullptr;
     QWidget *canvas_ = nullptr;

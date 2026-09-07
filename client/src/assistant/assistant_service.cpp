@@ -1,4 +1,5 @@
 #include "assistant/assistant_service.h"
+#include "assistant/assistant_request_worker.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -6,6 +7,7 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QRegularExpression>
+#include <QThread>
 
 #include <utility>
 
@@ -33,15 +35,20 @@ QString httpError(int status)
 }  // namespace
 
 AssistantService::AssistantService(AssistantConfig config, QObject *parent,
-                                   QNetworkAccessManager *network, AssistantPurpose purpose)
+                                   QNetworkAccessManager *network, AssistantPurpose purpose,
+                                   AssistantNetworkFactory networkFactory)
     : QObject(parent)
     , config_(std::move(config))
     , purpose_(purpose)
     , knowledge_(KnowledgeBase::bundled())
-    , network_(network ? network : new QNetworkAccessManager(this))
+    , network_(network)
+    , networkFactory_(std::move(networkFactory))
 {
     qRegisterMetaType<AssistantResult>();
     deadline_.setSingleShot(true);
+    updateTimer_.setSingleShot(true);
+    updateTimer_.setInterval(80);
+    connect(&updateTimer_, &QTimer::timeout, this, &AssistantService::publishUpdate);
     connect(&deadline_, &QTimer::timeout, this, [this]() {
         finish(false, QStringLiteral("AI 回复超时，请重试或切换到本地知识库。"));
     });
@@ -49,7 +56,14 @@ AssistantService::AssistantService(AssistantConfig config, QObject *parent,
 
 AssistantService::~AssistantService()
 {
+    acceptedRequest_->store(0);
     deadline_.stop();
+    updateTimer_.stop();
+    if (worker_) {
+        auto *worker = worker_;
+        // Never wait on the GUI thread for DNS/proxy/TLS startup to return.
+        QMetaObject::invokeMethod(worker, [worker] { worker->shutdown(); }, Qt::QueuedConnection);
+    }
     if (reply_) {
         disconnect(reply_, nullptr, this, nullptr);
         reply_->abort();
@@ -176,6 +190,11 @@ quint64 AssistantService::ask(const QString &question,
         return id;
     }
     result_.remote = true;
+    deadline_.start(config_.timeoutMs); // Includes dispatch and network initialization.
+    if (!network_) {
+        startWorkerRequest(id, trimmed, history);
+        return id;
+    }
     QNetworkRequest request(config_.endpoint());
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     request.setRawHeader("Authorization", "Bearer " + config_.apiKey.toUtf8());
@@ -187,8 +206,46 @@ quint64 AssistantService::ask(const QString &question,
     reply_->setReadBufferSize(65536);
     connect(reply_, &QNetworkReply::readyRead, this, &AssistantService::readAvailable);
     connect(reply_, &QNetworkReply::finished, this, &AssistantService::networkFinished);
-    deadline_.start(config_.timeoutMs);
     return id;
+}
+
+void AssistantService::startWorkerRequest(quint64 id, const QString &question,
+                                          const QList<AssistantTurn> &history)
+{
+    if (!worker_) {
+        // Lazily create at most one IO thread; local-only questions create none.
+        workerThread_ = new QThread;
+        workerThread_->setObjectName(QStringLiteral("AssistantHttp"));
+        worker_ = new AssistantRequestWorker(config_, purpose_, networkFactory_, acceptedRequest_);
+        worker_->moveToThread(workerThread_);
+        connect(workerThread_, &QThread::finished, worker_, &QObject::deleteLater);
+        connect(workerThread_, &QThread::finished, workerThread_, &QObject::deleteLater);
+        connect(worker_, &AssistantRequestWorker::answerUpdated, this,
+                [this](quint64 id, const QString &answer) {
+            if (id != activeId_) return;
+            result_.answer = answer;
+            emit answerUpdated(id, answer);
+        }, Qt::QueuedConnection);
+        connect(worker_, &AssistantRequestWorker::finished, this,
+                [this](quint64 id, const AssistantResult &result) {
+            if (id != activeId_) return;
+            result_ = result;
+            finish(result.success, result.error, result.cancelled);
+        }, Qt::QueuedConnection);
+        workerThread_->start();
+    }
+    acceptedRequest_->store(id);
+    auto *worker = worker_;
+    QMetaObject::invokeMethod(worker, [worker, id, question, history] {
+        worker->ask(id, question, history);
+    }, Qt::QueuedConnection);
+}
+
+void AssistantService::publishUpdate()
+{
+    if (!isBusy() || !updatePending_) return;
+    updatePending_ = false;
+    emit answerUpdated(activeId_, result_.answer);
 }
 
 void AssistantService::readAvailable()
@@ -255,7 +312,9 @@ void AssistantService::consumeEvent(const QByteArray &data)
             finish(false, QStringLiteral("AI 回答超出长度限制，请缩小问题后重试。"));
             return;
         }
-        emit answerUpdated(activeId_, result_.answer);
+        // Fast SSE bursts must not re-layout every accumulated answer per token.
+        updatePending_ = true;
+        if (!updateTimer_.isActive()) updateTimer_.start();
     } else if (type == QStringLiteral("response.completed")) {
         completeResponse(event.value(QStringLiteral("response")).toObject());
     } else if (type == QStringLiteral("response.incomplete")) {
@@ -328,7 +387,15 @@ void AssistantService::finish(bool success, const QString &error, bool cancelled
     if (!isBusy()) { return; }
     const quint64 id = activeId_;
     activeId_ = 0;
+    acceptedRequest_->store(0);
     deadline_.stop();
+    updateTimer_.stop();
+    const bool publishFinal = updatePending_;
+    updatePending_ = false;
+    if (worker_) {
+        auto *worker = worker_;
+        QMetaObject::invokeMethod(worker, [worker, id] { worker->cancel(id); }, Qt::QueuedConnection);
+    }
     if (reply_) {
         auto *reply = reply_.data();
         reply_.clear();
@@ -341,6 +408,7 @@ void AssistantService::finish(bool success, const QString &error, bool cancelled
     result_.cancelled = cancelled;
     // Copy before delivery: a receiver may synchronously start the next request.
     const AssistantResult completed = result_;
+    if (publishFinal) emit answerUpdated(id, completed.answer);
     emit finished(id, completed);
 }
 

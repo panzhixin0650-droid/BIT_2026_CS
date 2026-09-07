@@ -14,6 +14,8 @@ class QTextBrowser;
 
 namespace charging::client {
 
+class BusyIndicator;
+
 // Isolated UI orchestration: models only produce text; only confirmed drafts reach IChargingApi.
 class SupportDeskDialog final : public QDialog {
     Q_OBJECT
@@ -33,6 +35,7 @@ private:
     void refreshTickets(bool more = false);
     void cancelModels();
     void renderChat();
+    void updatePendingAnswer(const QString &text);
     void updateControls();
     void showTicket();
     QString errorMessage(const ApiResponse &response);
@@ -44,6 +47,10 @@ private:
     QTextBrowser *chat_;
     QPlainTextEdit *input_;
     QLabel *notice_;
+    BusyIndicator *busyIndicator_;
+    QLabel *busyStatus_;
+    QPushButton *cancelWaiting_;
+    QTimer waitingTimer_;
     QPushButton *send_;
     QPushButton *stop_;
     QPushButton *generate_;
@@ -61,6 +68,7 @@ private:
     QList<protocol::SupportTicketDto> ticketRows_;
     QString pendingQuestion_;
     QString pendingAnswer_;
+    int pendingAnswerPosition_ = 0;
     quint64 chatId_ = 0;
     quint64 summaryId_ = 0;
     QString createId_;

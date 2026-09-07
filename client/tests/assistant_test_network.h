@@ -92,7 +92,7 @@ private:
     NetworkError error_;
 };
 
-class Network final : public QNetworkAccessManager {
+class Network : public QNetworkAccessManager {
 public:
     QByteArray body = success();
     int status = 200;
