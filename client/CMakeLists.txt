@@ -48,10 +48,7 @@ target_link_libraries(charging_client_api
         Qt6::Network
 )
 
-add_library(charging_client_ui STATIC
-    resources/album_resources.qrc
-    src/ui/photo_album_page.cpp
-    src/ui/photo_album_page.h
+add_library(charging_client_common STATIC
     resources/decorations.qrc
     src/ui/decorative_heading.cpp
     src/ui/decorative_heading.h
@@ -85,32 +82,67 @@ add_library(charging_client_ui STATIC
     src/ui/api_error_message.h
     src/ui/avatar_art.cpp
     src/ui/avatar_art.h
-    src/ui/avatar_picker_dialog.cpp
-    src/ui/avatar_picker_dialog.h
-    src/ui/charging_stop_dialog.cpp
-    src/ui/charging_stop_dialog.h
     src/ui/client_theme.cpp
     src/ui/client_theme.h
-    src/ui/charging_page.cpp
-    src/ui/charging_page.h
-    src/ui/charging_controller.cpp
-    src/ui/charging_controller.h
+    src/common/client_tokens.cpp
+    src/common/client_tokens.h
+    src/common/charging_session_state.h
     src/ui/charging_art.cpp
     src/ui/charging_art.h
     src/ui/login_controller.cpp
     src/ui/login_controller.h
     src/ui/login_page.cpp
     src/ui/login_page.h
-    src/ui/map_controller.cpp
-    src/ui/map_controller.h
     src/ui/route_map_view.cpp
     src/ui/route_map_view.h
+    src/ui/station_map_view.cpp
+    src/ui/station_map_view.h
+    src/ui/station_discovery_policy.h
+    src/ui/demo_map_backdrop.cpp
+    src/ui/demo_map_backdrop.h
+)
+
+target_include_directories(charging_client_common
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+)
+
+target_link_libraries(charging_client_common
+    PUBLIC
+        charging_client_api
+        Qt6::Network
+        Qt6::Widgets
+)
+
+if(CHARGING_CLIENT_ENABLE_WEBENGINE)
+    find_package(Qt6 6.2 REQUIRED COMPONENTS WebEngineWidgets WebChannel)
+    target_link_libraries(charging_client_common PUBLIC Qt6::WebEngineWidgets Qt6::WebChannel)
+    target_compile_definitions(
+        charging_client_common
+        PUBLIC CHARGING_CLIENT_HAS_WEBENGINE=1
+    )
+endif()
+
+add_library(charging_client_mobile_ui STATIC
+    resources/album_resources.qrc
+    src/ui/avatar_picker_dialog.cpp
+    src/ui/avatar_picker_dialog.h
+    src/ui/charging_controller.cpp
+    src/ui/charging_controller.h
+    src/ui/charging_page.cpp
+    src/ui/charging_page.h
+    src/ui/charging_stop_dialog.cpp
+    src/ui/charging_stop_dialog.h
     src/ui/main_window.cpp
     src/ui/main_window.h
+    src/ui/map_controller.cpp
+    src/ui/map_controller.h
     src/ui/order_controller.cpp
     src/ui/order_controller.h
     src/ui/order_page.cpp
     src/ui/order_page.h
+    src/ui/photo_album_page.cpp
+    src/ui/photo_album_page.h
     src/ui/profile_controller.cpp
     src/ui/profile_controller.h
     src/ui/profile_page.cpp
@@ -123,48 +155,29 @@ add_library(charging_client_ui STATIC
     src/ui/station_browser_home.cpp
     src/ui/station_browser_discovery.cpp
     src/ui/station_browser_page.h
-    src/ui/station_map_view.cpp
-    src/ui/station_map_view.h
-    src/ui/demo_map_backdrop.cpp
-    src/ui/demo_map_backdrop.h
     src/ui/station_preview_card.cpp
     src/ui/station_preview_card.h
 )
 
-target_include_directories(charging_client_ui
-    PUBLIC
-        "${CMAKE_CURRENT_SOURCE_DIR}/src"
-)
-
-target_compile_definitions(charging_client_ui PRIVATE
+target_include_directories(charging_client_mobile_ui PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_definitions(charging_client_mobile_ui PRIVATE
     CHARGING_DEMO_ALBUM_DIR="${CMAKE_CURRENT_SOURCE_DIR}/demo-album")
+target_link_libraries(charging_client_mobile_ui PUBLIC charging_client_common)
 
-target_link_libraries(charging_client_ui
-    PUBLIC
-        charging_client_api
-        Qt6::Network
-        Qt6::Widgets
-)
-
-if(CHARGING_CLIENT_ENABLE_WEBENGINE)
-    find_package(Qt6 6.2 REQUIRED COMPONENTS WebEngineWidgets WebChannel)
-    target_link_libraries(charging_client_ui PUBLIC Qt6::WebEngineWidgets Qt6::WebChannel)
-    target_compile_definitions(
-        charging_client_ui
-        PUBLIC CHARGING_CLIENT_HAS_WEBENGINE=1
-    )
-endif()
+# Compatibility name for the existing mobile UI tests while callers migrate to
+# the explicit target name.
+add_library(charging_client_ui ALIAS charging_client_mobile_ui)
 
 if(CHARGING_CLIENT_ENABLE_SCANNER)
     find_package(Qt6 6.2 REQUIRED COMPONENTS Multimedia)
     find_path(ZBAR_INCLUDE_DIR NAMES zbar.h REQUIRED)
     find_library(ZBAR_LIBRARY NAMES zbar REQUIRED)
-    target_sources(charging_client_ui PRIVATE
+    target_sources(charging_client_mobile_ui PRIVATE
         src/local/qr_decoder.cpp src/local/qr_decoder.h
         src/ui/qr_scan_dialog.cpp src/ui/qr_scan_dialog.h)
-    target_include_directories(charging_client_ui PRIVATE ${ZBAR_INCLUDE_DIR})
-    target_link_libraries(charging_client_ui PUBLIC Qt6::Multimedia PRIVATE ${ZBAR_LIBRARY})
-    target_compile_definitions(charging_client_ui PUBLIC CHARGING_CLIENT_HAS_SCANNER=1)
+    target_include_directories(charging_client_mobile_ui PRIVATE ${ZBAR_INCLUDE_DIR})
+    target_link_libraries(charging_client_mobile_ui PUBLIC Qt6::Multimedia PRIVATE ${ZBAR_LIBRARY})
+    target_compile_definitions(charging_client_mobile_ui PUBLIC CHARGING_CLIENT_HAS_SCANNER=1)
 endif()
 
 add_executable(user-client
@@ -173,11 +186,52 @@ add_executable(user-client
 
 target_link_libraries(user-client
     PRIVATE
-        charging_client_ui
+        charging_client_mobile_ui
 )
+
+add_library(charging_client_vehicle_ui STATIC
+    src/vehicle/vehicle_main_window.cpp
+    src/vehicle/vehicle_main_window.h
+    src/vehicle/vehicle_pages.cpp
+    src/vehicle/vehicle_pages.h
+)
+target_include_directories(charging_client_vehicle_ui PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(charging_client_vehicle_ui PUBLIC charging_client_common)
+
+get_target_property(CHARGING_VEHICLE_DIRECT_LINKS charging_client_vehicle_ui LINK_LIBRARIES)
+if(CHARGING_VEHICLE_DIRECT_LINKS MATCHES "Multimedia|[Zz][Bb][Aa][Rr]")
+    message(FATAL_ERROR "vehicle UI must not link scanner dependencies")
+endif()
+
+add_executable(vehicle-client src/vehicle_main.cpp)
+target_link_libraries(vehicle-client PRIVATE charging_client_vehicle_ui)
 
 if(BUILD_TESTING)
     find_package(Qt6 6.2 REQUIRED COMPONENTS Test)
+
+    add_executable(charging_client_vehicle_ui_tests tests/vehicle_ui_tests.cpp)
+    target_link_libraries(charging_client_vehicle_ui_tests PRIVATE
+        charging_client_vehicle_ui Qt6::Test)
+    add_test(NAME charging_client_vehicle_ui_tests COMMAND charging_client_vehicle_ui_tests)
+    set_tests_properties(charging_client_vehicle_ui_tests PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 45)
+    add_test(NAME charging_client_vehicle_hidpi_tests COMMAND charging_client_vehicle_ui_tests)
+    set_tests_properties(charging_client_vehicle_hidpi_tests PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_SCALE_FACTOR=1.5" TIMEOUT 45)
+
+    add_executable(charging_client_vehicle_tcp_sync_tests tests/vehicle_tcp_sync_tests.cpp)
+    target_link_libraries(charging_client_vehicle_tcp_sync_tests PRIVATE
+        charging_client_vehicle_ui Qt6::Network Qt6::Test)
+    add_test(NAME charging_client_vehicle_tcp_sync_tests COMMAND charging_client_vehicle_tcp_sync_tests)
+    set_tests_properties(charging_client_vehicle_tcp_sync_tests PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 45)
+
+    if(CHARGING_CLIENT_ENABLE_WEBENGINE)
+        add_test(NAME charging_client_vehicle_tencent_missing_key
+            COMMAND vehicle-client --api mock --map tencent)
+        set_tests_properties(charging_client_vehicle_tencent_missing_key PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen;TENCENT_MAP_KEY=" WILL_FAIL TRUE TIMEOUT 10)
+    endif()
 
     if(CHARGING_CLIENT_ENABLE_SCANNER)
         add_executable(charging_client_qr_tests tests/qr_scanner_tests.cpp)

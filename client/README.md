@@ -1,6 +1,57 @@
 # Qt 用户端
 
-本目录由用户端负责人独立维护，目标程序为 `user-client`。
+本目录由用户端负责人独立维护，提供手机式 `user-client` 和横屏车载
+`vehicle-client` 两个独立程序。两者共享 typed API、Mock/TCP 适配器、地图、主题 token
+和充电会话状态规则，但拥有各自的主窗口、导航和 UI 测试。
+
+## 车载端
+
+`vehicle-client` 默认窗口为 1280×720，最小 1024×600。底部导航严格只有“首页、充电、
+我的”：首页使用地图与右侧发现/站点详情面板；充电页处理预约、启动确认、Demo 会话进度、
+停止、自动结束和待支付；客服助理、故障报修和我的工单位于“我的”二级入口。
+
+车载端不包含扫一扫、摄像头或二维码图片识别，也不链接 Qt Multimedia/ZBar。即使同一构建
+开启 `CHARGING_CLIENT_ENABLE_SCANNER=ON`，扫码源文件和依赖也只属于
+`charging_client_mobile_ui`。车载充电页显示的是服务端 `PileDto` 的“额定功率”，不会把
+V1 未提供的实时测量功率或 180 秒 Demo 会话进度称为车辆 SOC。
+
+主要构建目标：
+
+```text
+charging_client_api
+charging_client_common
+├── charging_client_mobile_ui  -> user-client
+└── charging_client_vehicle_ui -> vehicle-client
+```
+
+构建和运行：
+
+```bash
+cmake -S client -B build/client -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCHARGING_CLIENT_ENABLE_WEBENGINE=ON
+cmake --build build/client --target user-client vehicle-client
+
+./build/client/vehicle-client --api mock --map mock
+./build/client/vehicle-client \
+  --api tcp --host 127.0.0.1 --port 45678 --map tencent
+```
+
+Tencent 模式仍从 `TENCENT_MAP_KEY` 读取 Key；缺 Key 明确退出，不回退 Mock。头像使用
+`VehicleChargingClient` 自己的应用数据目录和设置，只代表本机头像，不宣称与手机端同步。
+双端状态一致性必须在 TCP 模式下通过同一服务端验证；两个 Mock 进程不会共享内存状态。
+
+车载专项测试：
+
+```bash
+ctest --test-dir build/client --output-on-failure \
+  -R '^charging_client_vehicle_'
+```
+
+其中 UI 测试覆盖 1280×720、1024×600、1.5 倍缩放、严格三个底栏入口、无扫码、选站、
+预约取消、启动、二次确认停止和会话失效；双 TCP 测试使用两个独立客户端连接同一个本地
+服务替身，覆盖共享当前订单、并发停止的 `40903`、自动结束、待支付、充值自动结算、
+昵称与余额刷新。设计边界见 [ADR 0018](../docs/decisions/0018-client-vehicle-shell.md)。
 
 扫一扫页面支持“充电桩报修”：输入桩编号后点击按钮，核对桩号、选择故障类型、
 填写描述并确认提交。报修共用客服的“我的工单”，可刷新查看管理员回复与处理状态。

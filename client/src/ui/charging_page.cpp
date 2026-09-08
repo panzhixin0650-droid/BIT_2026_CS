@@ -1,5 +1,6 @@
 #include "ui/charging_page.h"
 #include "ui/client_theme.h"
+#include "common/charging_session_state.h"
 #include "charging/protocol/protocol_constants.h"
 
 #include <QFrame>
@@ -217,7 +218,7 @@ void ChargingPage::render(){
     state_->setText(charging?QStringLiteral("● 正在充电"):reserved?QStringLiteral("已预约 · 等待开始"):debt?QStringLiteral("充电已结束 · 待结算"):finished?QStringLiteral("充电已结束"):ready?QStringLiteral("已选定充电桩"):QStringLiteral("准备好，为下一程充电"));
     station_->setText(pileCode_.isEmpty()?QStringLiteral("在首页选桩，或扫一扫桩身二维码"):(order_?order_->stationName+" · ":QString())+pileCode_);
     qint64 secs=order_?order_->durationSeconds:0;
-    ring_->percent=qBound(0,int(secs*100/protocol::DemoChargingDurationSeconds),100);
+    ring_->percent=session::demoProgressPercent(secs);
     ring_->caption=charging?QStringLiteral("预计剩余 %1 秒").arg(qMax<qint64>(0,protocol::DemoChargingDurationSeconds-secs)):finished?QStringLiteral("本次充电结束"):QStringLiteral("连接充电枪后开始");ring_->update();
     power_->setText(charging?QStringLiteral("7.2 kW"):QStringLiteral("—"));energy_->setText(QStringLiteral("%1 kWh").arg((order_?order_->energyWh:0)/1000.0,0,'f',3));
     duration_->setText(QStringLiteral("%1:%2").arg(secs/60,2,10,QChar('0')).arg(secs%60,2,10,QChar('0')));
