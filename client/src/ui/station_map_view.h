@@ -11,6 +11,8 @@
 class QAbstractButton;
 class QLabel;
 class QPushButton;
+class QPainter;
+class QThread;
 
 namespace charging::client {
 
@@ -22,6 +24,7 @@ class StationMapView final : public QWidget {
     Q_OBJECT
 public:
     explicit StationMapView(QWidget *parent = nullptr);
+    ~StationMapView() override;
     void preload();
     [[nodiscard]] bool isReady() const;
     void setMapScriptUrl(const QUrl &url);
@@ -29,6 +32,7 @@ public:
     void setCurrentLocation(const std::optional<MapLocation> &location);
     void setStations(const QList<protocol::StationDto> &stations);
     void selectStation(qint64 stationId);
+    void focusStation(qint64 stationId);
     void fitStations();
     void zoomIn();
     void zoomOut();
@@ -39,6 +43,8 @@ public:
 
 signals:
     void stationSelected(qint64 stationId);
+    void backgroundClicked();
+    void interactionStarted();
     void mapReady();
 
 protected:
@@ -56,7 +62,10 @@ private:
     void updateControls();
     void applyWebScene();
     void changeZoom(int delta);
+    void beginInteraction();
     void activateStation(qint64 stationId);
+    void paintOfflineMap(QPainter &painter);
+    void updatePreview();
     QList<protocol::StationDto> stations_;
     QHash<qint64, QAbstractButton *> markers_;
     std::optional<MapLocation> location_;
@@ -73,9 +82,11 @@ private:
     bool preloadStarted_ = false;
     bool receivedStations_ = false;
     DemoMapBackdrop demoBackdrop_;
+    QThread *preloadThread_ = nullptr;
     QUrl scriptUrl_;
     RouteMapView *webMap_ = nullptr;
     QWidget *controls_;
+    QWidget *loadingPreview_;
     QLabel *modeLabel_;
     QLabel *statusLabel_;
     QPushButton *retry_;

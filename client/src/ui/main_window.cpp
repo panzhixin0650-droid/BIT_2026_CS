@@ -1,5 +1,6 @@
 #include "ui/main_window.h"
-#include "ui/support_desk_dialog.h"
+#include "ui/support_desk_page.h"
+#include "ui/station_map_view.h"
 
 #include "api/i_charging_api.h"
 #include "local/avatar_storage.h"
@@ -13,7 +14,11 @@
 #include "ui/order_page.h"
 #include "ui/profile_controller.h"
 #include "ui/profile_page.h"
-#include "ui/scan_controller.h"
+#include "ui/photo_album_page.h"
+#include "ui/avatar_art.h"
+#include "ui/charging_controller.h"
+#include "ui/charging_page.h"
+#include <QPushButton>
 #include "ui/scan_page.h"
 #include "ui/station_browser_controller.h"
 #include "ui/station_browser_page.h"
@@ -39,10 +44,12 @@ namespace charging::client {
 
 namespace {
 
-constexpr int navigationItemSize = 52;
-constexpr int navigationPadding = 6;
-constexpr int navigationBottomGap = 10;
+constexpr int navigationItemSize = 68;
+constexpr int navigationPadding = 12;
+constexpr int navigationBottomGap = 28;
 constexpr int navigationHeight = navigationItemSize + 2 * navigationPadding;
+constexpr int navigationShadowRadius = 13;
+constexpr int navigationShadowOffset = 3;
 
 class NavigationTabBar final : public QTabBar {
 public:
@@ -50,6 +57,7 @@ public:
         : QTabBar(parent)
     {
         setElideMode(Qt::ElideNone);
+        setFixedHeight(navigationHeight + navigationBottomGap);
     }
 
     QSize tabSizeHint(int index) const override
@@ -90,13 +98,13 @@ protected:
                 painter.drawControl(QStyle::CE_TabBarTabShape, option);
             }
             const QRect content = option.rect.adjusted(2, 0, -2, 0);
-            const QSize drawnIconSize(22, 22);
+            const QSize drawnIconSize(27, 27);
             QFont labelFont = painter.font();
-            labelFont.setPixelSize(11);
+            labelFont.setPointSize(9);
             labelFont.setWeight(selected ? QFont::DemiBold : QFont::Medium);
             painter.setFont(labelFont);
             const int labelHeight = painter.fontMetrics().height();
-            constexpr int iconTextGap = 3;
+            constexpr int iconTextGap = 4;
             const int groupHeight =
                 drawnIconSize.height() + iconTextGap + labelHeight;
             const int groupTop =
@@ -119,9 +127,9 @@ protected:
                                  content.width(),
                                  labelHeight + 1);
             const QColor textColor = !enabled ? QColor(QStringLiteral("#96a18e"))
-                : selected ? QColor(QStringLiteral("#466b53"))
-                           : hovered ? QColor(QStringLiteral("#6f927a"))
-                                     : QColor(QStringLiteral("#718078"));
+                : selected ? QColor(QStringLiteral("#245c45"))
+                           : hovered ? QColor(QStringLiteral("#245c45"))
+                                     : QColor(QStringLiteral("#697969"));
             painter.setPen(textColor);
             painter.drawText(textRect,
                              Qt::AlignHCenter | Qt::AlignTop,
@@ -144,6 +152,19 @@ public:
         tabBar()->installEventFilter(this);
     }
 
+    void overlayMapPage(StationBrowserPage *page)
+    {
+        mapPage_ = page;
+        contentStack_ = findChild<QStackedWidget *>(QStringLiteral("qt_tabwidget_stackedwidget"), Qt::FindDirectChildrenOnly);
+        if (!contentStack_) return;
+        contentStack_->installEventFilter(this);
+        connect(this, &QTabWidget::currentChanged, this, [this] { updateMapOverlay(); });
+        connect(page, &StationBrowserPage::mapFullscreenChanged, this, [this] { updateMapOverlay(); });
+        auto *browserPages = page->findChild<QStackedWidget *>(QStringLiteral("stationBrowserPages"));
+        connect(browserPages, &QStackedWidget::currentChanged, this, [this] { updateMapOverlay(); });
+        QTimer::singleShot(0, this, [this] { updateMapOverlay(); });
+    }
+
 protected:
     void initStyleOption(QStyleOptionTabWidgetFrame *option) const override
     {
@@ -151,6 +172,27 @@ protected:
         const int outerMargin = qBound(12, (width() - 240) / 10, 22);
         option->tabBarSize.setWidth(
             qMax(0, width() - 2 * (outerMargin + navigationPadding)));
+    }
+
+    void paintEvent(QPaintEvent *event) override
+    {
+        QTabWidget::paintEvent(event);
+        if (!tabBar()->isVisible()) return;
+
+        // Paint the shadow below both children, respecting the original dirty
+        // region. A live effect on the sibling frame expands disjoint tab
+        // updates to their bounding rectangle and erases the clean tabs between.
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(32, 61, 48, 2));
+        const QRectF frame = QRectF(navigationContainer_->geometry())
+                                 .translated(0, navigationShadowOffset);
+        for (int spread = navigationShadowRadius; spread > 0; --spread) {
+            const qreal radius = navigationHeight / 2.0 + spread;
+            painter.drawRoundedRect(frame.adjusted(-spread, -spread, spread, spread),
+                                    radius, radius);
+        }
     }
 
     bool eventFilter(QObject *watched, QEvent *event) override
@@ -162,12 +204,52 @@ protected:
             const QRect oldFrame = navigationContainer_->geometry();
             navigationContainer_->setGeometry(tabBar()->geometry().adjusted(
                 -navigationPadding, 0, navigationPadding, -navigationBottomGap));
-            update(oldFrame.united(navigationContainer_->geometry()));
+            const int shadowMargin = navigationShadowRadius + navigationShadowOffset;
+            update(oldFrame.united(navigationContainer_->geometry()).adjusted(
+                -shadowMargin, -shadowMargin, shadowMargin, shadowMargin));
+        }
+        if ((watched == contentStack_ || watched == tabBar())
+            && (event->type() == QEvent::Resize || event->type() == QEvent::Show)) {
+            // Correct the page bounds before the first paint, avoiding a costly
+            // intermediate map render at the tab widget's reserved-footer height.
+            if (watched == contentStack_) updateMapOverlay();
+            QTimer::singleShot(0, this, [this] { updateMapOverlay(); });
         }
         return QTabWidget::eventFilter(watched, event);
     }
 
 private:
+    void updateMapOverlay()
+    {
+        if (!contentStack_ || !mapPage_ || updatingOverlay_) return;
+        updatingOverlay_ = true;
+        auto *browserPages = mapPage_->findChild<QStackedWidget *>(QStringLiteral("stationBrowserPages"));
+        const bool fullMap = currentWidget() == mapPage_ && browserPages->currentWidget()
+            && browserPages->currentWidget()->objectName() == QStringLiteral("stationListPage");
+        const bool hideNavigation = fullMap && mapPage_->isMapFullscreen();
+        if (tabBar()->isHidden() != hideNavigation) tabBar()->setVisible(!hideNavigation);
+        navigationContainer_->setVisible(!hideNavigation);
+        QStyleOptionTabWidgetFrame option;
+        initStyleOption(&option);
+        const QRect normalContents = style()->subElementRect(QStyle::SE_TabWidgetTabContents, &option, this);
+        QRect bar = style()->subElementRect(QStyle::SE_TabWidgetTabBar, &option, this);
+        // One shared height and bottom gap on every tab, including the map.
+        // The gap also keeps SDK attribution visible below the floating pill.
+        mapPage_->setBottomNavigationInset(fullMap && !hideNavigation ? navigationHeight + navigationBottomGap : 0);
+        const QRect contents = fullMap ? rect() : normalContents;
+        if (contentStack_->geometry() != contents) contentStack_->setGeometry(contents);
+        if (tabBar()->geometry() != bar) tabBar()->setGeometry(bar);
+        // Keep the WebEngine canvas in place when entering/exiting immersion.
+        // Repeated raise/update calls repaint the entire native/GL overlap.
+        if (!hideNavigation) {
+            navigationContainer_->raise();
+            tabBar()->raise();
+        }
+        updatingOverlay_ = false;
+    }
+    StationBrowserPage *mapPage_ = nullptr;
+    QStackedWidget *contentStack_ = nullptr;
+    bool updatingOverlay_ = false;
     QFrame *navigationContainer_ = nullptr;
 };
 
@@ -180,20 +262,6 @@ void showPendingPaymentNotice(QWidget *parent)
                        parent);
     notice.setObjectName(QStringLiteral("pendingPaymentDialog"));
     notice.button(QMessageBox::Ok)->setText(QStringLiteral("前往订单"));
-    notice.exec();
-}
-
-void showChargingStartedNotice(QWidget *parent,
-                               const protocol::OrderDto &order)
-{
-    QMessageBox notice(QMessageBox::Information,
-                       QStringLiteral("充电已开始"),
-                       QStringLiteral("充电桩 %1 已开始充电。")
-                           .arg(order.pileCode),
-                       QMessageBox::Ok,
-                       parent);
-    notice.setObjectName(QStringLiteral("chargingStartedDialog"));
-    notice.button(QMessageBox::Ok)->setText(QStringLiteral("查看充电进度"));
     notice.exec();
 }
 
@@ -313,92 +381,189 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
     mainTabs_->setObjectName(QStringLiteral("mainNavigation"));
     mainTabs_->setTabPosition(QTabWidget::South);
     mainTabs_->setDocumentMode(true);
-    mainTabs_->setIconSize(QSize(22, 22));
+    mainTabs_->setIconSize(QSize(27, 27));
     mainTabs_->tabBar()->setExpanding(true);
     mainTabs_->tabBar()->setUsesScrollButtons(false);
 
     homePage_ = new StationBrowserPage(mainTabs_);
     homePage_->configureHomeMap(mapService.mapScriptUrl());
+    static_cast<NavigationTabWidget *>(mainTabs_)->overlayMapPage(homePage_);
     orderPage_ = new OrderPage(mainTabs_);
+    chargingPage_ = new ChargingPage(mainTabs_);
     scanPage_ = new ScanPage(mainTabs_);
 
     assistantService_ = new AssistantService(assistantConfig, this);
     supportPage_ = new SupportPage(*assistantService_, mainTabs_);
-    const auto ensureSupportDesk = [this, &api, assistantConfig] {
-        if (!supportDesk_) {
-            const auto config = assistantConfig.forSupportDesk();
-            auto *desk = new AssistantService(config, this, nullptr, AssistantPurpose::SupportDesk);
-            auto *summary = new AssistantService(config, this, nullptr, AssistantPurpose::TicketSummary);
-            supportDesk_ = new SupportDeskDialog(api, *desk, *summary, this);
-            connect(supportDesk_, &SupportDeskDialog::invalidSession, this, &MainWindow::showLoginPage);
-        }
+    const auto ensureDeskPage = [this, &api, assistantConfig](SupportDeskPage *&page, const QString &name) {
+        if (page) return;
+        const auto config = assistantConfig.forSupportDesk();
+        auto *desk = new AssistantService(config, this, nullptr, AssistantPurpose::SupportDesk);
+        auto *summary = new AssistantService(config, this, nullptr, AssistantPurpose::TicketSummary);
+        page = new SupportDeskPage(api, *desk, *summary, pages_);
+        page->setObjectName(name);
+        pages_->addWidget(page);
+        connect(page, &SupportDeskPage::backRequested, this, [this] { pages_->setCurrentWidget(mainTabs_); });
+        connect(page, &SupportDeskPage::invalidSession, this, &MainWindow::showLoginPage);
+        connect(page, &SupportDeskPage::ticketObserved, this, [this](const protocol::SupportTicketDto &ticket) {
+            if (repairPage_) repairPage_->confirmSubmission(ticket);
+        });
     };
-    connect(supportPage_, &SupportPage::supportDeskRequested, this, [this, ensureSupportDesk] {
-        ensureSupportDesk();
+    connect(supportPage_, &SupportPage::supportDeskRequested, this, [this, ensureDeskPage] {
+        ensureDeskPage(supportDesk_, "supportDeskPage");
         supportDesk_->openDesk(supportPage_->recentHistory());
+        pages_->setCurrentWidget(supportDesk_);
     });
-    connect(scanPage_, &ScanPage::repairRequested, this, [this, ensureSupportDesk](const QString &pileCode) {
-        ensureSupportDesk();
-        supportDesk_->openRepair(pileCode);
+    connect(chargingPage_, &ChargingPage::repairRequested, this, [this, ensureDeskPage](const QString &pileCode) {
+        ensureDeskPage(repairPage_, "repairPage");
+        repairPage_->openRepair(pileCode);
+        pages_->setCurrentWidget(repairPage_);
     });
 
     mainTabs_->addTab(homePage_,
+                      clientNavigationIcon(NavigationIcon::Route),
+                      QStringLiteral("首页"));
+    mainTabs_->addTab(chargingPage_,
                       clientNavigationIcon(NavigationIcon::Charging),
                       QStringLiteral("充电"));
-    mainTabs_->addTab(orderPage_,
-                      clientNavigationIcon(NavigationIcon::Orders),
-                      QStringLiteral("订单"));
     mainTabs_->addTab(scanPage_,
                       clientNavigationIcon(NavigationIcon::Scan),
                       QStringLiteral("扫一扫"));
     mainTabs_->addTab(supportPage_,
                       clientNavigationIcon(NavigationIcon::Support),
                       QStringLiteral("客服助理"));
-    profilePage_ = new ProfilePage(mainTabs_);
-    mainTabs_->addTab(profilePage_,
+    profileSection_ = new QStackedWidget(mainTabs_);
+    profileSection_->setObjectName("profileSection");
+    profilePage_ = new ProfilePage(profileSection_);
+    orderContainer_ = new QWidget(profileSection_);
+    auto *orderLayout = new QVBoxLayout(orderContainer_);
+    orderLayout->setContentsMargins(0,0,0,0);
+    auto *orderBack = new QPushButton(QStringLiteral("‹ 返回我的"), orderContainer_);
+    orderBack->setObjectName("ordersBackButton");
+    connect(orderBack, &QPushButton::clicked, this, &MainWindow::showProfile);
+    orderLayout->addWidget(orderBack); orderLayout->addWidget(orderPage_);
+    profileSection_->addWidget(profilePage_); profileSection_->addWidget(orderContainer_);
+    connect(profilePage_, &ProfilePage::ordersRequested, this, &MainWindow::openOrders);
+    connect(profilePage_, &ProfilePage::repairRequested, this, [this, ensureDeskPage] {
+        ensureDeskPage(repairPage_, "repairPage");
+        repairPage_->openRepair({});
+        pages_->setCurrentWidget(repairPage_);
+    });
+    connect(profilePage_, &ProfilePage::ticketsRequested, this, [this, ensureDeskPage] {
+        ensureDeskPage(ticketsPage_, "ticketsPage");
+        ticketsPage_->openTickets();
+        pages_->setCurrentWidget(ticketsPage_);
+    });
+    mainTabs_->addTab(profileSection_,
                       clientNavigationIcon(NavigationIcon::Profile),
                       QStringLiteral("我的"));
-
-    connect(profilePage_, &ProfilePage::ordersRequested, this, [this] {
-        mainTabs_->setCurrentWidget(orderPage_);
-    });
-    connect(profilePage_, &ProfilePage::repairRequested, this, [this, ensureSupportDesk] {
-        ensureSupportDesk();
-        supportDesk_->openRepair({});
-    });
-    connect(profilePage_, &ProfilePage::ticketsRequested, this, [this, ensureSupportDesk] {
-        ensureSupportDesk();
-        supportDesk_->openTickets();
-    });
 
     pages_->addWidget(loginPage_);
     pages_->addWidget(mainTabs_);
     pages_->setCurrentWidget(loginPage_);
-    setCentralWidget(pages_);
+    auto *shell = new QWidget(this);
+    shell->setObjectName("applicationShell");
+    auto *shellLayout = new QVBoxLayout(shell);
+    shellLayout->setContentsMargins(0, 0, 0, 0);
+    shellLayout->setSpacing(0);
+    auto *header = new QFrame(shell);
+    header->setObjectName("applicationHeader");
+    header->setFixedHeight(64);
+    auto *headerLayout = new QHBoxLayout(header);
+    headerLayout->setContentsMargins(16, 6, 16, 6);
+    auto *brandIcon = new QLabel(QStringLiteral("ϟ"), header);
+    brandIcon->setObjectName("brandIcon");
+    brandIcon->setFixedSize(40,40);
+    brandIcon->setAlignment(Qt::AlignCenter);
+    headerLayout->addWidget(brandIcon);
+    auto *brand = new QLabel(QStringLiteral("悦充\n充电服务"), header);
+    brand->setObjectName("brandName");
+    headerLayout->addWidget(brand, 1);
+    headerRefresh_ = new QPushButton(QStringLiteral("↻"), header);
+    headerRefresh_->setObjectName("headerRefreshButton");
+    headerRefresh_->setFixedSize(44,44);
+    headerRefresh_->setAccessibleName(QStringLiteral("刷新当前页面数据"));
+    headerRefresh_->setToolTip(headerRefresh_->accessibleName());
+    headerLayout->addWidget(headerRefresh_);
+    headerAccount_ = new QPushButton(QStringLiteral("未登录"), header);
+    headerAccount_->setObjectName("headerAccountButton");
+    headerAccount_->setFixedSize(110,48);
+    headerLayout->addWidget(headerAccount_);
+    shellLayout->addWidget(header);
+    shellLayout->addWidget(pages_, 1);
+    setCentralWidget(shell);
+    connect(headerAccount_, &QPushButton::clicked, this, [this] {
+        if (!authenticated_) return;
+        pages_->setCurrentWidget(mainTabs_);
+        showProfile();
+        profilePage_->openDetails();
+    });
+    const auto updateRefresh = [this] {
+        const bool mainData = pages_->currentWidget() == mainTabs_
+            && (mainTabs_->currentWidget() == homePage_ || mainTabs_->currentWidget() == chargingPage_
+                || mainTabs_->currentWidget() == profileSection_);
+        headerRefresh_->setEnabled(authenticated_ && (mainData || (ticketsPage_ && pages_->currentWidget() == ticketsPage_)));
+    };
+    connect(pages_, &QStackedWidget::currentChanged, this, updateRefresh);
+    connect(mainTabs_, &QTabWidget::currentChanged, this, updateRefresh);
+    connect(headerRefresh_, &QPushButton::clicked, this, [this, updateRefresh] {
+        if (!authenticated_) return;
+        if (ticketsPage_ && pages_->currentWidget() == ticketsPage_) ticketsPage_->refreshCurrentPage();
+        else if (mainTabs_->currentWidget() == homePage_) stationBrowserController_->refreshStations();
+        else if (mainTabs_->currentWidget() == chargingPage_) chargingController_->refresh();
+        else if (profileSection_->currentWidget() == orderContainer_) orderController_->refreshOrders();
+        else profileController_->refreshProfile();
+        headerRefresh_->setEnabled(false);
+        QTimer::singleShot(600, this, updateRefresh);
+    });
+    updateRefresh();
 
     loginController_ = new LoginController(*loginPage_, api, this);
     avatarStorage_ = std::make_unique<AvatarStorage>();
     profileController_ =
         new ProfileController(*profilePage_, api, *avatarStorage_, this);
+    connect(profilePage_, &ProfilePage::avatarSelectionRequested, this, [this] {
+        if (!avatarAlbum_) {
+            avatarAlbum_ = new PhotoAlbumPage(pages_, {}, PhotoAlbumPage::Purpose::Avatar);
+            pages_->addWidget(avatarAlbum_);
+            connect(avatarAlbum_, &PhotoAlbumPage::backRequested, this, [this] {
+                if (pages_->currentWidget() == avatarAlbum_)
+                    pages_->setCurrentWidget(mainTabs_);
+            });
+            connect(avatarAlbum_, &PhotoAlbumPage::imageSelected, this, [this](const QString &path) {
+                if (pages_->currentWidget() != avatarAlbum_) return;
+                pages_->setCurrentWidget(mainTabs_);
+                emit profilePage_->avatarSelected(path);
+            });
+            connect(avatarAlbum_, &PhotoAlbumPage::imageSelectedImage, this, [this](const QImage &image) {
+                if (pages_->currentWidget() != avatarAlbum_) return;
+                pages_->setCurrentWidget(mainTabs_);
+                emit profilePage_->avatarImageSelected(image);
+            });
+        }
+        avatarAlbum_->reload();
+        pages_->setCurrentWidget(avatarAlbum_);
+    });
     stationBrowserController_ =
         new StationBrowserController(*homePage_, api, this);
     mapController_ = new MapController(*homePage_, mapService, this);
     orderController_ = new OrderController(*orderPage_, api, this);
-    scanController_ = new ScanController(*scanPage_, api, this);
+    chargingController_ = new ChargingController(*chargingPage_, api, this);
     connect(loginController_,
             &LoginController::loginSucceeded,
             this,
             &MainWindow::showAuthenticatedHome);
     connect(mainTabs_, &QTabWidget::currentChanged, this, [this](int index) {
         QWidget *selectedPage = mainTabs_->widget(index);
-        if (selectedPage != orderPage_) {
+        if (selectedPage != profileSection_) {
             orderController_->leavePage();
         }
         if (selectedPage == homePage_) {
             stationBrowserController_->refreshStations();
-        } else if (selectedPage == orderPage_) {
-            orderController_->refreshOrders();
-        } else if (selectedPage == profilePage_) {
+        } else if (selectedPage == chargingPage_) {
+            chargingController_->refresh();
+        } else if (selectedPage == profileSection_) {
+            profileSection_->setCurrentWidget(profilePage_);
+            profilePage_->showOverview();
             profileController_->refreshProfile();
         }
     });
@@ -414,6 +579,7 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
             this,
             [this](const protocol::UserDto &user) {
                 homePage_->setGreetingNickname(user.nickname);
+                updateAccountHeader(user);
             });
     connect(profileController_,
             &ProfileController::rechargeSucceeded,
@@ -461,9 +627,10 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
             this, [this](protocol::OrderStatus status) {
                 if (status == protocol::OrderStatus::PendingPayment) {
                     showPendingPaymentNotice(this);
-                    mainTabs_->setCurrentWidget(orderPage_);
+                    openOrders();
                 } else {
-                    mainTabs_->setCurrentWidget(homePage_);
+                    mainTabs_->setCurrentWidget(chargingPage_);
+                    chargingController_->refresh();
                 }
             });
     connect(orderController_,
@@ -471,7 +638,7 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
             this,
             &MainWindow::showLoginPage);
     connect(orderController_, &OrderController::rechargeRequested,
-            this, [this]() { mainTabs_->setCurrentWidget(profilePage_); });
+            this, [this]() { showProfile(); });
     connect(orderController_,
             &OrderController::navigationReady,
             this,
@@ -484,7 +651,7 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
         [this](const ChargingStopPayload &result) {
             showChargingStoppedNotice(this, result);
             if (!result.paid) {
-                mainTabs_->setCurrentWidget(profilePage_);
+                showProfile();
             }
         };
     connect(orderController_,
@@ -495,67 +662,67 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
             &StationBrowserController::chargingStopped,
             this,
             showChargingStopResult);
-    const auto openReservationScan = [this](const QString &pileCode) {
-        scanPage_->preparePileCode(pileCode);
-        mainTabs_->setCurrentWidget(scanPage_);
-    };
-    connect(homePage_, &StationBrowserPage::reservationScanRequested,
-            this, openReservationScan);
-    connect(orderPage_, &OrderPage::reservationScanRequested,
-            this, openReservationScan);
-    connect(homePage_,
-            &StationBrowserPage::directChargingRequested,
-            this,
-            [this](const QString &pileCode) {
-                scanPage_->prepareDirectPileCode(pileCode);
-                mainTabs_->setCurrentWidget(scanPage_);
-            });
-    connect(scanController_,
-            &ScanController::authenticationRequired,
-            this,
-            &MainWindow::showLoginPage);
-    connect(scanController_, &ScanController::chargingStarted,
-            this, [this](const protocol::OrderDto &order) {
-                showChargingStartedNotice(this, order);
-                homePage_->showListPage();
-                mainTabs_->setCurrentWidget(homePage_);
-                homePage_->showListMessage(QStringLiteral("充电已开始"));
-                stationBrowserController_->refreshStations();
-            });
-    connect(scanController_, &ScanController::currentOrderRequiresAttention,
-            this, [this](protocol::OrderStatus status) {
-                if (status == protocol::OrderStatus::PendingPayment) {
-                    showPendingPaymentNotice(this);
-                    mainTabs_->setCurrentWidget(orderPage_);
-                } else {
-                    mainTabs_->setCurrentWidget(homePage_);
-                }
-            });
+    connect(homePage_, &StationBrowserPage::reservationScanRequested, this, &MainWindow::openCharging);
+    connect(homePage_, &StationBrowserPage::directChargingRequested, this, &MainWindow::openCharging);
+    connect(orderPage_, &OrderPage::reservationScanRequested, this, &MainWindow::openCharging);
+    connect(scanPage_, &ScanPage::scanRequested, this, &MainWindow::openCharging);
+    connect(chargingController_, &ChargingController::authenticationRequired, this, &MainWindow::showLoginPage);
+    connect(chargingController_, &ChargingController::orderChanged, this, [this](const protocol::OrderDto &order) {
+        if (order.status == protocol::OrderStatus::Completed || order.status == protocol::OrderStatus::Cancelled)
+            homePage_->showCurrentOrder(std::nullopt);
+        else homePage_->showCurrentOrder(order);
+    });
+    connect(chargingController_, &ChargingController::sessionStarted, stationBrowserController_, &StationBrowserController::refreshStations);
+    connect(chargingController_, &ChargingController::sessionFinished, this, [this] {
+        profileController_->refreshProfile();
+        stationBrowserController_->refreshStations();
+    });
+    connect(chargingPage_, &ChargingPage::ordersRequested, this, &MainWindow::openOrders);
+    connect(chargingPage_, &ChargingPage::rechargeRequested, this, &MainWindow::showProfile);
+    connect(chargingPage_, &ChargingPage::homeRequested, this, [this]{mainTabs_->setCurrentWidget(homePage_);});
+    connect(chargingPage_, &ChargingPage::scanRequested, this, [this]{mainTabs_->setCurrentWidget(scanPage_);});
+    connect(scanPage_, &ScanPage::cancelled, this, [this]{mainTabs_->setCurrentWidget(homePage_);});
 
     const QUrl mapScriptUrl = mapService.mapScriptUrl();
     // Let login paint first. During account entry, prepare the *home* canvas,
     // including SDK parsing / map initialization / default-area tiles. Nothing
     // authenticated is requested until showAuthenticatedHome(). Widgets stay
     // on the GUI thread; WebEngine downloads and readiness are asynchronous.
-    QTimer::singleShot(80, this, [this, mapScriptUrl]() {
+    if (!mapScriptUrl.isEmpty()) {
+        connect(homePage_->findChild<StationMapView *>(), &StationMapView::mapReady,
+            this, [this, mapScriptUrl] { homePage_->preloadMap(mapScriptUrl); }, Qt::SingleShotConnection);
+    }
+    QTimer::singleShot(0, this, [this]() {
         homePage_->prepareHomeMap(QSize(pages_->width(),
-            qMax(220, pages_->height() - navigationHeight - navigationBottomGap)));
-        // Navigation is secondary: do not compete with the home on the first
-        // login frame, but retain its existing SDK-only preload and reuse.
-        if (!mapScriptUrl.isEmpty()) {
-            QTimer::singleShot(500, this, [this, mapScriptUrl]() {
-                homePage_->preloadMap(mapScriptUrl);
-            });
-        }
+            qMax(220, pages_->height())));
+        // Navigation waits for the home's actual visible tiles, not a fixed
+        // delay that downloads a second SDK while the first map is still cold.
     });
+}
+
+void MainWindow::openCharging(const QString &pileCode)
+{
+    chargingController_->prepare(pileCode);
+    mainTabs_->setCurrentWidget(chargingPage_);
+}
+void MainWindow::openOrders()
+{
+    mainTabs_->setCurrentWidget(profileSection_);
+    profileSection_->setCurrentWidget(orderContainer_);
+    orderController_->refreshOrders();
+}
+void MainWindow::showProfile()
+{
+    mainTabs_->setCurrentWidget(profileSection_);
+    profileSection_->setCurrentWidget(profilePage_);
+    orderController_->leavePage();
+    profileController_->refreshProfile();
 }
 
 MainWindow::~MainWindow()
 {
-    if (supportDesk_) {
-        supportDesk_->resetSession();
-        delete supportDesk_;
-        supportDesk_ = nullptr;
+    for (auto *page : {supportDesk_, repairPage_, ticketsPage_}) {
+        if (page) { page->resetSession(); delete page; }
     }
     // Child pages may emit navigationClosed while the window is being torn down.
     // Disconnect their controller before ownedMapService_ is destroyed.
@@ -565,27 +732,49 @@ MainWindow::~MainWindow()
 
 void MainWindow::showAuthenticatedHome(const protocol::UserDto &user, bool isNewUser)
 {
-    if (supportDesk_) supportDesk_->resetSession();
+    for (auto *page : {supportDesk_, repairPage_, ticketsPage_}) if (page) page->resetSession();
     supportPage_->resetConversation();
+    authenticated_ = true;
+    updateAccountHeader(user);
+    profilePage_->showOverview();
+    homePage_->setUserId(user.userId);
     homePage_->setGreeting(user.nickname, isNewUser);
     profileController_->setInitialUser(user);
     mainTabs_->setCurrentWidget(homePage_);
     pages_->setCurrentWidget(mainTabs_);
     stationBrowserController_->refreshStations();
+    chargingController_->activate();
 }
 
 void MainWindow::showLoginPage(const QString &message)
 {
-    if (supportDesk_) supportDesk_->resetSession();
+    authenticated_ = false;
+    updateAccountHeader({});
+    profilePage_->showOverview();
+    for (auto *page : {supportDesk_, repairPage_, ticketsPage_}) if (page) page->resetSession();
     supportPage_->resetConversation();
     loginPage_->setLoading(false);
     loginPage_->setErrorMessage(message);
     stationBrowserController_->reset();
     orderController_->reset();
-    scanController_->reset();
+    chargingController_->reset();
+    scanPage_->reset();
     profileController_->reset();
     mapController_->reset();
     pages_->setCurrentWidget(loginPage_);
+}
+
+void MainWindow::updateAccountHeader(const protocol::UserDto &user)
+{
+    if (!authenticated_) {
+        headerAccount_->setText(QStringLiteral("未登录"));
+        headerAccount_->setAccessibleName(QStringLiteral("尚未登录"));
+        return;
+    }
+    const QString phone = user.phone.size() >= 7 ? user.phone.left(3) + "****" + user.phone.right(4) : user.phone;
+    headerAccount_->setText(user.nickname.left(6).replace('&', "&&") + "\n" + phone);
+    headerAccount_->setAccessibleName(QStringLiteral("%1，%2，查看个人详细信息").arg(user.nickname, phone));
+    headerAccount_->setToolTip(headerAccount_->accessibleName());
 }
 
 }  // namespace charging::client

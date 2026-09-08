@@ -12,6 +12,7 @@ enum class NavigationIcon {
     Support,
     Profile,
     Route,
+    Location,
     Repair,
     Tickets,
     ChevronRight,
@@ -19,7 +20,8 @@ enum class NavigationIcon {
 };
 
 [[nodiscard]] QString clientThemeStyleSheet();
-[[nodiscard]] QString profileThemeStyleSheet();
+[[nodiscard]] QString profileServicesStyleSheet();
+[[nodiscard]] QString profileWalletStyleSheet();
 [[nodiscard]] QIcon clientNavigationIcon(NavigationIcon icon);
 
 }  // namespace charging::client

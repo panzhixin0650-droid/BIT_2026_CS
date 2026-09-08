@@ -55,14 +55,22 @@ bool AvatarStorage::saveAvatar(const QString &userKey,
 
     QImageReader reader(sourcePath);
     reader.setAutoTransform(true);
-    QImage image = reader.read();
-    if (image.isNull()) {
+    return saveImage(userKey, reader.read(), savedPath, error);
+}
+
+bool AvatarStorage::saveImage(const QString &userKey,
+                              const QImage &sourceImage,
+                              QString *savedPath,
+                              QString *error)
+{
+    if (userKey.isEmpty() || sourceImage.isNull()) {
         if (error != nullptr) {
             *error = QStringLiteral("无法读取所选图片");
         }
         return false;
     }
 
+    QImage image = sourceImage;
     if (image.width() > 512 || image.height() > 512) {
         image = image.scaled(512, 512, Qt::KeepAspectRatio, Qt::SmoothTransformation);
     }

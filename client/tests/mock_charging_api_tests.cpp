@@ -3,6 +3,9 @@
 #include "charging/protocol/protocol_constants.h"
 
 #include <QSignalSpy>
+#include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QtTest>
 
 using namespace charging;
@@ -25,6 +28,10 @@ private slots:
     void chargingProgressAndStopUseAuthoritativeSettlement();
     void pendingPaymentCanBePaidOnlyAfterRecharge();
     void cancellationReleasesPileAndRejectsIllegalState();
+    void peakQuotesAndStart_data();
+    void peakQuotesAndStart();
+    void peakReservationAndSettlementKeepSnapshot();
+    void peakAutomaticStopKeepsSnapshot();
 };
 
 void MockChargingApiTests::initTestCase()
@@ -396,7 +403,9 @@ void MockChargingApiTests::reservationCreatesCurrentOrderAndUpdatesPile()
 
 void MockChargingApiTests::chargingStartsDirectlyOrFromMatchingReservation()
 {
-    client::MockChargingApi directApi;
+    client::MockChargingApi directApi(nullptr, [] {
+        return QDateTime::fromString(QStringLiteral("2026-09-08T04:00:00Z"), Qt::ISODate);
+    });
     QSignalSpy directLoginSpy(&directApi, &client::IChargingApi::loginCompleted);
     QSignalSpy directStartSpy(&directApi, &client::IChargingApi::chargingStartCompleted);
     QSignalSpy directDetailSpy(&directApi, &client::IChargingApi::stationDetailCompleted);
@@ -653,6 +662,160 @@ void MockChargingApiTests::cancellationReleasesPileAndRejectsIllegalState()
     QTRY_COMPARE(cancelSpy.count(), 1);
     cancelResult = qvariant_cast<client::OrderResult>(cancelSpy.takeFirst().at(0));
     QCOMPARE(cancelResult.response.code, protocol::ErrorCode::IllegalOrderState);
+}
+
+void MockChargingApiTests::peakQuotesAndStart_data()
+{
+    QTest::addColumn<QDateTime>("now");
+    QTest::addColumn<qint64>("price135");
+    QTest::addColumn<qint64>("price120");
+    QFile file(QString::fromUtf8(CHARGING_PEAK_FIXTURE_PATH));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const auto cases = QJsonDocument::fromJson(file.readAll()).object().value("cases").toArray();
+    QVERIFY(!cases.isEmpty());
+    for (const auto &value : cases) {
+        const auto row = value.toObject();
+        QTest::newRow(qPrintable(row.value("name").toString()))
+            << QDateTime::fromString(row.value("now").toString(), Qt::ISODate)
+            << row.value("price135").toInteger() << row.value("price120").toInteger();
+    }
+}
+
+void MockChargingApiTests::peakQuotesAndStart()
+{
+    QFETCH(QDateTime, now);
+    QFETCH(qint64, price135);
+    QFETCH(qint64, price120);
+    client::MockChargingApi api(nullptr, [&now] { return now; });
+    QSignalSpy login(&api, &client::IChargingApi::loginCompleted);
+    QSignalSpy list(&api, &client::IChargingApi::stationListCompleted);
+    QSignalSpy detail(&api, &client::IChargingApi::stationDetailCompleted);
+    QSignalSpy start(&api, &client::IChargingApi::chargingStartCompleted);
+    QSignalSpy stop(&api, &client::IChargingApi::chargingStopCompleted);
+    QSignalSpy history(&api, &client::IChargingApi::orderListCompleted);
+    (void)api.loginUser("13800000001");
+    QTRY_COMPARE(login.count(), 1);
+    (void)api.listOrders();
+    QTRY_COMPARE(history.count(), 1);
+    // Existing seed bills retain their original price, even when constructed at peak.
+    for (const auto &order : qvariant_cast<client::OrderListResult>(history.first().first()).payload->items) {
+        if (order.unitPriceCentsPerKwh) {
+            QCOMPARE(*order.unitPriceCentsPerKwh, qint64{135});
+            QCOMPARE(order.amountCents, (order.energyWh * *order.unitPriceCentsPerKwh + 500) / 1000);
+        }
+    }
+    (void)api.listStations({});
+    QTRY_COMPARE(list.count(), 1);
+    const auto result = qvariant_cast<client::StationListResult>(list.first().first());
+    QVERIFY(result.ok() && result.payload);
+    QCOMPARE(result.payload->items.size(), 2);
+    for (const auto &station : result.payload->items) {
+        const qint64 expected = station.stationId == 1 ? price135 : price120;
+        QCOMPARE(station.priceCentsPerKwh, expected);
+        QCOMPARE(station.pricingRule, QString::fromLatin1(protocol::DemoPeakPricingRule));
+        (void)api.getStation(station.stationId);
+        QTRY_COMPARE(detail.count(), 1);
+        const auto quoted = qvariant_cast<client::StationDetailResult>(detail.takeFirst().first());
+        QVERIFY(quoted.ok() && quoted.payload);
+        QCOMPARE(quoted.payload->station.priceCentsPerKwh, expected);
+        (void)api.startCharging(station.stationId == 1 ? "PILE-A-01" : "PILE-B-02");
+        QTRY_COMPARE(start.count(), 1);
+        const auto started = qvariant_cast<client::OrderResult>(start.takeFirst().first());
+        QVERIFY(started.ok() && started.payload);
+        QCOMPARE(started.payload->order.unitPriceCentsPerKwh.value(), expected);
+        QCOMPARE(*started.payload->order.startedAt, now.toUTC().toString(Qt::ISODate));
+        (void)api.stopCharging(started.payload->order.orderId);
+        QTRY_COMPARE(stop.count(), 1);
+        QVERIFY(qvariant_cast<client::ChargingStopResult>(stop.takeFirst().first()).ok());
+    }
+}
+
+void MockChargingApiTests::peakReservationAndSettlementKeepSnapshot()
+{
+    auto now = QDateTime::fromString(QStringLiteral("2026-09-07T23:59:00Z"), Qt::ISODate);
+    client::MockChargingApi api(nullptr, [&now] { return now; });
+    QSignalSpy login(&api, &client::IChargingApi::loginCompleted);
+    QSignalSpy reserve(&api, &client::IChargingApi::reservationCompleted);
+    QSignalSpy start(&api, &client::IChargingApi::chargingStartCompleted);
+    QSignalSpy progress(&api, &client::IChargingApi::chargingProgressCompleted);
+    QSignalSpy stop(&api, &client::IChargingApi::chargingStopCompleted);
+    QSignalSpy recharge(&api, &client::IChargingApi::rechargeCompleted);
+    QSignalSpy pay(&api, &client::IChargingApi::paymentCompleted);
+    (void)api.loginUser("13900000999");
+    QTRY_COMPARE(login.count(), 1);
+    (void)api.reserve("PILE-A-01");
+    QTRY_COMPARE(reserve.count(), 1);
+    const auto reserved = qvariant_cast<client::OrderResult>(reserve.first().first());
+    QVERIFY(reserved.ok() && reserved.payload);
+    QVERIFY(!reserved.payload->order.unitPriceCentsPerKwh);
+    const auto id = reserved.payload->order.orderId;
+    now = QDateTime::fromString(QStringLiteral("2026-09-08T02:59:00Z"), Qt::ISODate);
+    (void)api.startCharging("PILE-A-01", id);
+    QTRY_COMPARE(start.count(), 1);
+    const auto started = qvariant_cast<client::OrderResult>(start.first().first());
+    QVERIFY(started.ok() && started.payload);
+    QCOMPARE(started.payload->order.orderId, id);
+    QCOMPARE(started.payload->order.unitPriceCentsPerKwh.value(), qint64{162});
+    now = now.addSecs(120); // now off-peak, 240 Wh at 7.2 kW
+    (void)api.getChargingProgress(id);
+    QTRY_COMPARE(progress.count(), 1);
+    const auto measured = qvariant_cast<client::ChargingProgressResult>(progress.first().first());
+    QCOMPARE(measured.payload->order.unitPriceCentsPerKwh.value(), qint64{162});
+    QCOMPARE(measured.payload->order.amountCents, qint64{39});
+    (void)api.stopCharging(id);
+    QTRY_COMPARE(stop.count(), 1);
+    const auto stopped = qvariant_cast<client::ChargingStopResult>(stop.first().first());
+    QVERIFY(stopped.ok() && stopped.payload);
+    QVERIFY(stopped.payload->order.status == protocol::OrderStatus::PendingPayment);
+    QCOMPARE(stopped.payload->shortfallCents.value(), qint64{39});
+    (void)api.payOrder(id);
+    QTRY_COMPARE(pay.count(), 1);
+    QCOMPARE(qvariant_cast<client::PaymentResult>(pay.takeFirst().first()).response.code,
+             protocol::ErrorCode::InsufficientBalance);
+    now = now.addDays(1);
+    (void)api.recharge(1000);
+    QTRY_COMPARE(recharge.count(), 1);
+    (void)api.payOrder(id);
+    QTRY_COMPARE(pay.count(), 1);
+    const auto paid = qvariant_cast<client::PaymentResult>(pay.takeFirst().first());
+    QVERIFY(paid.ok() && paid.payload);
+    QCOMPARE(paid.payload->balanceCents, qint64{961});
+    QCOMPARE(paid.payload->order.unitPriceCentsPerKwh.value(), qint64{162});
+    QCOMPARE(paid.payload->order.amountCents, qint64{39});
+    (void)api.payOrder(id);
+    QTRY_COMPARE(pay.count(), 1);
+    QCOMPARE(qvariant_cast<client::PaymentResult>(pay.first().first()).response.code,
+             protocol::ErrorCode::IllegalOrderState);
+}
+
+void MockChargingApiTests::peakAutomaticStopKeepsSnapshot()
+{
+    auto now = QDateTime::fromString(QStringLiteral("2026-09-08T12:59:00Z"), Qt::ISODate);
+    client::MockChargingApi api(nullptr, [&now] { return now; });
+    QSignalSpy login(&api, &client::IChargingApi::loginCompleted);
+    QSignalSpy start(&api, &client::IChargingApi::chargingStartCompleted);
+    QSignalSpy history(&api, &client::IChargingApi::orderListCompleted);
+    (void)api.loginUser("13800000001");
+    QTRY_COMPARE(login.count(), 1);
+    (void)api.startCharging("PILE-A-01");
+    QTRY_COMPARE(start.count(), 1);
+    const auto order = qvariant_cast<client::OrderResult>(start.first().first()).payload->order;
+    now = now.addSecs(200);
+    QTest::qWait(1100); // allow the existing automatic-stop timer to fire
+    (void)api.listOrders();
+    QTRY_COMPARE(history.count(), 1);
+    const auto result = qvariant_cast<client::OrderListResult>(history.first().first());
+    bool found = false;
+    for (const auto &item : result.payload->items) {
+        if (item.orderId != order.orderId) continue;
+        found = true;
+        QVERIFY(item.status == protocol::OrderStatus::Completed);
+        QCOMPARE(item.unitPriceCentsPerKwh.value(), qint64{162});
+        QCOMPARE(item.energyWh, qint64{360});
+        QCOMPARE(item.amountCents, qint64{58});
+        QCOMPARE(*item.endedAt, QStringLiteral("2026-09-08T13:02:00Z"));
+    }
+    QVERIFY(found);
 }
 
 QTEST_GUILESS_MAIN(MockChargingApiTests)

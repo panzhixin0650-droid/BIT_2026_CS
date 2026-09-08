@@ -10,6 +10,10 @@
 
 本库不包含 Socket、Session、Repository、订单状态机、UI 或业务提示。语义始终以 [`../../contracts/overall-interface-v1.md`](../../contracts/overall-interface-v1.md) 为准。
 
+`StationDto.pricingRule` 是 V1 可选报价规则标识（如 `DEMO_PEAK_START_V1`），
+缺失时兼容旧响应；未知字符串保留，错误类型拒绝。本库不实现高峰判定或倍率计算。
+订单继续使用原 `unitPriceCentsPerKwh` 快照，旧订单 JSON 无需变更。
+
 ## 构建和测试
 
 ```bash

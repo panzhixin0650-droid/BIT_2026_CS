@@ -1,7 +1,7 @@
 #include "assistant/assistant_service.h"
 #include "assistant_test_network.h"
 #include "api/mock_charging_api.h"
-#include "ui/support_desk_dialog.h"
+#include "ui/support_desk_page.h"
 #include "ui/support_page.h"
 
 #include <QDir>
@@ -87,7 +87,7 @@ private slots:
     void cancelledQueuedRequestsAreNeverSent();
     void deadlineAndDestructionDoNotWaitForStartup();
     void ordinaryPageAnimatesAndCanStop();
-    void deskAndSummaryCanStopFromAnyTab();
+    void deskCanStopWithoutChangingRepairDraft();
     void denseStreamDoesNotRepaintPerToken();
     void deskStreamDoesNotRebuildHistory();
 };
@@ -210,7 +210,7 @@ void AssistantResponsivenessTests::ordinaryPageAnimatesAndCanStop()
     QTRY_VERIFY(state->destroyed.load());
 }
 
-void AssistantResponsivenessTests::deskAndSummaryCanStopFromAnyTab()
+void AssistantResponsivenessTests::deskCanStopWithoutChangingRepairDraft()
 {
     MockChargingApi api;
     const auto deskState = std::make_shared<NetworkState>();
@@ -220,44 +220,51 @@ void AssistantResponsivenessTests::deskAndSummaryCanStopFromAnyTab()
     auto summary = std::make_unique<AssistantService>(assistant_test::config(), nullptr, nullptr,
         AssistantPurpose::TicketSummary, slowFactory(summaryState, 0, 1000, true));
     QSignalSpy created(&api, &IChargingApi::supportTicketCreated);
+    AssistantService repairDesk, repairSummary;
+    SupportDeskPage repair(api, repairDesk, repairSummary);
+    repair.openRepair(QStringLiteral("PILE-A-01"));
+    auto *draft = child<QPlainTextEdit>(repair, "ticketSummary");
+    draft->setPlainText(QStringLiteral("原草稿必须保留"));
+    repair.hide();
     {
-        SupportDeskDialog dialog(api, *desk, *summary);
+        SupportDeskPage dialog(api, *desk, *summary);
         dialog.resize(390, 650);
-        dialog.openDesk({{QStringLiteral("结算提示异常"), QStringLiteral("请核实订单结果")}});
-        auto *draft = child<QPlainTextEdit>(dialog, "ticketSummary");
-        draft->setPlainText(QStringLiteral("原草稿必须保留"));
-        child<QPushButton>(dialog, "ticketGenerate")->click();
-        QTRY_VERIFY(summaryState->requests.load() == 1);
+        dialog.openDesk();
+        QVERIFY(child<QPushButton>(dialog, "ticketGenerate")->isHidden());
+        auto *tabs = child<QTabWidget>(dialog, "deskTabs");
+        QCOMPARE(tabs->currentIndex(), 0);
+        QVERIFY(!tabs->isTabEnabled(1));
+        QVERIFY(!tabs->isTabEnabled(2));
+        child<QPlainTextEdit>(dialog, "deskInput")->setPlainText(QStringLiteral("如何预约充电"));
+        child<QPushButton>(dialog, "deskSend")->click();
+        QTRY_VERIFY(deskState->requests.load() == 1);
         auto *spinner = child<QWidget>(dialog, "deskBusySpinner");
         PaintCounter paints; spinner->installEventFilter(&paints);
         QTest::qWait(200);
         QVERIFY(spinner->isVisible());
         QVERIFY(paints.paints >= 2);
-        QCOMPARE(child<QTabWidget>(dialog, "deskTabs")->currentIndex(), 1);
-        capture(dialog, "summary-waiting.png");
+        capture(dialog, "desk-waiting.png");
         auto *stop = child<QPushButton>(dialog, "deskCancelWaiting");
         QVERIFY(stop->isVisible());
         stop->click();
-        QVERIFY(!summary->isBusy());
+        QVERIFY(!desk->isBusy());
         QVERIFY(!spinner->isVisible());
-        QCOMPARE(draft->toPlainText(), QStringLiteral("原草稿必须保留"));
-        child<QTabWidget>(dialog, "deskTabs")->setCurrentIndex(0);
-        child<QPlainTextEdit>(dialog, "deskInput")->setPlainText(QStringLiteral("如何预约充电"));
+        QTRY_VERIFY_WITH_TIMEOUT(deskState->posted.load(), 2500);
+        child<QPlainTextEdit>(dialog, "deskInput")->setPlainText(QStringLiteral("如何开始充电"));
         child<QPushButton>(dialog, "deskSend")->click();
-        QTRY_VERIFY(deskState->requests.load() == 1);
-        capture(dialog, "desk-waiting.png");
+        QTRY_VERIFY(deskState->requests.load() == 2);
         QElapsedTimer elapsed; elapsed.start();
         dialog.close();
         QVERIFY(elapsed.elapsed() < 250);
         QVERIFY(!desk->isBusy());
         dialog.resetSession();
-        QTRY_VERIFY_WITH_TIMEOUT(deskState->posted.load() && summaryState->posted.load(), 2500);
-        QTest::qWait(50);
-        QVERIFY(draft->toPlainText().isEmpty());
+        QCOMPARE(summaryState->requests.load(), 0);
         QCOMPARE(created.size(), 0);
+        repair.openRepair({});
+        QCOMPARE(draft->toPlainText(), QStringLiteral("原草稿必须保留"));
     }
     desk.reset(); summary.reset();
-    QTRY_VERIFY(deskState->destroyed.load() && summaryState->destroyed.load());
+    QTRY_VERIFY(deskState->destroyed.load());
 }
 
 void AssistantResponsivenessTests::denseStreamDoesNotRepaintPerToken()
@@ -286,7 +293,7 @@ void AssistantResponsivenessTests::deskStreamDoesNotRebuildHistory()
     assistant_test::Network network; network.hang = true;
     AssistantService desk(assistant_test::config(), nullptr, &network, AssistantPurpose::SupportDesk);
     AssistantService summary;
-    SupportDeskDialog dialog(api, desk, summary); dialog.openDesk();
+    SupportDeskPage dialog(api, desk, summary); dialog.openDesk();
     child<QPlainTextEdit>(dialog, "deskInput")->setPlainText(QStringLiteral("预约充电"));
     child<QPushButton>(dialog, "deskSend")->click();
     auto *chat = child<QTextBrowser>(dialog, "deskChat");

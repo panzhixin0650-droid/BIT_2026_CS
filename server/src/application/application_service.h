@@ -11,6 +11,7 @@
 #include <QString>
 
 #include <optional>
+#include <functional>
 
 namespace charging::server {
 
@@ -25,11 +26,13 @@ class ApplicationService final : public QObject {
     Q_OBJECT
 
 public:
+    using Clock = std::function<QDateTime()>;
     ApplicationService(IRepository *repository,
                        SessionStore *sessions,
                        IPileGateway *pileGateway,
                        MockPredictionProvider *predictions,
-                       QObject *parent = nullptr);
+                       QObject *parent = nullptr,
+                       Clock clock = QDateTime::currentDateTimeUtc);
 
     [[nodiscard]] ServiceResult ping(const QJsonObject &input) const;
     [[nodiscard]] ServiceResult loginUser(const QJsonObject &input);
@@ -54,6 +57,8 @@ public:
     [[nodiscard]] ServiceResult getOrderProgress(const QString &token,
                                                 const QJsonObject &input) const;
     [[nodiscard]] ServiceResult stopOrder(const QString &token, const QJsonObject &input);
+    void enableDemoAutomaticStop();
+    int completeDueDemoCharges(const QDateTime &now);
     [[nodiscard]] ServiceResult payOrder(const QString &token, const QJsonObject &input);
 
     [[nodiscard]] ServiceResult createSupportTicket(const QString &token, const QJsonObject &input);
@@ -117,6 +122,9 @@ public:
     [[nodiscard]] ServiceResult listAdminOrders(qint64 actorAdminId) const;
 
 private:
+    [[nodiscard]] QDateTime nowUtc() const { return clock_().toUTC(); }
+    ServiceResult settleChargingOrder(qint64 orderId, qint64 userId, const QDateTime &now);
+    bool demoAutomaticStop_ = false;
     [[nodiscard]] std::optional<qint64> authenticatedUserId(
         const QString &token,
         ServiceResult *failure) const;
@@ -127,6 +135,7 @@ private:
     SessionStore *sessions_ = nullptr;
     IPileGateway *pileGateway_ = nullptr;
     MockPredictionProvider *predictions_ = nullptr;
+    Clock clock_;
 };
 
 }  // namespace charging::server

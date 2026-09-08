@@ -286,12 +286,12 @@ OrderPage::OrderPage(QWidget *parent)
     navigationButton_->setObjectName(
         QStringLiteral("orderDetailNavigationButton"));
     reservationScanButton_ =
-        new QPushButton(QStringLiteral("前往扫码充电"), detailCard);
+        new QPushButton(QStringLiteral("前往充电"), detailCard);
     reservationScanButton_->setObjectName(
         QStringLiteral("orderDetailReservationScanButton"));
     stopButton_ = new QPushButton(QStringLiteral("结束充电"), detailCard);
     stopButton_->setObjectName(QStringLiteral("orderDetailStopButton"));
-    progressButton_ = new QPushButton(QStringLiteral("刷新充电进度"), detailCard);
+    progressButton_ = new QPushButton(QStringLiteral("查看充电"), detailCard);
     progressButton_->setObjectName(QStringLiteral("orderDetailProgressButton"));
     payButton_ = new QPushButton(QStringLiteral("立即结算"), detailCard);
     payButton_->setObjectName(QStringLiteral("orderDetailPayButton"));
@@ -345,7 +345,8 @@ OrderPage::OrderPage(QWidget *parent)
         }
     });
     connect(progressButton_, &QPushButton::clicked, this, [this]() {
-        emit progressRequested(progressButton_->property("orderId").toLongLong());
+        if (ordersById_.contains(displayedOrderId_))
+            emit reservationScanRequested(ordersById_.value(displayedOrderId_).pileCode);
     });
     connect(payButton_, &QPushButton::clicked, this, [this]() {
         emit paymentRequested(payButton_->property("orderId").toLongLong());
@@ -562,7 +563,7 @@ void OrderPage::showOrderDetail(qint64 orderId)
                          order.energyWh / 1000.0, 0, 'f', 2));
     }
     if (order.unitPriceCentsPerKwh.has_value()) {
-        appendDetail(QStringLiteral("订单单价"),
+        appendDetail(QStringLiteral("锁定单价"),
                      QStringLiteral("%1/度").arg(
                          formatMoney(*order.unitPriceCentsPerKwh)));
     }
@@ -587,7 +588,7 @@ void OrderPage::showOrderDetail(qint64 orderId)
         order.status == protocol::OrderStatus::Reserved);
     reservationScanButton_->setDisabled(actionBusy_);
     stopButton_->setProperty("orderId", order.orderId);
-    stopButton_->setVisible(order.status == protocol::OrderStatus::Charging);
+    stopButton_->hide();
     stopButton_->setDisabled(actionBusy_);
     progressButton_->setProperty("orderId", order.orderId);
     progressButton_->setVisible(order.status == protocol::OrderStatus::Charging);

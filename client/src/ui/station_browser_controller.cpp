@@ -32,8 +32,15 @@ StationBrowserController::StationBrowserController(StationBrowserPage &page,
     connect(&page_, &StationBrowserPage::detailBackRequested, this, [this]() {
         pendingDetailRequestId_.clear();
         selectedStationId_ = 0;
-        page_.reset();
-        refreshStations();
+        page_.showListPage();
+    });
+    connect(&api_, &IChargingApi::orderListCompleted, this, [this](const OrderListResult &result) {
+        if (pendingHistoryRequestId_.isEmpty() || result.response.requestId != pendingHistoryRequestId_
+            || result.response.type != QString::fromLatin1(protocol::MessageType::OrderList)) return;
+        pendingHistoryRequestId_.clear();
+        if (handleAuthenticationFailure(result.response.code)) return;
+        if (result.ok() && result.payload) page_.showVisitHistory(result.payload->items);
+        else page_.showVisitHistoryError();
     });
     connect(&api_, &IChargingApi::stationListCompleted,
             this, &StationBrowserController::handleStationList);
@@ -54,7 +61,11 @@ StationBrowserController::StationBrowserController(StationBrowserPage &page,
 void StationBrowserController::refreshStations()
 {
     page_.setListLoading(true);
-    pendingListRequestId_ = api_.listStations(page_.stationQuery());
+    auto query = page_.stationQuery();
+    // Keep one authoritative catalog for the map, discovery groups and local search.
+    query.keyword.clear(); query.region.clear();
+    pendingListRequestId_ = api_.listStations(query);
+    if (pendingHistoryRequestId_.isEmpty()) pendingHistoryRequestId_ = api_.listOrders();
     refreshCurrentOrder();
 }
 
@@ -409,6 +420,7 @@ bool StationBrowserController::handleAuthenticationFailure(int code)
 void StationBrowserController::reset()
 {
     pendingListRequestId_.clear();
+    pendingHistoryRequestId_.clear();
     pendingDetailRequestId_.clear();
     pendingNavigationRequestId_.clear();
     pendingCurrentOrderRequestId_.clear();

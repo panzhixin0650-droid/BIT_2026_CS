@@ -1,7 +1,7 @@
 #include "assistant/assistant_service.h"
 #include "assistant_test_network.h"
 #include "api/mock_charging_api.h"
-#include "ui/support_desk_dialog.h"
+#include "ui/support_desk_page.h"
 #include "ui/support_page.h"
 
 #include <QDir>
@@ -69,9 +69,9 @@ public:
     { emit supportTicketCreated({{id, protocol::MessageType::SupportTicketCreate, 0, "OK"}, TicketPayload{ticket()}}); }
 };
 
-void fillDraft(SupportDeskDialog &dialog)
+void fillDraft(SupportDeskPage &dialog)
 {
-    child<QTabWidget>(dialog, "deskTabs")->setCurrentIndex(1);
+    dialog.openRepair("PILE-A-01");
     child<QLineEdit>(dialog, "ticketTitle")->setText(QStringLiteral("页面问题"));
     child<QPlainTextEdit>(dialog, "ticketSummary")->setPlainText(QStringLiteral("用户希望核对页面提示，尚未核实。"));
 }
@@ -86,7 +86,7 @@ class SupportDeskTests final : public QObject {
     Q_OBJECT
 private slots:
     void sharedProviderModelsPromptsAndRedaction();
-    void summaryNeedsExplicitConfirmation();
+    void repairNeedsExplicitConfirmation();
     void timeoutRetryKeepsImmutableSubmission();
     void resetAndCloseCancelWithoutLeaking();
     void offlineManualTicketAndAccountIsolation();
@@ -100,7 +100,7 @@ void SupportDeskTests::repairDraftConfirmationRetryAndTracking()
     ControlledApi api;
     AssistantConfig config;
     AssistantService desk(config), summary(config);
-    SupportDeskDialog dialog(api, desk, summary);
+    SupportDeskPage dialog(api, desk, summary);
     dialog.openRepair("PILE-A-01");
     QCOMPARE(child<QTabWidget>(dialog, "deskTabs")->currentIndex(), 1);
     QCOMPARE(child<QLineEdit>(dialog, "repairPileCode")->text(), QStringLiteral("PILE-A-01"));
@@ -122,7 +122,7 @@ void SupportDeskTests::repairDraftConfirmationRetryAndTracking()
     submit->click(); QCOMPARE(api.drafts.size(), 2);
     QCOMPARE(protocol::toJson(api.drafts[0]), protocol::toJson(api.drafts[1]));
     api.succeed(api.ids.last());
-    child<QTabWidget>(dialog, "deskTabs")->setCurrentIndex(2);
+    dialog.openTickets();
     auto ticket = api.ticket(); ticket.status = protocol::TicketStatus::Resolved;
     ticket.reply = QStringLiteral("已现场检查充电枪");
     emit api.supportTicketsListed({{api.listId, protocol::MessageType::SupportTicketList, 0, "OK"},
@@ -132,6 +132,13 @@ void SupportDeskTests::repairDraftConfirmationRetryAndTracking()
     QCOMPARE(api.businessWrites, 0);
     dialog.resize(400, 600);
     screenshot(dialog, "repair-ticket");
+    dialog.openRepair("PILE-B-02");
+    child<QPushButton>(dialog, "ticketNewDraft")->click();
+    QVERIFY(child<QLineEdit>(dialog, "repairPileCode")->isVisible());
+    child<QLineEdit>(dialog, "repairPileCode")->setText("PILE-B-02");
+    child<QPlainTextEdit>(dialog, "ticketSummary")->setPlainText(QStringLiteral("另一台电桩无法使用"));
+    submit->click();
+    QCOMPARE(api.drafts.last().pileCode, QStringLiteral("PILE-B-02"));
     dialog.resetSession();
     QVERIFY(child<QLineEdit>(dialog, "repairPileCode")->text().isEmpty());
     QVERIFY(child<QListWidget>(dialog, "myTickets")->count() == 0);
@@ -177,21 +184,23 @@ void SupportDeskTests::sharedProviderModelsPromptsAndRedaction()
         .contains(QStringLiteral("只生成供用户编辑确认")));
 }
 
-void SupportDeskTests::summaryNeedsExplicitConfirmation()
+void SupportDeskTests::repairNeedsExplicitConfirmation()
 {
     ControlledApi api;
     assistant_test::Network deskNetwork, summaryNetwork;
     summaryNetwork.body = assistant_test::success(QStringLiteral("用户诉求：核对异常提示\n现象：结算后出现提示\n待核实事项：实际订单状态"));
     AssistantService desk(assistant_test::config().forSupportDesk(), nullptr, &deskNetwork, AssistantPurpose::SupportDesk);
     AssistantService summary(assistant_test::config().forSupportDesk(), nullptr, &summaryNetwork, AssistantPurpose::TicketSummary);
-    SupportDeskDialog dialog(api, desk, summary);
+    SupportDeskPage dialog(api, desk, summary);
     dialog.openDesk({{QStringLiteral("结算后提示异常"), QStringLiteral("请核实订单")}});
     QVERIFY(child<QLabel>(dialog, "deskDisclosure")->isVisible());
     QVERIFY(child<QTextBrowser>(dialog, "deskChat")->toPlainText().contains(QStringLiteral("工号 008")));
     QVERIFY(deskNetwork.requests.isEmpty());
-    child<QPushButton>(dialog, "ticketGenerate")->click();
-    QTRY_VERIFY(!summary.isBusy());
-    QVERIFY(child<QPlainTextEdit>(dialog, "ticketSummary")->toPlainText().contains(QStringLiteral("待核实")));
+    QVERIFY(!child<QPushButton>(dialog, "ticketGenerate")->isVisible());
+    QVERIFY(!child<QPlainTextEdit>(dialog, "ticketSummary")->isVisible());
+    dialog.openRepair("PILE-A-01");
+    child<QPlainTextEdit>(dialog, "ticketSummary")->setPlainText(QStringLiteral("用户确认：插枪后未启动充电，具体故障待核实。"));
+    QVERIFY(summaryNetwork.requests.isEmpty());
     QCOMPARE(api.drafts.size(), 0);
     QCOMPARE(api.businessWrites, 0);
     child<QLineEdit>(dialog, "ticketTitle")->setText(QStringLiteral("用户核对后的标题"));
@@ -199,7 +208,8 @@ void SupportDeskTests::summaryNeedsExplicitConfirmation()
     child<QPushButton>(dialog, "ticketSubmit")->click();
     QCOMPARE(api.drafts.size(), 1);
     QCOMPARE(api.drafts.first().title, QStringLiteral("用户核对后的标题"));
-    QCOMPARE(api.drafts.first().sourceModel, QStringLiteral("gpt-5.6-sol"));
+    QVERIFY(api.drafts.first().sourceModel.isEmpty());
+    QCOMPARE(api.drafts.first().pileCode, QStringLiteral("PILE-A-01"));
     QVERIFY(!api.drafts.first().summary.contains("old answer"));
     QVERIFY(child<QPlainTextEdit>(dialog, "ticketSummary")->isReadOnly());
     api.succeed(api.ids.last());
@@ -211,7 +221,7 @@ void SupportDeskTests::timeoutRetryKeepsImmutableSubmission()
 {
     ControlledApi api;
     AssistantService desk, summary;
-    SupportDeskDialog dialog(api, desk, summary);
+    SupportDeskPage dialog(api, desk, summary);
     dialog.openDesk(); fillDraft(dialog);
     auto *submit = child<QPushButton>(dialog, "ticketSubmit");
     submit->click();
@@ -220,16 +230,17 @@ void SupportDeskTests::timeoutRetryKeepsImmutableSubmission()
     QVERIFY(submit->isEnabled());
     QVERIFY(!child<QPushButton>(dialog, "ticketNewDraft")->isEnabled());
     QVERIFY(child<QPlainTextEdit>(dialog, "ticketSummary")->isReadOnly());
-    dialog.close(); dialog.openDesk();
+    dialog.close(); dialog.openRepair("PILE-A-01");
     submit->click(); QCOMPARE(api.drafts.size(), 2);
     QCOMPARE(protocol::toJson(api.drafts[0]), protocol::toJson(api.drafts[1]));
     api.fail();
     // A list response can confirm the first request actually succeeded.
-    child<QTabWidget>(dialog, "deskTabs")->setCurrentIndex(2);
+    dialog.openTickets();
     api.supportTicketsListed({{api.listId, protocol::MessageType::SupportTicketList, 0, "OK"},
                               TicketListPayload{{api.ticket()}, false}});
     QVERIFY(!submit->isEnabled());
     QCOMPARE(child<QListWidget>(dialog, "myTickets")->count(), 1);
+    dialog.openRepair("PILE-A-01");
     QVERIFY(child<QPushButton>(dialog, "ticketNewDraft")->isEnabled());
     QCOMPARE(api.businessWrites, 0);
 }
@@ -241,16 +252,17 @@ void SupportDeskTests::resetAndCloseCancelWithoutLeaking()
     network.hang = summaryNetwork.hang = true;
     AssistantService desk(assistant_test::config().forSupportDesk(), nullptr, &network, AssistantPurpose::SupportDesk);
     AssistantService summary(assistant_test::config().forSupportDesk(), nullptr, &summaryNetwork, AssistantPurpose::TicketSummary);
-    SupportDeskDialog dialog(api, desk, summary);
+    SupportDeskPage dialog(api, desk, summary);
     dialog.openDesk({{QStringLiteral("旧用户的私人问题"), "old"}});
     child<QPlainTextEdit>(dialog, "deskInput")->setPlainText(QStringLiteral("预约失败了怎么办"));
     child<QPushButton>(dialog, "deskSend")->click();
     QVERIFY(desk.isBusy());
     dialog.close(); QVERIFY(!desk.isBusy());
     dialog.openDesk();
-    child<QPushButton>(dialog, "ticketGenerate")->click();
-    QVERIFY(summary.isBusy());
-    dialog.resetSession(); QVERIFY(!summary.isBusy());
+    child<QPlainTextEdit>(dialog, "deskInput")->setPlainText(QStringLiteral("继续排查问题"));
+    child<QPushButton>(dialog, "deskSend")->click();
+    QVERIFY(desk.isBusy());
+    dialog.resetSession(); QVERIFY(!desk.isBusy());
     QVERIFY(child<QPlainTextEdit>(dialog, "deskInput")->toPlainText().isEmpty());
     QVERIFY(child<QPlainTextEdit>(dialog, "ticketSummary")->toPlainText().isEmpty());
     QVERIFY(!child<QPushButton>(dialog, "ticketGenerate")->isEnabled());
@@ -271,7 +283,7 @@ void SupportDeskTests::offlineManualTicketAndAccountIsolation()
     QSignalSpy login(&api, &IChargingApi::loginCompleted);
     QVERIFY(!api.loginUser("13800000001").isEmpty()); QTRY_COMPARE(login.size(), 1);
     AssistantService desk, summary;
-    SupportDeskDialog dialog(api, desk, summary);
+    SupportDeskPage dialog(api, desk, summary);
     dialog.openDesk();
     child<QPlainTextEdit>(dialog, "deskInput")->setPlainText(QStringLiteral("订单问题"));
     child<QPushButton>(dialog, "deskSend")->click();
@@ -280,11 +292,11 @@ void SupportDeskTests::offlineManualTicketAndAccountIsolation()
     fillDraft(dialog);
     child<QPushButton>(dialog, "ticketSubmit")->click();
     QTRY_VERIFY(child<QLabel>(dialog, "ticketDraftNotice")->text().contains(QStringLiteral("已提交")));
-    child<QTabWidget>(dialog, "deskTabs")->setCurrentIndex(2);
+    dialog.openTickets();
     QTRY_COMPARE(child<QListWidget>(dialog, "myTickets")->count(), 1);
     dialog.resetSession();
     QVERIFY(!api.loginUser("13900000888").isEmpty()); QTRY_COMPARE(login.size(), 2);
-    dialog.openDesk(); child<QTabWidget>(dialog, "deskTabs")->setCurrentIndex(2);
+    dialog.openDesk(); dialog.openTickets();
     QTRY_VERIFY(child<QLabel>(dialog, "deskNotice")->text().contains(QStringLiteral("还没有")));
     QCOMPARE(child<QListWidget>(dialog, "myTickets")->count(), 0);
 }
@@ -304,7 +316,7 @@ void SupportDeskTests::floatingEntryAndSmallLayout()
     network.body = assistant_test::success(QStringLiteral("<script>alert('x')</script>\n请查看订单状态。"));
     AssistantService desk(assistant_test::config().forSupportDesk(), nullptr, &network, AssistantPurpose::SupportDesk);
     AssistantService summary(assistant_test::config().forSupportDesk(), nullptr, &summaryNetwork, AssistantPurpose::TicketSummary);
-    SupportDeskDialog dialog(api, desk, summary);
+    SupportDeskPage dialog(api, desk, summary);
     dialog.resize(390, 650); dialog.openDesk();
     child<QPlainTextEdit>(dialog, "deskInput")->setPlainText(QStringLiteral("结束充电后页面报错，请帮我看看"));
     child<QPushButton>(dialog, "deskSend")->click();

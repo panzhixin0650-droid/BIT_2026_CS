@@ -3,8 +3,10 @@
 #include "api/i_charging_api.h"
 
 #include <QHash>
+#include <QDateTime>
 
 #include <optional>
+#include <functional>
 
 namespace charging::client {
 
@@ -12,7 +14,9 @@ class MockChargingApi final : public IChargingApi {
     Q_OBJECT
 
 public:
-    explicit MockChargingApi(QObject *parent = nullptr);
+    using Clock = std::function<QDateTime()>;
+    explicit MockChargingApi(QObject *parent = nullptr,
+                             Clock clock = QDateTime::currentDateTimeUtc);
 
     [[nodiscard]] QString loginUser(const QString &phone) override;
     [[nodiscard]] QString logout() override;
@@ -36,6 +40,8 @@ public:
     [[nodiscard]] QString getSupportTicket(qint64 ticketId) override;
 
 private:
+    [[nodiscard]] QDateTime nowUtc() const { return clock_().toUTC(); }
+    ChargingStopPayload finishCharge(qint64 orderId, const QDateTime &endedAt);
     [[nodiscard]] QString nextRequestId();
     [[nodiscard]] ApiResponse response(const QString &requestId,
                                        const char *type,
@@ -59,6 +65,7 @@ private:
     quint64 requestSequence_ = 0;
     QList<protocol::SupportTicketDto> tickets_;
     qint64 nextTicketId_ = 1;
+    Clock clock_;
 };
 
 }  // namespace charging::client

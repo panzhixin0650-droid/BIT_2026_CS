@@ -20,13 +20,27 @@ QPixmap navigationPixmap(NavigationIcon icon,
     painter.setRenderHint(QPainter::Antialiasing);
 
     QColor strokeColor = color;
-    Q_UNUSED(selected)
+    if (icon == NavigationIcon::Scan) {
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(selected ? "#d5eab1" : "#245c45"));
+        painter.drawEllipse(QRectF(2, 2, 60, 60));
+        strokeColor = QColor(selected ? "#245c45" : "#ffffff");
+    }
 
     QPen pen(strokeColor, 4.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
     painter.setPen(pen);
     painter.setBrush(Qt::NoBrush);
 
     switch (icon) {
+    case NavigationIcon::Location:
+        painter.drawEllipse(QRectF(16, 16, 32, 32));
+        painter.drawLine(QPointF(32, 7), QPointF(32, 18));
+        painter.drawLine(QPointF(32, 46), QPointF(32, 57));
+        painter.drawLine(QPointF(7, 32), QPointF(18, 32));
+        painter.drawLine(QPointF(46, 32), QPointF(57, 32));
+        painter.setBrush(strokeColor);
+        painter.drawEllipse(QRectF(26, 26, 12, 12));
+        break;
     case NavigationIcon::Charging: {
         QPainterPath bolt;
         bolt.moveTo(35, 5);
@@ -168,6 +182,15 @@ QFrame[role="card"] {
 
 QFrame[role="card"] QLabel { background: transparent; border: none; }
 
+QToolButton[role="pricingHelp"] {
+    background: #edf4e8; color: #386a3c; border: 1px solid #c8d8bd;
+    border-radius: 14px; padding: 0; font-size: 14px; font-weight: 600;
+}
+QToolButton[role="pricingHelp"]:hover { background: #e1ecd6; }
+QToolButton[role="pricingHelp"]:focus { border: 2px solid #567b52; }
+QToolButton[role="pricingHelp"]:pressed { background: #d4e3c6; }
+QDialog#pricingRulesDialog { background: #fffefa; }
+
 QWidget#stationHomeOverlay, QWidget#stationMapControls,
 QWidget#currentOrderDetails { background: transparent; }
 QFrame[role="mapCard"] {
@@ -176,6 +199,19 @@ QFrame[role="mapCard"] {
     border-radius: 18px;
 }
 QFrame[role="mapCard"] QLabel { background: transparent; border: none; }
+QFrame#stationHomeOverlay { background: #fffefa; border: 1px solid #dce5d7; border-radius: 24px; }
+QPushButton#stationSheetHandle { background: transparent; border: none; color: #a5b5a8; min-height: 0; padding: 0; }
+QPushButton#stationSearchEntry { background: #edf2e9; border: none; border-radius: 16px; text-align: left; padding: 0 14px; font-size: 14px; color: #506a58; }
+QWidget#stationSheetPages, QScrollArea#stationDiscoveryScroll { background: transparent; border: none; }
+QPushButton[role="discoveryStation"] { background: #f3f6ef; border: 1px solid #e3e9dc; border-radius: 16px; padding: 0; }
+QPushButton[role="discoveryStation"]:hover { background: #e8f0e1; border-color: #a2b79b; }
+QPushButton[role="discoveryStation"] QLabel { background: transparent; border: none; }
+QLabel[role="discoveryHeading"] { font-size: 15px; font-weight: 700; color: #244d3b; padding-top: 10px; }
+QLabel[role="stationTitle"] { font-size: 14px; font-weight: 600; color: #244d3b; }
+QLabel#stationDetailName { font-size: 18px; font-weight: 700; }
+QLabel#stationDetailMeta { font-size: 13px; }
+QLabel#stationDetailPrice { font-size: 14px; }
+QLabel[role="discoveryHint"] { font-size: 12px; color: #65796c; }
 QLabel#stationHomeBrand { font-size: 12px; font-weight: 700; color: #245c45; }
 QLabel#stationSearchIcon { font-size: 23px; color: #65796c; }
 QLabel#welcomeLabel, QLabel#stationLocationCaption, QLabel#stationResultCount {
@@ -185,24 +221,35 @@ QLabel#stationMapMode { font-size: 10px; color: #65796c; }
 QLabel#stationMapStatus { background: #fffefa; border-radius: 16px; padding: 12px; }
 QLineEdit#stationKeywordInput { min-height: 34px; padding: 0 6px; border: none; background: transparent; font-size: 12px; }
 QLineEdit#stationKeywordInput:focus { border: 1px solid #91ab92; border-radius: 10px; }
-QPushButton#stationRefreshButton, QPushButton#stationFilterToggle {
+QPushButton#stationRefreshButton, QPushButton#stationLocationEntry {
     min-height: 34px; padding: 0; font-size: 11px; border-radius: 10px;
 }
-QPushButton#stationFilterToggle:checked { background: #e3eedb; border-color: #91ab92; }
-QScrollArea#stationFilterScrollArea, QWidget#stationAdvancedFilters {
+QPushButton#stationLocationEntry, QPushButton#stationHomeLocationButton {
+    min-width: 44px; max-width: 44px; min-height: 44px; max-height: 44px; padding: 0;
+}
+QScrollArea#stationLocationScrollArea, QWidget#stationLocationContent {
     background: #fffefa; border-radius: 16px;
 }
-QWidget#stationAdvancedFilters QLabel { font-size: 11px; }
+QWidget#stationLocationContent QLabel { font-size: 11px; }
 QFrame#currentOrderCard { background: #edf4e5; border: 1px solid #c8d8bd; border-radius: 16px; }
 QPushButton#currentOrderToggle { text-align: left; min-height: 32px; padding: 0 4px; font-size: 12px; }
 QWidget#currentOrderDetails QPushButton { padding: 0 7px; min-height: 34px; font-size: 11px; }
 QLabel#currentOrderSummary, QLabel#currentOrderProgress { font-size: 12px; color: #36583c; }
 QLabel#stationPreviewName { font-size: 17px; font-weight: 700; color: #203d33; }
+QFrame#applicationHeader { background: #fffefa; border-bottom: 1px solid #e3e9df; }
+QLabel#brandIcon { background: #245c45; color: #eef5dc; border-radius: 12px; font-size: 30px; }
+QLabel#brandName { color: #245c45; font-size: 14px; font-weight: 700; }
+QPushButton#headerRefreshButton { padding: 0; border: none; background: transparent; font-size: 29px; }
+QPushButton#headerAccountButton { padding: 0 4px; background: #eaf1e5; border: none; font-size: 11px; }
+QPushButton#profileDetailsButton { background: #fffefa; border: 1px solid #dce3d5; border-radius: 18px; }
+QPushButton#profileDetailsButton:hover { background: #edf4e5; }
+QPushButton#profileAvatarButton { min-height: 88px; }
+QLabel#stationPreviewAddress { font-size: 12px; color: #65796c; }
 QLabel#stationPreviewMetrics { font-size: 12px; color: #245c45; font-weight: 600; }
 QLabel#stationPreviewPrediction { font-size: 11px; color: #65796c; }
 QPushButton[role="mapControl"] {
     min-height: 0; padding: 0; background: #fffefa;
-    border: 1px solid #d7e1d1; border-radius: 20px; font-size: 21px;
+    border: 1px solid #d7e1d1; border-radius: 22px; font-size: 21px;
 }
 QPushButton[role="mapControl"]:hover { background: #e3eedb; }
 QPushButton[role="mapControl"]:focus { padding: 0; border: 2px solid #567b52; }
@@ -379,9 +426,9 @@ QTabWidget#mainNavigation::tab-bar {
 }
 
 QFrame#navigationContainer {
-    background: #ffffff;
-    border: 1px solid #e5e9e2;
-    border-radius: 20px;
+    background: #fffefa;
+    border: 1px solid #dfe7da;
+    border-radius: 46px;
 }
 
 QTabWidget#mainNavigation > QTabBar {
@@ -394,21 +441,21 @@ QTabWidget#mainNavigation > QTabBar {
 QTabWidget#mainNavigation QTabBar::tab {
     padding: 0;
     margin: 0;
-    color: #718078;
+    color: #697969;
     background: transparent;
     border: none;
-    border-radius: 12px;
+    border-radius: 18px;
     font-weight: 500;
 }
 
 QTabWidget#mainNavigation QTabBar::tab:hover {
-    color: #6f927a;
+    color: #245c45;
 }
 
 QTabWidget#mainNavigation QTabBar::tab:selected {
-    color: #466b53;
-    background: #eaf1e8;
-    border: none;
+    color: #245c45;
+    background: #e8f1df;
+    border: 1px solid #d5e3cb;
     font-weight: 700;
 }
 
@@ -434,82 +481,71 @@ QToolTip {
     border: none;
     border-radius: 5px;
 }
-
 )QSS");
 }
 
-QString profileThemeStyleSheet()
+QString profileServicesStyleSheet()
 {
-    // Keep Profile rules local so unrelated pages do not inherit their style metrics.
+    // Apply to the service card only, never the profile root or nested detail pages.
     return QStringLiteral(R"QSS(
-QWidget#profilePage, QWidget#profileScrollContent, QWidget#profileContent {
-    background: #f7f8f3;
-    color: #24372d;
-}
-QWidget#profilePage QLabel { color: #24372d; }
-QWidget#profilePage QLabel[role="profileSecondary"] { color: #718078; font-size: 12px; }
-QWidget#profilePage QLabel[role="profileSection"] { font-size: 14px; font-weight: 600; }
-QWidget#profilePage QFrame[role="card"] {
+QFrame#profileServicesCard {
     background: #ffffff; border: 1px solid #e5e9e2; border-radius: 16px;
 }
-QWidget#profilePage QFrame#profileIdentityCard {
-    background: #eaf1e8; border: none;
+QFrame#profileServicesCard QFrame[role="profileDivider"] {
+    background: #e5e9e2; border: none;
 }
-QWidget#profilePage QLabel#profileAvatar {
-    background: #dce9b5; color: #466b53; border-radius: 34px; font-size: 16px; font-weight: 600;
+QFrame#profileServicesCard QPushButton[role="profileService"] {
+    min-height: 50px; padding: 0 6px; background: transparent;
+    border: 1px solid transparent; border-radius: 10px; font-weight: 500;
 }
-QWidget#profilePage QLabel#profileBalanceLabel { color: #365b44; }
-QWidget#profilePage QWidget#profileEditor { background: transparent; }
-QWidget#profilePage QFrame[role="profileDivider"] { background: #e5e9e2; border: none; }
-QWidget#profilePage QPushButton, QWidget#profilePage QLineEdit {
+QFrame#profileServicesCard QLabel {
+    color: #24372d; font-size: 14px; background: transparent; border: none;
+}
+QFrame#profileServicesCard QPushButton[role="profileService"]:hover { background: #f0f5ed; }
+QFrame#profileServicesCard QPushButton[role="profileService"]:pressed { background: #dfeadb; }
+QFrame#profileServicesCard QPushButton[role="profileService"]:focus { border-color: #6f927a; }
+)QSS");
+}
+
+QString profileWalletStyleSheet()
+{
+    return QStringLiteral(R"QSS(
+QFrame#profileWalletCard {
+    background: #ffffff; border: 1px solid #e5e9e2; border-radius: 16px;
+}
+QFrame#profileWalletCard QLabel { color: #24372d; background: transparent; border: none; }
+QFrame#profileWalletCard QLabel[role="profileSection"] { font-size: 14px; font-weight: 600; }
+QFrame#profileWalletCard QLabel#profileBalanceLabel { color: #365b44; }
+QFrame#profileWalletCard QPushButton, QFrame#profileWalletCard QLineEdit {
     min-height: 38px; padding: 0 12px; border: 1px solid #e5e9e2; border-radius: 10px;
     color: #24372d; background: #ffffff; font-size: 13px;
     selection-background-color: #6f927a;
 }
-QWidget#profilePage QPushButton:hover, QWidget#profilePage QLineEdit:hover {
+QFrame#profileWalletCard QPushButton:hover, QFrame#profileWalletCard QLineEdit:hover {
     background: #f5f7f2; border-color: #a8bca9;
 }
-QWidget#profilePage QPushButton:pressed { background: #dfeadb; }
-QWidget#profilePage QPushButton:focus, QWidget#profilePage QLineEdit:focus {
+QFrame#profileWalletCard QPushButton:pressed { background: #dfeadb; }
+QFrame#profileWalletCard QPushButton:focus, QFrame#profileWalletCard QLineEdit:focus {
     min-height: 36px; border: 2px solid #6f927a; padding: 0 11px;
 }
-QWidget#profilePage QPushButton[rechargeAmount] {
+QFrame#profileWalletCard QPushButton[rechargeAmount] {
     min-height: 30px; padding: 0 4px; background: #f5f7f2; border-color: #e5e9e2; border-radius: 9px; font-weight: 500;
 }
-QWidget#profilePage QPushButton[rechargeAmount]:checked {
+QFrame#profileWalletCard QPushButton[rechargeAmount]:checked {
     color: #365b44; background: #eaf1e8; border-color: #6f927a; font-weight: 600;
 }
-QWidget#profilePage QPushButton[rechargeAmount]:hover { background: #eaf1e8; border-color: #a8bca9; }
-QWidget#profilePage QPushButton[rechargeAmount]:focus { min-height: 28px; padding: 0 3px; border: 2px solid #6f927a; }
-QWidget#profilePage QPushButton#rechargeButton {
+QFrame#profileWalletCard QPushButton[rechargeAmount]:hover { background: #eaf1e8; border-color: #a8bca9; }
+QFrame#profileWalletCard QPushButton[rechargeAmount]:focus { min-height: 28px; padding: 0 3px; border: 2px solid #6f927a; }
+QFrame#profileWalletCard QPushButton#rechargeButton {
     background: #6f927a; color: #ffffff; border-color: #6f927a;
 }
-QWidget#profilePage QPushButton#rechargeButton:hover { background: #5e8169; border-color: #5e8169; }
-QWidget#profilePage QPushButton#saveNicknameButton {
-    background: #eaf1e8; color: #466b53; border-color: #dce5d8;
-}
-QWidget#profilePage QPushButton#saveNicknameButton:hover { background: #dce9d8; }
-QWidget#profilePage QPushButton:disabled, QWidget#profilePage QLineEdit:disabled {
+QFrame#profileWalletCard QPushButton#rechargeButton:hover { background: #5e8169; border-color: #5e8169; }
+QFrame#profileWalletCard QPushButton:disabled, QFrame#profileWalletCard QLineEdit:disabled {
     color: #93a097; background: #edf0e9; border-color: #e5e9e2;
 }
-QWidget#profilePage QPushButton#rechargeButton:disabled {
+QFrame#profileWalletCard QPushButton#rechargeButton:disabled {
     color: #ffffff; background: #a6b9ab; border-color: #a6b9ab;
 }
-QWidget#profilePage QPushButton#saveNicknameButton:disabled {
-    color: #93a097; background: #edf0e9; border-color: #e5e9e2;
-}
-QWidget#profilePage QPushButton:flat, QWidget#profilePage QPushButton[role="profileService"] {
-    min-height: 30px; padding: 0 6px; background: transparent; border: 1px solid transparent;
-    color: #718078; font-weight: 500;
-}
-QWidget#profilePage QPushButton[role="profileService"] { min-height: 50px; }
-QWidget#profilePage QPushButton[role="profileService"] QLabel { font-size: 14px; }
-QWidget#profilePage QPushButton:flat:hover,
-QWidget#profilePage QPushButton[role="profileService"]:hover { background: #f0f5ed; }
-QWidget#profilePage QPushButton:flat:focus,
-QWidget#profilePage QPushButton[role="profileService"]:focus { border: 1px solid #6f927a; }
-QWidget#profilePage QPushButton#logoutButton { min-height: 34px; color: #718078; }
-QWidget#profilePage QPushButton#logoutButton:hover { color: #a5564e; background: #f7eeeb; }
 )QSS");
 }
 
@@ -517,17 +553,17 @@ QIcon clientNavigationIcon(NavigationIcon icon)
 {
     QIcon result;
     result.addPixmap(navigationPixmap(icon,
-                                      QColor(QStringLiteral("#718078")),
+                                      QColor(QStringLiteral("#697969")),
                                       false),
                      QIcon::Normal,
                      QIcon::Off);
     result.addPixmap(navigationPixmap(icon,
-                                      QColor(QStringLiteral("#6f927a")),
+                                      QColor(QStringLiteral("#245c45")),
                                       false),
                      QIcon::Active,
                      QIcon::Off);
     result.addPixmap(navigationPixmap(icon,
-                                      QColor(QStringLiteral("#466b53")),
+                                      QColor(QStringLiteral("#245c45")),
                                       true),
                      QIcon::Selected,
                      QIcon::Off);

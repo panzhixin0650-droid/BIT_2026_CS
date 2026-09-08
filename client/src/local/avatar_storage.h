@@ -6,6 +6,7 @@
 #include <memory>
 
 class QSettings;
+class QImage;
 
 namespace charging::client {
 
@@ -23,6 +24,10 @@ public:
                                   const QString &sourcePath,
                                   QString *savedPath = nullptr,
                                   QString *error = nullptr);
+    [[nodiscard]] bool saveImage(const QString &userKey,
+                                 const QImage &image,
+                                 QString *savedPath = nullptr,
+                                 QString *error = nullptr);
 
 private:
     [[nodiscard]] QString keyHash(const QString &userKey) const;

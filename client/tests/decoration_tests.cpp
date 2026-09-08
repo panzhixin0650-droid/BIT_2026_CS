@@ -1,5 +1,7 @@
 #include "api/mock_charging_api.h"
 #include "ui/main_window.h"
+#include "ui/client_theme.h"
+#include "ui/profile_page.h"
 
 #include <QDir>
 #include <QImage>
@@ -9,6 +11,7 @@
 #include <QScrollBar>
 #include <QScrollArea>
 #include <QTabWidget>
+#include <QVBoxLayout>
 #include <QtTest>
 
 using namespace charging::client;
@@ -19,6 +22,8 @@ private slots:
     void transparentAssetsPreserveWhite();
     void responsivePages_data();
     void responsivePages();
+    void profileCardsKeepInteractions_data();
+    void profileCardsKeepInteractions();
 };
 
 void DecorationTests::transparentAssetsPreserveWhite()
@@ -75,7 +80,7 @@ void DecorationTests::responsivePages()
             }
         }
         for (auto *scroll : window.findChildren<QScrollArea *>()) {
-            if (scroll->isVisible()) QTRY_COMPARE(scroll->horizontalScrollBar()->maximum(), 0);
+            if (scroll->isVisible()) QCOMPARE(scroll->horizontalScrollBar()->maximum(), 0);
         }
         const QString directory = qEnvironmentVariable("BIT_DECOR_SCREENSHOTS");
         if (!directory.isEmpty()) {
@@ -99,6 +104,117 @@ void DecorationTests::responsivePages()
     QTest::qWait(150);
     inspect("profile");
     QVERIFY(window.findChild<QPushButton *>("rechargeButton")->isEnabled());
+}
+
+void DecorationTests::profileCardsKeepInteractions_data()
+{
+    responsivePages_data();
+}
+
+void DecorationTests::profileCardsKeepInteractions()
+{
+    QFETCH(QSize, size);
+    QWidget host;
+    host.setStyleSheet(clientThemeStyleSheet());
+    auto *layout = new QVBoxLayout(&host);
+    layout->setContentsMargins(0, 0, 0, 0);
+    auto *profile = new ProfilePage(&host);
+    layout->addWidget(profile);
+    host.resize(size);
+    host.show();
+
+    auto *services = profile->findChild<QFrame *>("profileServicesCard");
+    auto *wallet = profile->findChild<QFrame *>("profileWalletCard");
+    auto *scroll = profile->findChild<QScrollArea *>();
+    QVERIFY(services && wallet && scroll);
+    QVERIFY(profile->styleSheet().isEmpty());
+    QCOMPARE(services->styleSheet(), profileServicesStyleSheet());
+    QCOMPARE(wallet->styleSheet(), profileWalletStyleSheet());
+    QTRY_COMPARE(scroll->horizontalScrollBar()->maximum(), 0);
+
+    QSignalSpy orders(profile, &ProfilePage::ordersRequested);
+    QSignalSpy repair(profile, &ProfilePage::repairRequested);
+    QSignalSpy tickets(profile, &ProfilePage::ticketsRequested);
+    const QStringList names = {"profileOrdersButton", "profileRepairButton", "profileTicketsButton"};
+    const QStringList titles = {QStringLiteral("我的订单"), QStringLiteral("故障报修"), QStringLiteral("我的工单")};
+    for (int index = 0; index < names.size(); ++index) {
+        auto *button = services->findChild<QPushButton *>(names[index]);
+        QVERIFY(button);
+        QCOMPARE(profile->findChildren<QPushButton *>(names[index]).size(), 1);
+        QCOMPARE(button->accessibleName(), titles[index]);
+        QCOMPARE(button->height(), 52);
+        QCOMPARE(button->findChildren<QLabel *>().size(), 3);
+        for (auto *label : button->findChildren<QLabel *>()) {
+            QVERIFY(label->testAttribute(Qt::WA_TransparentForMouseEvents));
+            QVERIFY(button->rect().contains(label->geometry()));
+        }
+        scroll->ensureWidgetVisible(button);
+        QTRY_VERIFY(button->visibleRegion().contains(button->rect().center()));
+        QTest::mouseClick(button, Qt::LeftButton);
+        button->setFocus();
+        QTest::keyClick(button, Qt::Key_Space);
+    }
+    QCOMPARE(orders.count(), 2);
+    QCOMPARE(repair.count(), 2);
+    QCOMPARE(tickets.count(), 2);
+
+    auto *amount = wallet->findChild<QLineEdit *>("rechargeAmountInput");
+    auto *recharge = wallet->findChild<QPushButton *>("rechargeButton");
+    auto *balance = wallet->findChild<QLabel *>("profileBalanceLabel");
+    QVERIFY(amount && recharge && balance);
+    profile->setBalance(12345);
+    QCOMPARE(balance->text(), QStringLiteral("¥123.45"));
+    QSignalSpy requested(profile, &ProfilePage::rechargeRequested);
+    int quickAmountCount = 0;
+    for (auto *button : wallet->findChildren<QPushButton *>()) {
+        if (!button->property("rechargeAmount").isValid()) continue;
+        ++quickAmountCount;
+        scroll->ensureWidgetVisible(button);
+        QTest::mouseClick(button, Qt::LeftButton);
+        QCOMPARE(amount->text(), button->property("rechargeAmount").toString());
+        QVERIFY(button->isChecked());
+        QCOMPARE(button->height(), 32);
+        QCOMPARE(requested.count(), 0); // Selecting an amount never recharges automatically.
+    }
+    QCOMPARE(quickAmountCount, 4);
+    amount->setText("12.34");
+    for (auto *button : wallet->findChildren<QPushButton *>()) {
+        if (button->property("rechargeAmount").isValid()) QVERIFY(!button->isChecked());
+    }
+    QVERIFY(amount->hasAcceptableInput());
+    scroll->ensureWidgetVisible(recharge);
+    QTRY_VERIFY(recharge->visibleRegion().contains(recharge->rect().center()));
+    QTest::mouseClick(recharge, Qt::LeftButton);
+    QCOMPARE(requested.count(), 1);
+    QCOMPARE(requested.at(0).at(0).toString(), QStringLiteral("12.34"));
+    QCOMPARE(balance->text(), QStringLiteral("¥123.45")); // Only API responses update balance.
+    profile->setBusy(true);
+    QVERIFY(!recharge->isEnabled());
+    QVERIFY(!amount->isEnabled());
+    QTest::mouseClick(recharge, Qt::LeftButton);
+    QCOMPARE(requested.count(), 1);
+    profile->setBusy(false);
+    QVERIFY(recharge->isEnabled());
+    QVERIFY(amount->isEnabled());
+    amount->setText("10000.01");
+    QVERIFY(!amount->hasAcceptableInput());
+
+    // The local card styles must not change main's identity/detail/avatar flow.
+    QCOMPARE(profile->findChild<QLabel *>("profileAvatar")->size(), QSize(64, 64));
+    QCOMPARE(profile->findChild<QLabel *>("profileNicknameLabel")->font().pointSize(), 15);
+    QVERIFY(!profile->findChild<QPushButton *>("logoutButton")->isFlat());
+    auto *details = profile->findChild<QPushButton *>("profileDetailsButton");
+    details->click();
+    QVERIFY(profile->findChild<QWidget *>("profileDetailPage")->isVisible());
+    QVERIFY(!services->isVisible());
+    QVERIFY(!wallet->isVisible());
+    profile->findChild<QPushButton *>("profileAvatarButton")->click();
+    QVERIFY(profile->findChild<QWidget *>("profileAvatarPage")->isVisible());
+    profile->findChild<QPushButton *>("profileAvatarBack")->click();
+    profile->findChild<QPushButton *>("profileDetailBack")->click();
+    QVERIFY(services->isVisible());
+    QVERIFY(wallet->isVisible());
+    QTRY_COMPARE(scroll->horizontalScrollBar()->maximum(), 0);
 }
 
 QTEST_MAIN(DecorationTests)

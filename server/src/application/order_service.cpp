@@ -8,6 +8,7 @@
 
 #include <QJsonArray>
 #include <QUuid>
+#include <QTimer>
 
 #include <algorithm>
 #include <cmath>
@@ -141,9 +142,10 @@ bool ApplicationService::refreshOrderReading(OrderDto *order, const QDateTime &n
         || !order->unitPriceCentsPerKwh.has_value()) return false;
     const QDateTime startedAt = QDateTime::fromString(*order->startedAt, Qt::ISODate);
     if (!startedAt.isValid()) return false;
+    const QDateTime measuredAt = demoAutomaticStop_ ? std::min(now, startedAt.addSecs(DemoChargingDurationSeconds)) : now;
     const PileReading reading = stop
-        ? pileGateway_->stop(order->pileId, startedAt, now)
-        : pileGateway_->read(order->pileId, startedAt, now);
+        ? pileGateway_->stop(order->pileId, startedAt, measuredAt)
+        : pileGateway_->read(order->pileId, startedAt, measuredAt);
     if (reading.durationSeconds < 0 || reading.energyWh < 0) return false;
     order->durationSeconds = std::max(order->durationSeconds, reading.durationSeconds);
     order->energyWh = std::max(order->energyWh, reading.energyWh);
@@ -165,7 +167,7 @@ ServiceResult ApplicationService::getCurrentOrder(const QString &token,
     if (!order.has_value()) {
         return ServiceResult::success({{QStringLiteral("order"), QJsonValue::Null}});
     }
-    if (!refreshOrderReading(&*order, QDateTime::currentDateTimeUtc())) {
+    if (!refreshOrderReading(&*order, nowUtc())) {
         return orderError(ErrorCode::InternalError);
     }
     return ServiceResult::success({{QStringLiteral("order"), toJson(*order)}});
@@ -181,7 +183,7 @@ ServiceResult ApplicationService::listUserOrders(const QString &token,
     const auto orders = repository_->listOrders(*userId);
     if (!repository_->lastOperationSucceeded()) return orderError(ErrorCode::InternalError);
     QJsonArray items;
-    const QDateTime now = QDateTime::currentDateTimeUtc();
+    const QDateTime now = nowUtc();
     for (OrderDto order : orders) {
         if (!refreshOrderReading(&order, now)) return orderError(ErrorCode::InternalError);
         items.append(toJson(order));
@@ -213,7 +215,7 @@ ServiceResult ApplicationService::reserveOrder(const QString &token, const QJson
         return orderError(ErrorCode::PileNotAvailable);
     }
     OrderDto order = newOrder(*userId, *pile, *station,
-                               QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+                               nowUtc().toString(Qt::ISODate));
     order.mode = OrderMode::Reservation;
     order.status = OrderStatus::Reserved;
     order.reservedAt = order.createdAt;
@@ -291,14 +293,16 @@ ServiceResult ApplicationService::startOrder(const QString &token, const QJsonOb
         || (!reserved && pile->status != PileStatus::Idle)) {
         return orderError(ErrorCode::PileNotAvailable);
     }
-    const QDateTime now = QDateTime::currentDateTimeUtc();
+    const QDateTime now = nowUtc();
+    const auto price = chargingUnitPriceCents(station->priceCentsPerKwh, now);
+    if (!price.has_value()) return orderError(ErrorCode::InternalError);
     if (!reserved) {
         order = newOrder(*userId, *pile, *station, now.toString(Qt::ISODate));
         order->mode = OrderMode::Direct;
     }
     order->status = OrderStatus::Charging;
     order->startedAt = now.toString(Qt::ISODate);
-    order->unitPriceCentsPerKwh = station->priceCentsPerKwh;
+    order->unitPriceCentsPerKwh = *price;
     // Use the same second-resolution origin now and on subsequent reads.
     const QDateTime startedAt = QDateTime::fromString(*order->startedAt, Qt::ISODate);
     if (pileGateway_ == nullptr || !pileGateway_->start(pile->pileId, startedAt)
@@ -332,7 +336,7 @@ ServiceResult ApplicationService::getOrderProgress(const QString &token,
     auto order = ownedOrder(repository_, orderId, *userId, &failure);
     if (!order.has_value()) return failure;
     if (order->status != OrderStatus::Charging) return orderError(ErrorCode::IllegalOrderState);
-    const QDateTime now = QDateTime::currentDateTimeUtc();
+    const QDateTime now = nowUtc();
     if (!refreshOrderReading(&*order, now)) return orderError(ErrorCode::InternalError);
     return ServiceResult::success({
         {QStringLiteral("order"), toJson(*order)},
@@ -340,18 +344,48 @@ ServiceResult ApplicationService::getOrderProgress(const QString &token,
     });
 }
 
+void ApplicationService::enableDemoAutomaticStop()
+{
+    if (demoAutomaticStop_) return;
+    demoAutomaticStop_ = true;
+    auto *timer = new QTimer(this);
+    connect(timer, &QTimer::timeout, this, [this] { completeDueDemoCharges(nowUtc()); });
+    timer->start(1000);
+}
+
+int ApplicationService::completeDueDemoCharges(const QDateTime &now)
+{
+    if (!demoAutomaticStop_ || !now.isValid()) return 0;
+    const auto orders = repository_->listOrders();
+    if (!repository_->lastOperationSucceeded()) return 0;
+    int completed = 0;
+    for (const auto &order : orders) {
+        if (order.status != OrderStatus::Charging || !order.startedAt) continue;
+        const auto started = QDateTime::fromString(*order.startedAt, Qt::ISODate);
+        const auto deadline = started.addSecs(DemoChargingDurationSeconds);
+        if (started.isValid() && deadline <= now
+            && settleChargingOrder(order.orderId, order.userId, deadline).ok()) ++completed;
+    }
+    return completed;
+}
+
 ServiceResult ApplicationService::stopOrder(const QString &token, const QJsonObject &input)
+{
+    ServiceResult failure;
+    const auto userId = authenticatedUserId(token, &failure);
+    if (!userId) return failure;
+    qint64 orderId = 0;
+    if (hasAuthoritativeFields(input) || !readId(input, QStringLiteral("orderId"), &orderId))
+        return orderError(ErrorCode::InvalidRequest);
+    return settleChargingOrder(orderId, *userId, nowUtc());
+}
+
+ServiceResult ApplicationService::settleChargingOrder(qint64 orderId, qint64 userId, const QDateTime &now)
 {
     RepositoryTransaction transaction(repository_);
     if (!transaction.active()) return orderError(ErrorCode::InternalError);
     ServiceResult failure;
-    const auto userId = authenticatedUserId(token, &failure);
-    if (!userId.has_value()) return failure;
-    qint64 orderId = 0;
-    if (hasAuthoritativeFields(input) || !readId(input, QStringLiteral("orderId"), &orderId)) {
-        return orderError(ErrorCode::InvalidRequest);
-    }
-    auto order = ownedOrder(repository_, orderId, *userId, &failure);
+    auto order = ownedOrder(repository_, orderId, userId, &failure);
     if (!order.has_value()) return failure;
     if (order->status != OrderStatus::Charging) return orderError(ErrorCode::IllegalOrderState);
     auto pile = findPile(repository_, order->pileCode);
@@ -359,11 +393,10 @@ ServiceResult ApplicationService::stopOrder(const QString &token, const QJsonObj
         return orderError(ErrorCode::InternalError);
     }
     if (pile->status != PileStatus::Charging) return orderError(ErrorCode::IllegalOrderState);
-    auto user = repository_->findUserById(*userId);
+    auto user = repository_->findUserById(userId);
     if (!repository_->lastOperationSucceeded() || !user.has_value()) {
         return orderError(ErrorCode::InternalError);
     }
-    const QDateTime now = QDateTime::currentDateTimeUtc();
     if (!refreshOrderReading(&*order, now, true)) return orderError(ErrorCode::InternalError);
     order->endedAt = now.toString(Qt::ISODate);
     const bool paid = user->balanceCents >= order->amountCents;
@@ -412,7 +445,7 @@ ServiceResult ApplicationService::payOrder(const QString &token, const QJsonObje
     if (user->balanceCents < order->amountCents) return orderError(ErrorCode::InsufficientBalance);
     user->balanceCents -= order->amountCents;
     order->status = OrderStatus::Completed;
-    order->paidAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    order->paidAt = nowUtc().toString(Qt::ISODate);
     if (!repository_->updateUser(*user)
         || !repository_->updateOrder(*order, OrderStatus::PendingPayment)
         || !transaction.commit()) return orderError(ErrorCode::InternalError);

@@ -8,6 +8,7 @@
 #include "ui/station_map_view.h"
 
 #include <QJsonObject>
+#include <QDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPlainTextEdit>
@@ -16,12 +17,14 @@
 #include <QStackedWidget>
 #include <QTabBar>
 #include <QTabWidget>
+#include <QTimer>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QtTest>
 #include <memory>
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
 #include <QWebEnginePage>
+#include <QWebEngineProfile>
 #include <QWebEngineView>
 #endif
 
@@ -64,6 +67,7 @@ void login(MainWindow &window)
 class ScriptServer final : public QTcpServer {
 public:
     bool respond = true;
+    bool cacheable = false;
     int sdkRequestCount = 0;
     QByteArray script = R"JS(
       window.sdkCounts = {initializations:0, fits:0, zoom:12};
@@ -71,7 +75,9 @@ public:
       class Map {
         constructor(element, options) { sdkCounts.initializations++; window.mapOptions = options; window.sdkMap = this; this.events = {};
           window.initialViewport = {width:element.clientWidth, height:element.clientHeight}; }
-        fitBounds(bounds) { sdkCounts.fits++; sdkCounts.zoom = 12; window.fittedBounds = bounds; }
+        fitBounds(bounds, options) { sdkCounts.fits++; sdkCounts.zoom = 12; window.fittedBounds = bounds;
+          window.fitOptions = options;
+          if (!window.holdTiles) setTimeout(() => { if (this.events.tilesloaded) this.events.tilesloaded(); }, window.tileDelay || 25); }
         getZoom() { return sdkCounts.zoom; }
         setZoom(value) { sdkCounts.zoom = value; }
         setCenter(value) { window.lastCenter = value; }
@@ -98,7 +104,9 @@ public:
                     if (socket->property("replied").toBool()) return;
                     socket->setProperty("replied", true);
                     if (request.startsWith("GET /sdk.js ")) ++sdkRequestCount;
-                    socket->write("HTTP/1.1 200 OK\r\nContent-Type: application/javascript\r\nContent-Length: "
+                    socket->write(QByteArray("HTTP/1.1 200 OK\r\nContent-Type: application/javascript\r\n")
+                                  + (cacheable ? "Cache-Control: public, max-age=3600\r\n" : "Cache-Control: no-store\r\n")
+                                  + "Content-Length: "
                                   + QByteArray::number(script.size()) + "\r\nConnection: close\r\n\r\n" + script);
                     socket->disconnectFromHost();
                 });
@@ -144,6 +152,8 @@ private slots:
     void switchingMainTabsKeepsNavigationState();
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
     void startupPreloadsHomeBeforeLogin();
+    void slowTilesKeepPreviewUntilReady();
+    void sdkHttpCacheIsShared();
     void failedHomePreloadRetriesAfterLogin();
     void stationMarkersAndBridgeUseSharedCanvas();
     void floatingNavigationSurvivesEmbeddedMapRepaints();
@@ -292,6 +302,10 @@ void NavigationTests::floatingNavigationSurvivesEmbeddedMapRepaints()
         QTest::mouseClick(bar, Qt::LeftButton, Qt::NoModifier, bar->tabRect(index).center());
         QTRY_COMPARE(tabs->currentIndex(), index);
         QTest::qWait(60);
+        // Scan now opens a full camera page. Return from it before inspecting
+        // the underlying navigation bar's presented pixels.
+        if (auto *scanner = window.findChild<QDialog *>(QStringLiteral("qrScanDialog")))
+            scanner->reject();
         bar->update(QRegion(bar->tabRect(0)) | QRegion(bar->tabRect(4)));
         image = navigation_test::presentedNavigation(
             *bar, QStringLiteral("map-tab-%1").arg(index));
@@ -357,6 +371,7 @@ void NavigationTests::startupPreloadReusesMapForFirstRoute()
 void NavigationTests::startupPreloadsHomeBeforeLogin()
 {
     ScriptServer server;
+    server.script.prepend("window.tileDelay = 2000;\n"); // Realistic slow tiles, independent of SDK readiness.
     QVERIFY(server.listen(QHostAddress::LocalHost));
     MockChargingApi api;
     DeferredMap service;
@@ -368,6 +383,8 @@ void NavigationTests::startupPreloadsHomeBeforeLogin()
     QElapsedTimer startup;
     startup.start();
     window.show();
+    window.activateWindow();
+    QVERIFY(QTest::qWaitForWindowActive(&window));
     auto *phone = window.findChild<QLineEdit *>(QStringLiteral("phoneInput"));
     phone->setFocus();
     QTest::keyClicks(phone, QStringLiteral("13800000001"));
@@ -375,6 +392,8 @@ void NavigationTests::startupPreloadsHomeBeforeLogin()
     const qint64 warmMs = startup.elapsed();
     auto *view = map->findChild<QWebEngineView *>(QStringLiteral("stationWebView"));
     QVERIFY(view);
+    QVERIFY(!view->page()->profile()->isOffTheRecord());
+    QCOMPARE(view->page()->profile()->httpCacheType(), QWebEngineProfile::DiskHttpCache);
     QVERIFY(!map->isVisible());
     QCOMPARE(stations.count(), 0);
     QCOMPARE(orders.count(), 0);
@@ -391,6 +410,7 @@ void NavigationTests::startupPreloadsHomeBeforeLogin()
     // blocking constructor / a timed JavaScript readiness poll in production.
     QTest::qWait(qMax(0, 3200 - static_cast<int>(startup.elapsed())));
     QTRY_COMPARE(server.sdkRequestCount, 2);
+    const int fitsBeforeLogin = evaluate(view, QStringLiteral("sdkCounts.fits")).toInt();
     window.findChild<QLineEdit *>(QStringLiteral("verificationCodeInput"))->setText(QStringLiteral("123456"));
     QElapsedTimer transition;
     transition.start();
@@ -405,7 +425,66 @@ void NavigationTests::startupPreloadsHomeBeforeLogin()
     QCOMPARE(loads.count(), 0);
     QCOMPARE(server.sdkRequestCount, 2);
     QCOMPARE(evaluate(view, QStringLiteral("sdkCounts.initializations")).toInt(), 1);
+    QTest::qWait(250); // Include delayed renderer resize/layout events in the assertion.
+    QCOMPARE(window.size(), QSize(480, 860));
+    QCOMPARE(evaluate(view, QStringLiteral("sdkCounts.fits")).toInt(), fitsBeforeLogin);
+    QCOMPARE(evaluate(view, QStringLiteral("fitOptions.ease.duration")).toInt(), 0);
     QVERIFY(!window.findChild<QLabel *>(QStringLiteral("stationMapStatus"))->isVisible());
+}
+
+void NavigationTests::slowTilesKeepPreviewUntilReady()
+{
+    ScriptServer server;
+    server.script.prepend("window.holdTiles = true;\n");
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    MockChargingApi api;
+    DeferredMap service;
+    service.preloadUrl = server.url();
+    MainWindow window(api, service);
+    window.show();
+    auto *map = window.findChild<StationMapView *>();
+    auto *canvas = map->findChild<RouteMapView *>();
+    auto *preview = map->findChild<QWidget *>(QStringLiteral("stationLoadingPreview"));
+    QTRY_VERIFY_WITH_TIMEOUT(canvas->isReady(), 4000);
+    QVERIFY(!map->isReady()); // SDK/map existence must not claim tile readiness.
+    QCOMPARE(server.sdkRequestCount, 1); // Navigation does not compete with the cold home.
+    login(window);
+    QTRY_VERIFY(preview->isVisible());
+    QVERIFY(window.findChild<QLabel *>(QStringLiteral("stationMapMode"))->text().contains(QStringLiteral("离线预览")));
+    auto *view = map->findChild<QWebEngineView *>();
+    QSignalSpy loads(view, &QWebEngineView::loadStarted);
+    evaluate(view, QStringLiteral("sdkMap.events.tilesloaded()"));
+    QTRY_VERIFY(map->isReady());
+    QTRY_VERIFY(!preview->isVisible());
+    QCOMPARE(loads.count(), 0);
+    QCOMPARE(map->findChild<QWebEngineView *>(), view);
+    canvas->retry();
+    QTRY_VERIFY(canvas->isReady() && !canvas->isBaseMapReady());
+    auto *tileTimeout = canvas->findChild<QTimer *>(QStringLiteral("stationTileTimeout"));
+    QVERIFY(tileTimeout && tileTimeout->isActive());
+    QCOMPARE(tileTimeout->interval(), 15000);
+    // Exercise the expiry slot without adding a second 15-second sleep.
+    QVERIFY(QMetaObject::invokeMethod(tileTimeout, "timeout", Qt::DirectConnection));
+    QTRY_VERIFY(window.findChild<QPushButton *>(QStringLiteral("stationMapRetry"))->isVisible());
+    QVERIFY(preview->isVisible());
+    QVERIFY(!map->isReady());
+    QVERIFY(window.findChild<QLabel *>(QStringLiteral("stationMapStatus"))->text().contains(QStringLiteral("加载超时")));
+}
+
+void NavigationTests::sdkHttpCacheIsShared()
+{
+    ScriptServer server;
+    server.cacheable = true;
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    RouteMapView first, second;
+    first.preload(server.url());
+    QTRY_VERIFY_WITH_TIMEOUT(first.isPreloaded(), 4000);
+    QCOMPARE(server.sdkRequestCount, 1);
+    second.preload(server.url());
+    QTRY_VERIFY_WITH_TIMEOUT(second.isPreloaded(), 4000);
+    QCOMPARE(server.sdkRequestCount, 1); // Second canvas actually hits HTTP cache.
+    QCOMPARE(first.findChild<QWebEngineView *>()->page()->profile(),
+             second.findChild<QWebEngineView *>()->page()->profile());
 }
 
 void NavigationTests::failedHomePreloadRetriesAfterLogin()
@@ -462,10 +541,11 @@ void NavigationTests::mockModeDoesNotPreloadMap()
     MockChargingApi api;
     MainWindow window(api);
     window.show();
-    QTest::qWait(400);
+    // Offline geometry is prepared asynchronously; VM load need not fit an
+    // arbitrary 400 ms sleep. Wait for readiness before checking no web view.
+    QTRY_VERIFY_WITH_TIMEOUT(window.findChild<StationMapView *>()->isReady(), 5000);
     QVERIFY(!window.findChild<QWebEngineView *>(QStringLiteral("routeWebView")));
     QVERIFY(!window.findChild<QWebEngineView *>(QStringLiteral("stationWebView")));
-    QVERIFY(window.findChild<StationMapView *>()->isReady());
 }
 
 void NavigationTests::zoomFitAndRepeatedRoutesReuseMap()
@@ -556,7 +636,7 @@ void NavigationTests::mapTimeoutReleasesBusyState()
     QTRY_VERIFY_WITH_TIMEOUT(plan->isEnabled(), 17000);
     const QString message =
         page.findChild<QLabel *>(QStringLiteral("routeMessage"))->text();
-    QVERIFY(message.contains(QStringLiteral("加载超时（15 秒）")));
+    QVERIFY2(message.contains(QStringLiteral("加载超时（15 秒）")), qPrintable(message));
     QVERIFY(message.contains(QStringLiteral("网络较慢")));
     QVERIFY(!page.findChild<QPushButton *>(QStringLiteral("mapZoomInButton"))->isEnabled());
     QVERIFY(page.findChild<QPushButton *>(QStringLiteral("mapRetryButton"))->isEnabled());
@@ -589,6 +669,8 @@ void NavigationTests::stationMarkersAndBridgeUseSharedCanvas()
     // Marker/map events may arrive for the same click, in either order.
     evaluate(view, QStringLiteral("sdkMap.events.click({}); sdkLayers[2].events.click({geometry:{id:'1'}})"));
     QTRY_COMPARE(map->selectedStationId(), 1);
+    QTRY_COMPARE(evaluate(view, QStringLiteral("sdkCounts.zoom")).toInt(), 15);
+    QTRY_VERIFY(evaluate(view, QStringLiteral("!!window.lastCenter")).toBool());
     QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationPreviewCard"))->isVisible());
     QTRY_COMPARE(evaluate(view, QStringLiteral("sdkLayers[2].geometries[0].styleId")).toString(), QStringLiteral("selected"));
     QCOMPARE(details.size(), 0);
@@ -596,8 +678,18 @@ void NavigationTests::stationMarkersAndBridgeUseSharedCanvas()
     QTRY_COMPARE(map->selectedStationId(), 2);
     QTRY_COMPARE(selected.size(), 2);
     evaluate(view, QStringLiteral("sdkMap.events.click({})"));
-    QTRY_COMPARE(map->selectedStationId(), 0);
-    QVERIFY(!window.findChild<QWidget *>(QStringLiteral("stationPreviewCard"))->isVisible());
+    QTRY_VERIFY(!window.findChild<QWidget *>("stationHomeOverlay")->isVisible());
+    QCOMPARE(map->selectedStationId(), 2);
+    evaluate(view, QStringLiteral("sdkMap.events.click({})"));
+    QTRY_VERIFY(window.findChild<QWidget *>("stationHomeOverlay")->isVisible());
+    QTRY_VERIFY(window.findChild<QWidget *>("stationPreviewCard")->isVisible());
+    // Real browser input is bridged independently of programmatic camera changes.
+    evaluate(view, QStringLiteral("document.getElementById('map').dispatchEvent(new WheelEvent('wheel', {deltaY: 120, bubbles: true}))"));
+    QTRY_VERIFY(!window.findChild<QWidget *>("stationSheetPages")->isVisible());
+    QVERIFY(window.findChild<QWidget *>("stationHomeOverlay")->isVisible());
+    map->focusStation(2);
+    QTRY_COMPARE(evaluate(view, QStringLiteral("sdkCounts.zoom")).toInt(), 15);
+    evaluate(view, QStringLiteral("sdkMap.setZoom(12)"));
     window.findChild<QLineEdit *>(QStringLiteral("stationKeywordInput"))->setText(QStringLiteral("和平"));
     window.findChild<QPushButton *>(QStringLiteral("stationRefreshButton"))->click();
     QTRY_COMPARE(evaluate(view, QStringLiteral("sdkLayers[2].geometries.length")).toInt(), 1);
@@ -607,6 +699,12 @@ void NavigationTests::stationMarkersAndBridgeUseSharedCanvas()
     QTRY_COMPARE(evaluate(view, QStringLiteral("sdkCounts.zoom")).toInt(), 13);
     window.findChild<QPushButton *>(QStringLiteral("stationMapLocate"))->click();
     QTRY_VERIFY(evaluate(view, QStringLiteral("!!window.lastCenter")).toBool());
+    QTRY_COMPARE(evaluate(view, QStringLiteral("sdkCounts.zoom")).toInt(), 15);
+    const QVariant savedCenter = evaluate(view, QStringLiteral("JSON.stringify(lastCenter)"));
+    emit window.findChild<StationBrowserPage *>()->refreshRequested();
+    QTRY_VERIFY(window.findChild<QPushButton *>("stationRefreshButton")->isEnabled());
+    QCOMPARE(evaluate(view, QStringLiteral("sdkCounts.zoom")).toInt(), 15);
+    QCOMPARE(evaluate(view, QStringLiteral("JSON.stringify(lastCenter)")), savedCenter);
     auto *tabs = window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
     tabs->setCurrentIndex(1);
     QTRY_COMPARE(view->page()->lifecycleState(), QWebEnginePage::LifecycleState::Frozen);

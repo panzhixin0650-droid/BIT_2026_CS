@@ -2,7 +2,6 @@
 
 #include <QDir>
 #include <QImage>
-#include <QFrame>
 #include <QScreen>
 #include <QTabBar>
 #include <QtTest>
@@ -42,14 +41,10 @@ inline QString missingNavigationContent(const QTabBar &bar, const QImage &image)
     }
     for (int index = 0; index < bar.count(); ++index) {
         const QRect tab = bar.tabRect(index);
-        // Sample the two halves of the visible bar, excluding its outer gap.
-        const auto *container = bar.parentWidget()->findChild<QFrame *>(
-            QStringLiteral("navigationContainer"));
-        if (!container) return QStringLiteral("Missing navigation container");
-        const int middle = container->height() / 2;
+        // Sample icon and label separately, excluding the tile border/shadow.
         const QRect areas[] = {
-            QRect(tab.center().x() - 12, 6, 24, middle - 6),
-            QRect(tab.left() + 2, middle + 2, tab.width() - 4, middle - 8)
+            QRect(tab.center().x() - 14, 16, 28, 35),
+            QRect(tab.left() + 2, 53, tab.width() - 4, 28)
         };
         for (int part = 0; part < 2; ++part) {
             int ink = 0;

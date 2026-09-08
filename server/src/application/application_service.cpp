@@ -1,6 +1,7 @@
 #include "application_service.h"
 
 #include "application/session_store.h"
+#include "application/order_billing.h"
 #include "adapters/i_pile_gateway.h"
 #include "adapters/mock_prediction_provider.h"
 #include "charging/protocol/protocol_constants.h"
@@ -292,12 +293,14 @@ ApplicationService::ApplicationService(IRepository *repository,
                                        SessionStore *sessions,
                                        IPileGateway *pileGateway,
                                        MockPredictionProvider *predictions,
-                                       QObject *parent)
+                                       QObject *parent,
+                                       Clock clock)
     : QObject(parent)
     , repository_(repository)
     , sessions_(sessions)
     , pileGateway_(pileGateway)
     , predictions_(predictions)
+    , clock_(clock ? std::move(clock) : Clock{QDateTime::currentDateTimeUtc})
 {
 }
 
@@ -496,6 +499,7 @@ ServiceResult ApplicationService::listStations(const QString &token,
         return internalError();
     }
 
+    const QDateTime quotedAt = nowUtc();
     QList<StationDto> stations;
     for (StationDto station : storedStations) {
         if (!region.isEmpty() && station.region != region) {
@@ -506,6 +510,10 @@ ServiceResult ApplicationService::listStations(const QString &token,
             && !station.address.contains(keyword, Qt::CaseInsensitive)) {
             continue;
         }
+        const auto price = chargingUnitPriceCents(station.priceCentsPerKwh, quotedAt);
+        if (!price.has_value()) return internalError();
+        station.priceCentsPerKwh = *price;
+        station.pricingRule = QString::fromLatin1(DemoPeakPricingRule);
         if (hasLongitude) {
             station.distanceKm = distanceKm(longitude, latitude,
                                             station.longitude, station.latitude);
@@ -563,6 +571,10 @@ ServiceResult ApplicationService::getStation(const QString &token,
                                       QStringLiteral("NOT_FOUND"));
     }
     station->distanceKm.reset();
+    const auto price = chargingUnitPriceCents(station->priceCentsPerKwh, nowUtc());
+    if (!price.has_value()) return internalError();
+    station->priceCentsPerKwh = *price;
+    station->pricingRule = QString::fromLatin1(DemoPeakPricingRule);
     station->predictedCongestion = predictions_ == nullptr
             || !predictions_->available()
         ? std::nullopt

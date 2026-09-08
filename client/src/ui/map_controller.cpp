@@ -52,6 +52,12 @@ void MapController::resolveLocation(const QString &address)
     if (!pendingGeocodeRequestId_.isEmpty()) {
         return;
     }
+    if (address.trimmed() == QStringLiteral("演示位置")) {
+        page_.setResolvedLocation({QStringLiteral("演示位置"), 123.42, 41.70});
+        page_.showLocationMessage(QStringLiteral("已恢复默认位置"));
+        emit locationChanged();
+        return;
+    }
     page_.setLocationBusy(true);
     page_.showLocationMessage(QStringLiteral("正在解析地址…"));
     geocodePurpose_ = GeocodePurpose::LocationSelection;

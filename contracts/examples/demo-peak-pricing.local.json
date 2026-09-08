@@ -1,0 +1,17 @@
+{
+  "description": "Local acceptance cases, not a TCP message. Asia/Shanghai daily [08:00,11:00) and [18:00,21:00), peak +20%, start-time snapshot.",
+  "pricingRule": "DEMO_PEAK_START_V1",
+  "cases": [
+    {"name": "before-morning", "now": "2026-09-07T23:59:59Z", "price135": 135, "price120": 120},
+    {"name": "morning-start", "now": "2026-09-08T00:00:00Z", "price135": 162, "price120": 144},
+    {"name": "morning-last-second", "now": "2026-09-08T02:59:59Z", "price135": 162, "price120": 144},
+    {"name": "morning-end", "now": "2026-09-08T03:00:00Z", "price135": 135, "price120": 120},
+    {"name": "before-evening", "now": "2026-09-08T09:59:59Z", "price135": 135, "price120": 120},
+    {"name": "evening-start", "now": "2026-09-08T10:00:00Z", "price135": 162, "price120": 144},
+    {"name": "evening-last-second", "now": "2026-09-08T12:59:59Z", "price135": 162, "price120": 144},
+    {"name": "evening-end", "now": "2026-09-08T13:00:00Z", "price135": 135, "price120": 120},
+    {"name": "beijing-midnight", "now": "2026-09-08T16:00:00Z", "price135": 135, "price120": 120},
+    {"name": "explicit-beijing-offset", "now": "2026-09-09T08:30:00+08:00", "price135": 162, "price120": 144},
+    {"name": "non-beijing-offset", "now": "2026-09-08T03:00:00-07:00", "price135": 162, "price120": 144}
+  ]
+}

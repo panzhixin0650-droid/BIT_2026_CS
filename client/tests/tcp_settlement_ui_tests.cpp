@@ -13,6 +13,7 @@
 #include <QPointer>
 #include <QPushButton>
 #include <QSignalSpy>
+#include <QScrollArea>
 #include <QStackedWidget>
 #include <QTabWidget>
 #include <QTcpServer>
@@ -50,16 +51,20 @@ void TcpSettlementUiTests::settlementNoticePreservesSession_data()
 {
     QTest::addColumn<bool>("fromOrders");
     QTest::addColumn<bool>("paid");
-    QTest::newRow("home-paid") << false << true;
-    QTest::newRow("orders-paid") << true << true;
-    QTest::newRow("home-pending-payment") << false << false;
-    QTest::newRow("orders-pending-payment") << true << false;
+    QTest::addColumn<bool>("automatic");
+    QTest::newRow("home-paid") << false << true << false;
+    QTest::newRow("orders-paid") << true << true << false;
+    QTest::newRow("home-pending-payment") << false << false << false;
+    QTest::newRow("orders-pending-payment") << true << false << false;
+    QTest::newRow("automatic-paid") << false << true << true;
+    QTest::newRow("automatic-pending-payment") << false << false << true;
 }
 
 void TcpSettlementUiTests::settlementNoticePreservesSession()
 {
     QFETCH(bool, fromOrders);
     QFETCH(bool, paid);
+    QFETCH(bool, automatic);
     const QJsonObject login = fixtureData(QStringLiteral("auth-user-login.response.json"));
     const QJsonObject stations = fixtureData(QStringLiteral("station-list.response.json"));
     const QJsonObject charging = fixtureData(QStringLiteral("order-progress-1.response.json"));
@@ -170,61 +175,48 @@ void TcpSettlementUiTests::settlementNoticePreservesSession()
     QCOMPARE(loginRequest->data, QJsonObject({{QStringLiteral("phone"), QStringLiteral("13800000001")}}));
 
     if (fromOrders) {
-        navigation->setCurrentIndex(1);
+        navigation->setCurrentIndex(4);
+        window.findChild<QPushButton *>("profileOrdersButton")->click();
         QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("orderCard_1001")) != nullptr);
         QTest::mouseClick(window.findChild<QWidget *>(QStringLiteral("orderCard_1001")),
                           Qt::LeftButton, Qt::NoModifier, QPoint(12, 12));
     }
-    auto *stopButton = window.findChild<QPushButton *>(fromOrders
-        ? QStringLiteral("orderDetailStopButton") : QStringLiteral("chargingStopButton"));
-    if (!fromOrders) window.findChild<QPushButton *>(QStringLiteral("currentOrderToggle"))->click();
-    QVERIFY(stopButton != nullptr);
+    if (fromOrders) window.findChild<QPushButton *>("orderDetailProgressButton")->click();
+    else navigation->setCurrentIndex(1);
+    auto *stopButton = window.findChild<QPushButton *>("chargingEndButton");
     QTRY_VERIFY(stopButton->isVisible() && stopButton->isEnabled());
-
-    const auto stationCount = stationSpy.count();
-    const auto currentCount = currentSpy.count();
-    bool noticeOpened = false;
-    bool noticeClosed = false;
-    bool refreshedWhileOpen = false;
-    QTimer dialogPoller;
-    connect(&dialogPoller, &QTimer::timeout, &window, [&]() {
-        for (auto *dialog : window.findChildren<QMessageBox *>()) {
-            if (!dialog->isVisible()) {
-                continue;
-            }
-            if (dialog->windowTitle() == QStringLiteral("确认结束充电")) {
-                dialog->done(QMessageBox::Yes);
-            } else if (!noticeOpened
-                       && dialog->objectName() == (paid ? QStringLiteral("chargingStoppedDialog")
-                                                       : QStringLiteral("chargingDebtDialog"))) {
-                noticeOpened = true;
-                // Do not auto-dismiss immediately: that hid the original TCP bug.
-                QTimer::singleShot(timeoutMs * 2, dialog, [&, dialog]() {
-                    refreshedWhileOpen = stationSpy.count() > stationCount
-                        && currentSpy.count() > currentCount
-                        && qvariant_cast<client::StationListResult>(stationSpy.last().at(0)).ok()
-                        && qvariant_cast<client::CurrentOrderResult>(currentSpy.last().at(0)).ok();
-                    noticeClosed = true;
-                    dialog->accept();
-                });
-            }
-        }
-    });
-    dialogPoller.start(5);
-    QTest::mouseClick(stopButton, Qt::LeftButton);
-    QTRY_VERIFY(noticeClosed);
-    dialogPoller.stop();
-    QVERIFY(refreshedWhileOpen);
-    QCOMPARE(stopSpy.count(), 1);
-    QVERIFY(qvariant_cast<client::ChargingStopResult>(stopSpy.first().at(0)).ok());
-    if (!paid) {
-        QTRY_COMPARE(navigation->currentIndex(), 4); // Debt still leads to the wallet.
+    window.findChild<QWidget *>("chargingPage")->findChild<QScrollArea *>()->ensureWidgetVisible(stopButton);
+    QTRY_VERIFY(stopButton->visibleRegion().contains(stopButton->rect().center()));
+    if (automatic) {
+        // The server completes without a client stop request. Polling recovers
+        // both a remaining unpaid current order and a completed history entry.
+        stopped = true;
+    } else {
+        QTimer dialogPoller;
+        connect(&dialogPoller,&QTimer::timeout,&window,[&]{
+            for(auto *d:window.findChildren<QMessageBox *>())
+                if(d->isVisible()&&d->button(QMessageBox::Yes))d->done(QMessageBox::Yes);
+        });
+        dialogPoller.start(5);
+        QTest::mouseClick(stopButton,Qt::LeftButton);
+        QTRY_COMPARE(stopSpy.count(),1);
+        dialogPoller.stop();
+        QVERIFY(qvariant_cast<client::ChargingStopResult>(stopSpy.first().at(0)).ok());
+    }
+    QTRY_VERIFY(window.findChild<QLabel *>("chargingState")->text().contains(QStringLiteral("已结束")));
+    QCOMPARE(navigation->currentIndex(),1);
+    if(!paid){
+        auto *recharge=window.findChild<QPushButton *>("chargingRechargeButton");
+        QTRY_VERIFY(recharge->isVisible());recharge->click();
+        QCOMPARE(navigation->currentIndex(),4);
     }
 
     navigation->setCurrentIndex(0);
     QTRY_VERIFY(refresh->isEnabled());
     const auto beforeRefresh = stationSpy.count();
-    QTest::mouseClick(refresh, Qt::LeftButton);
+    auto *reload = window.findChild<QPushButton *>(QStringLiteral("stationHomeReload"));
+    QVERIFY(reload);
+    reload->click();
     QTRY_VERIFY(stationSpy.count() > beforeRefresh);
     QVERIFY(qvariant_cast<client::StationListResult>(stationSpy.last().at(0)).ok());
     const auto beforeProfile = profileSpy.count();
@@ -246,7 +238,7 @@ void TcpSettlementUiTests::settlementNoticePreservesSession()
             QCOMPARE(request.token.value_or(QString{}), login.value(QStringLiteral("token")).toString());
         }
     }
-    QCOMPARE(stopRequests, 1);
+    QCOMPARE(stopRequests, automatic ? 0 : 1);
 }
 
 QTEST_MAIN(TcpSettlementUiTests)

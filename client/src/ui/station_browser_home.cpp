@@ -1,19 +1,23 @@
 #include "ui/station_browser_page.h"
-
 #include "ui/station_map_view.h"
 #include "ui/station_preview_card.h"
+#include "ui/client_theme.h"
 #include <QCheckBox>
 #include <QComboBox>
 #include <QEvent>
 #include <QFrame>
-#include <QGraphicsDropShadowEffect>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QScrollBar>
+#include <QScroller>
 #include <QStackedWidget>
 #include <QVBoxLayout>
+#include <QMouseEvent>
+#include <QKeyEvent>
+#include <QTouchEvent>
 
 namespace charging::client {
 
@@ -36,143 +40,185 @@ void StationBrowserPage::setupMapHome()
 {
     stationMap_ = new StationMapView(listPage_);
     listPage_->layout()->addWidget(stationMap_);
-    homeOverlay_ = new QWidget(listPage_);
-    homeOverlay_->setObjectName(QStringLiteral("stationHomeOverlay"));
+    homeOverlay_ = new QFrame(listPage_);
+    homeOverlay_->setObjectName("stationHomeOverlay");
     auto *homeLayout = new QVBoxLayout(homeOverlay_);
-    homeLayout->setContentsMargins(0, 0, 0, 0);
-    homeLayout->setSpacing(8);
-    auto *brandRow = new QHBoxLayout;
-    auto *brand = new QLabel(QStringLiteral("BIT / CHARGE  悦充"), homeOverlay_);
-    brand->setObjectName(QStringLiteral("stationHomeBrand"));
-    welcomeLabel_ = new QLabel(homeOverlay_);
-    welcomeLabel_->setObjectName(QStringLiteral("welcomeLabel"));
-    welcomeLabel_->setTextFormat(Qt::PlainText);
-    welcomeLabel_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    welcomeLabel_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    loginNoticeLabel_ = new QLabel(homeOverlay_);
-    loginNoticeLabel_->setObjectName(QStringLiteral("loginNoticeLabel"));
-    loginNoticeLabel_->hide();
-    brandRow->addWidget(brand);
-    brandRow->addWidget(welcomeLabel_, 1);
-    homeLayout->addLayout(brandRow);
+    homeLayout->setContentsMargins(12, 0, 12, 12);
+    homeLayout->setSpacing(6);
+    homeLayout->setSizeConstraint(QLayout::SetNoConstraint);
+    sheetHandle_ = new QPushButton(QStringLiteral("━━━━"), homeOverlay_);
+    sheetHandle_->setObjectName("stationSheetHandle");
+    sheetHandle_->setAccessibleName(QStringLiteral("拖动展开或收起电站面板，点击切换高度"));
+    sheetHandle_->setFixedHeight(24);
+    sheetHandle_->setCursor(Qt::SizeVerCursor);
+    sheetHandle_->setAttribute(Qt::WA_AcceptTouchEvents);
+    sheetHandle_->installEventFilter(this);
+    homeLayout->addWidget(sheetHandle_);
+    homeSearchButton_ = new QPushButton(QStringLiteral("⌕  搜索电站、区域或地址"), homeOverlay_);
+    homeSearchButton_->setObjectName("stationSearchEntry");
+    homeSearchButton_->setMinimumHeight(44);
+    connect(homeSearchButton_, &QPushButton::clicked, this, &StationBrowserPage::openSearch);
+    homeLayout->addWidget(homeSearchButton_);
+    sheetPages_ = new QStackedWidget(homeOverlay_);
+    sheetPages_->setObjectName("stationSheetPages");
+    sheetPages_->setMinimumSize(0, 0);
+    sheetPages_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+    homeLayout->addWidget(sheetPages_, 1);
+    overviewScroll_ = new QScrollArea(sheetPages_);
+    overviewScroll_->setObjectName("stationDiscoveryScroll");
+    overviewScroll_->setWidgetResizable(true);
+    overviewScroll_->setFrameShape(QFrame::NoFrame);
+    overviewScroll_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    QScroller::grabGesture(overviewScroll_->viewport(), QScroller::TouchGesture);
+    overviewContent_ = new QWidget;
+    auto *overviewLayout = new QVBoxLayout(overviewContent_);
+    overviewLayout->setContentsMargins(0, 0, 0, 8);
+    overviewLayout->setSpacing(8);
+    overviewScroll_->setWidget(overviewContent_);
+    sheetPages_->addWidget(overviewScroll_);
+    welcomeLabel_ = new QLabel(this); welcomeLabel_->hide();
+    welcomeLabel_->setObjectName("welcomeLabel");
+    loginNoticeLabel_ = new QLabel(this); loginNoticeLabel_->hide();
+    loginNoticeLabel_->setObjectName("loginNoticeLabel");
+    auto *caption = new QHBoxLayout;
+    locationCaption_ = new QLabel(overviewContent_);
+    locationCaption_->setObjectName("stationLocationCaption");
+    locationCaption_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    stationCountLabel_ = new QLabel(overviewContent_);
+    stationCountLabel_->setObjectName("stationResultCount");
+    auto *homeLocation = new QPushButton(overviewContent_);
+    homeLocation->setObjectName("stationHomeLocationButton");
+    homeLocation->setIcon(clientNavigationIcon(NavigationIcon::Location));
+    homeLocation->setIconSize(QSize(24,24));
+    homeLocation->setFixedSize(44,44);
+    homeLocation->setAccessibleName(QStringLiteral("修改当前位置"));
+    homeLocation->setToolTip(homeLocation->accessibleName());
+    connect(homeLocation, &QPushButton::clicked, this, &StationBrowserPage::openLocationSettings);
+    caption->addWidget(locationCaption_, 1);
+    caption->addWidget(stationCountLabel_);
+    caption->addWidget(homeLocation);
+    overviewLayout->addLayout(caption);
 
-    auto *queryCard = new QFrame(homeOverlay_);
-    queryCard->setObjectName(QStringLiteral("stationQueryCard"));
-    queryCard->setProperty("role", "mapCard");
-    auto *searchShadow = new QGraphicsDropShadowEffect(queryCard);
-    searchShadow->setBlurRadius(14);
-    searchShadow->setOffset(0, 2);
-    searchShadow->setColor(QColor(32, 61, 48, 20));
-    queryCard->setGraphicsEffect(searchShadow);
-    auto *searchRow = new QHBoxLayout(queryCard);
-    searchRow->setContentsMargins(8, 7, 8, 7);
-    searchRow->setSpacing(6);
-    auto *searchIcon = new QLabel(QStringLiteral("⌕"), queryCard);
-    searchIcon->setObjectName(QStringLiteral("stationSearchIcon"));
-    searchIcon->setFixedWidth(18);
-    searchRow->addWidget(searchIcon);
-    keywordInput_ = new QLineEdit(queryCard);
-    keywordInput_->setObjectName(QStringLiteral("stationKeywordInput"));
-    keywordInput_->setPlaceholderText(QStringLiteral("搜索充电站、区域或地址"));
-    keywordInput_->setAccessibleName(QStringLiteral("站名或地址关键词，例如和平"));
+    searchPage_ = new QWidget(pages_);
+    searchPage_->setObjectName("stationSearchPage");
+    auto *searchLayout = new QVBoxLayout(searchPage_);
+    searchLayout->setContentsMargins(16, 14, 16, 12);
+    auto *searchRow = new QHBoxLayout;
+    auto *searchBack = new QPushButton(QStringLiteral("‹"), searchPage_);
+    searchBack->setObjectName("stationSearchBack");
+    searchBack->setAccessibleName(QStringLiteral("返回地图"));
+    searchBack->setFixedSize(44, 44);
+    keywordInput_ = new QLineEdit(searchPage_);
+    keywordInput_->setObjectName("stationKeywordInput");
+    keywordInput_->setPlaceholderText(QStringLiteral("搜索电站、区域或地址"));
+    keywordInput_->setClearButtonEnabled(true);
     keywordInput_->setMinimumWidth(0);
-    refreshButton_ = new QPushButton(QStringLiteral("搜索"), queryCard);
-    refreshButton_->setObjectName(QStringLiteral("stationRefreshButton"));
-    refreshButton_->setFixedWidth(46);
-    filterToggle_ = new QPushButton(QStringLiteral("筛选"), queryCard);
-    filterToggle_->setObjectName(QStringLiteral("stationFilterToggle"));
-    filterToggle_->setCheckable(true);
-    filterToggle_->setFixedWidth(52);
-    filterToggle_->setAccessibleName(QStringLiteral("展开位置与区域筛选"));
+    refreshButton_ = new QPushButton(QStringLiteral("搜索"), searchPage_);
+    refreshButton_->setObjectName("stationRefreshButton");
+    refreshButton_->setFixedWidth(48);
+    locationEntry_ = new QPushButton(searchPage_);
+    locationEntry_->setObjectName("stationLocationEntry");
+    locationEntry_->setIcon(clientNavigationIcon(NavigationIcon::Location));
+    locationEntry_->setIconSize(QSize(24,24));
+    locationEntry_->setFixedSize(44,44);
+    locationEntry_->setAccessibleName(QStringLiteral("修改当前位置"));
+    locationEntry_->setToolTip(locationEntry_->accessibleName());
+
+    searchRow->addWidget(searchBack);
     searchRow->addWidget(keywordInput_, 1);
     searchRow->addWidget(refreshButton_);
-    searchRow->addWidget(filterToggle_);
-    homeLayout->addWidget(queryCard);
+    searchLayout->addLayout(searchRow);
+    searchLayout->addWidget(locationEntry_, 0, Qt::AlignRight);
+    searchMessage_ = new QLabel(searchPage_);
+    searchMessage_->setObjectName("stationSearchMessage");
+    searchMessage_->setWordWrap(true);
+    searchLayout->addWidget(searchMessage_);
+    auto *searchScroll = new QScrollArea(searchPage_);
+    searchScroll->setWidgetResizable(true);
+    searchScroll->setFrameShape(QFrame::NoFrame);
+    searchScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    searchContent_ = new QWidget;
+    searchContent_->setObjectName("stationSearchContent");
+    auto *resultsLayout = new QVBoxLayout(searchContent_);
+    resultsLayout->setContentsMargins(0, 0, 0, 0);
+    searchScroll->setWidget(searchContent_);
+    QScroller::grabGesture(searchScroll->viewport(), QScroller::TouchGesture);
+    searchLayout->addWidget(searchScroll, 1);
+    pages_->addWidget(searchPage_);
+    connect(searchBack, &QPushButton::clicked, this, [this] {
+        pages_->setCurrentWidget(listPage_);
+        keywordInput_->setText(appliedKeyword_);
+    });
+    connect(keywordInput_, &QLineEdit::textChanged, this, [this] { renderSearch(); });
+    connect(locationEntry_, &QPushButton::clicked, this, &StationBrowserPage::openLocationSettings);
 
-    auto *captionRow = new QHBoxLayout;
-    locationCaption_ = new QLabel(homeOverlay_);
-    locationCaption_->setObjectName(QStringLiteral("stationLocationCaption"));
-    locationCaption_->setTextFormat(Qt::PlainText);
-    locationCaption_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    stationCountLabel_ = new QLabel(homeOverlay_);
-    stationCountLabel_->setObjectName(QStringLiteral("stationResultCount"));
-    captionRow->addWidget(locationCaption_, 1);
-    captionRow->addWidget(stationCountLabel_);
-    homeLayout->addLayout(captionRow);
-
-    filterScroll_ = new QScrollArea(homeOverlay_);
-    filterScroll_->setObjectName(QStringLiteral("stationFilterScrollArea"));
-    filterScroll_->setWidgetResizable(true);
-    filterScroll_->setFrameShape(QFrame::NoFrame);
-    filterScroll_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    advancedFilters_ = new QWidget(filterScroll_);
-    advancedFilters_->setObjectName(QStringLiteral("stationAdvancedFilters"));
-    auto *advancedLayout = new QVBoxLayout(advancedFilters_);
+    locationPage_ = new QWidget(pages_);
+    locationPage_->setObjectName("stationLocationPage");
+    auto *locationLayout = new QVBoxLayout(locationPage_);
+    auto *locationBack = new QPushButton(QStringLiteral("‹ 返回"), locationPage_);
+    locationBack->setAccessibleDescription(QStringLiteral("返回地图或搜索页"));
+    locationBack->setObjectName("stationLocationBack");
+    locationLayout->addWidget(locationBack, 0, Qt::AlignLeft);
+    locationScroll_ = new QScrollArea(locationPage_);
+    locationScroll_->setObjectName(QStringLiteral("stationLocationScrollArea"));
+    locationScroll_->setWidgetResizable(true);
+    locationScroll_->setFrameShape(QFrame::NoFrame);
+    locationScroll_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    locationContent_ = new QWidget(locationScroll_);
+    locationContent_->setObjectName(QStringLiteral("stationLocationContent"));
+    auto *advancedLayout = new QVBoxLayout(locationContent_);
     advancedLayout->setContentsMargins(12, 10, 12, 10);
     advancedLayout->setSpacing(8);
-    auto *locationTitle = new QLabel(QStringLiteral("当前位置"), advancedFilters_);
+    auto *locationTitle = new QLabel(QStringLiteral("修改当前位置"), locationContent_);
     locationTitle->setObjectName(QStringLiteral("stationLocationTitle"));
-    locationSummaryLabel_ = new QLabel(advancedFilters_);
+    locationSummaryLabel_ = new QLabel(locationContent_);
     locationSummaryLabel_->setObjectName(QStringLiteral("stationLocationSummary"));
     locationSummaryLabel_->setWordWrap(true);
     locationSummaryLabel_->setTextFormat(Qt::PlainText);
-    demoLocationCheck_ = new QCheckBox(QStringLiteral("使用当前选定位置计算距离"), advancedFilters_);
-    demoLocationCheck_->setObjectName(QStringLiteral("demoLocationCheck"));
-    demoLocationCheck_->setChecked(true);
-    locationPresetCombo_ = new QComboBox(advancedFilters_);
+    locationPresetCombo_ = new QComboBox(locationContent_);
     locationPresetCombo_->setObjectName(QStringLiteral("locationPresetCombo"));
-    locationPresetCombo_->addItem(QStringLiteral("演示当前位置"), QStringLiteral("演示位置"));
+    locationPresetCombo_->addItem(QStringLiteral("默认定位（演示）"), QStringLiteral("演示位置"));
     locationPresetCombo_->addItem(QStringLiteral("和平区"), QStringLiteral("沈阳市和平区"));
     locationPresetCombo_->addItem(QStringLiteral("浑南区"), QStringLiteral("沈阳市浑南区"));
     locationPresetCombo_->addItem(QStringLiteral("手动输入地址"), QString{});
-    locationAddressInput_ = new QLineEdit(advancedFilters_);
+    locationAddressInput_ = new QLineEdit(locationContent_);
     locationAddressInput_->setObjectName(QStringLiteral("locationAddressInput"));
     locationAddressInput_->setPlaceholderText(QStringLiteral("输入城市和具体位置"));
     locationAddressInput_->setText(QStringLiteral("演示位置"));
     locationAddressInput_->setMinimumWidth(0);
-    resolveLocationButton_ = new QPushButton(QStringLiteral("确定位置"), advancedFilters_);
+    resolveLocationButton_ = new QPushButton(QStringLiteral("确定位置"), locationContent_);
     resolveLocationButton_->setObjectName(QStringLiteral("resolveLocationButton"));
     auto *locationInputRow = new QHBoxLayout;
     locationInputRow->addWidget(locationAddressInput_, 1);
     locationInputRow->addWidget(resolveLocationButton_);
-    locationMessageLabel_ = new QLabel(advancedFilters_);
+    locationMessageLabel_ = new QLabel(locationContent_);
     locationMessageLabel_->setObjectName(QStringLiteral("locationMessage"));
     locationMessageLabel_->setTextFormat(Qt::PlainText);
     locationMessageLabel_->setWordWrap(true);
     locationMessageLabel_->hide();
-    regionInput_ = new QLineEdit(advancedFilters_);
-    regionInput_->setObjectName(QStringLiteral("stationRegionInput"));
-    regionInput_->setPlaceholderText(QStringLiteral("完整区域名（可选），例如和平区"));
-    auto *filterHint = new QLabel(QStringLiteral("关键词模糊匹配站名或地址；区域需填写完整名称。修改后点击搜索。"), advancedFilters_);
-    filterHint->setObjectName(QStringLiteral("stationFilterHint"));
-    filterHint->setWordWrap(true);
+    locationTitle->setProperty("role", "discoveryHeading");
     advancedLayout->addWidget(locationTitle);
     advancedLayout->addWidget(locationSummaryLabel_);
-    advancedLayout->addWidget(demoLocationCheck_);
+
     advancedLayout->addWidget(locationPresetCombo_);
-    auto *locationHint = new QLabel(QStringLiteral("请输入包含城市名称的完整地址。"), advancedFilters_);
+    auto *locationHint = new QLabel(QStringLiteral("没有设备定位时，可输入城市和地址。点击“确定位置”立即更新附近距离与路线起点。"), locationContent_);
     locationHint->setObjectName(QStringLiteral("locationInputHint"));
     locationHint->setWordWrap(true);
     advancedLayout->addWidget(locationHint);
     advancedLayout->addLayout(locationInputRow);
     advancedLayout->addWidget(locationMessageLabel_);
-    advancedLayout->addWidget(regionInput_);
-    advancedLayout->addWidget(filterHint);
-    filterScroll_->setWidget(advancedFilters_);
-    filterScroll_->hide();
-    homeLayout->addWidget(filterScroll_);
-    connect(regionInput_, &QLineEdit::textChanged, this, [this](const QString &region) {
-        filterToggle_->setText(region.trimmed().isEmpty() ? QStringLiteral("筛选") : QStringLiteral("筛选·1"));
-    });
-    connect(filterToggle_, &QPushButton::toggled, this, [this](bool expanded) {
-        if (expanded) currentOrderToggle_->setChecked(false);
-        filterScroll_->setVisible(expanded);
-        filterToggle_->setAccessibleName(expanded ? QStringLiteral("收起位置与区域筛选")
-                                                 : QStringLiteral("展开位置与区域筛选"));
-        layoutHomeOverlays();
-    });
+    advancedLayout->addStretch();
+    locationScroll_->setWidget(locationContent_);
 
-    currentOrderCard_ = new QFrame(homeOverlay_);
+    locationLayout->addWidget(locationScroll_, 1);
+
+    auto *restore = new QPushButton(QStringLiteral("恢复默认位置"), locationPage_);
+    restore->setObjectName("stationLocationDefault");
+    locationLayout->addWidget(restore);
+    pages_->addWidget(locationPage_);
+    connect(locationBack, &QPushButton::clicked, this, [this] { pages_->setCurrentWidget(locationReturnPage_); });
+    connect(restore, &QPushButton::clicked, this, [this] { emit locationResolutionRequested(QStringLiteral("演示位置")); });
+    currentOrderCard_ = new QFrame(overviewContent_);
     currentOrderCard_->setObjectName(QStringLiteral("currentOrderCard"));
     auto *currentOrderLayout = new QVBoxLayout(currentOrderCard_);
     currentOrderLayout->setContentsMargins(10, 3, 10, 5);
@@ -200,9 +246,9 @@ void StationBrowserPage::setupMapHome()
     cancelOrderButton_->setObjectName(QStringLiteral("cancelReservationButton"));
     currentOrderNavigationButton_ = new QPushButton(QStringLiteral("导航"), currentOrderDetails_);
     currentOrderNavigationButton_->setObjectName(QStringLiteral("currentOrderNavigationButton"));
-    reservationScanButton_ = new QPushButton(QStringLiteral("前往扫码充电"), currentOrderDetails_);
+    reservationScanButton_ = new QPushButton(QStringLiteral("前往充电"), currentOrderDetails_);
     reservationScanButton_->setObjectName(QStringLiteral("startReservedChargingButton"));
-    progressButton_ = new QPushButton(QStringLiteral("刷新充电进度"), currentOrderDetails_);
+    progressButton_ = new QPushButton(QStringLiteral("查看充电"), currentOrderDetails_);
     progressButton_->setObjectName(QStringLiteral("chargingProgressButton"));
     stopButton_ = new QPushButton(QStringLiteral("结束充电"), currentOrderDetails_);
     stopButton_->setObjectName(QStringLiteral("chargingStopButton"));
@@ -219,37 +265,50 @@ void StationBrowserPage::setupMapHome()
     currentOrderLayout->addWidget(currentOrderDetails_);
     currentOrderDetails_->hide();
     currentOrderCard_->hide();
-    homeLayout->addWidget(currentOrderCard_);
+    overviewLayout->addWidget(currentOrderCard_);
     connect(currentOrderToggle_, &QPushButton::toggled, this, [this](bool expanded) {
-        if (expanded) filterToggle_->setChecked(false);
+        if (expanded) locationEntry_->setChecked(false);
         currentOrderDetails_->setVisible(expanded);
         currentOrderToggle_->setAccessibleName(expanded ? QStringLiteral("收起当前订单操作")
                                                        : QStringLiteral("展开当前订单操作"));
         layoutHomeOverlays();
     });
 
-    actionMessageLabel_ = new QLabel(homeOverlay_);
+    actionMessageLabel_ = new QLabel(overviewContent_);
     actionMessageLabel_->setObjectName(QStringLiteral("stationActionMessage"));
-    listMessageLabel_ = new QLabel(homeOverlay_);
+    listMessageLabel_ = new QLabel(overviewContent_);
     listMessageLabel_->setObjectName(QStringLiteral("stationListMessage"));
     for (auto *label : {actionMessageLabel_, listMessageLabel_}) {
         label->setTextFormat(Qt::PlainText);
         label->setWordWrap(true);
         label->setMaximumHeight(48);
         label->hide();
-        homeLayout->addWidget(label);
+        overviewLayout->addWidget(label);
     }
-    stationPreview_ = new StationPreviewCard(listPage_);
+
+    discoveryList_ = new QWidget(overviewContent_);
+    discoveryList_->setObjectName("stationDiscoveryList");
+    auto *discoveryLayout = new QVBoxLayout(discoveryList_);
+    discoveryLayout->setContentsMargins(0, 0, 0, 0);
+    overviewLayout->addWidget(discoveryList_);
+    overviewLayout->addStretch();
+    stationPreview_ = new StationPreviewCard(sheetPages_);
+    sheetPages_->addWidget(stationPreview_);
+    connect(stationMap_, &StationMapView::interactionStarted, this, [this] {
+        if (!sheetHidden_ && sheetPosition_ != 0) setSheetPosition(0);
+    });
+    connect(stationMap_, &StationMapView::backgroundClicked, this, [this] {
+        if (sheetHidden_) setSheetPosition(1);
+        else { sheetHidden_ = true; sheetDragging_ = false; emit mapFullscreenChanged(true); layoutHomeOverlays(); }
+    });
     connect(stationMap_, &StationMapView::stationSelected, this, &StationBrowserPage::previewStation);
-    connect(stationPreview_, &StationPreviewCard::dismissed, this, [this] { previewStation(0); });
+    connect(stationPreview_, &StationPreviewCard::dismissed, this, &StationBrowserPage::detailBackRequested);
     connect(stationPreview_, &StationPreviewCard::detailsRequested, this, &StationBrowserPage::stationSelected);
     connect(stationPreview_, &StationPreviewCard::navigationRequested, this, [this](const auto &station) {
         navigationReturnPage_ = listPage_;
         emit navigationRequested(station);
     });
     listPage_->installEventFilter(this);
-    homeOverlay_->installEventFilter(this);
-    stationPreview_->installEventFilter(this);
     stationMap_->setCurrentLocation(currentLocation_);
 }
 
@@ -260,51 +319,99 @@ void StationBrowserPage::configureHomeMap(const QUrl &scriptUrl)
 
 void StationBrowserPage::previewStation(qint64 stationId)
 {
+    if (stationId <= 0) { emit detailBackRequested(); return; }
+    emit detailBackRequested();
     stationMap_->selectStation(stationId);
     for (const auto &station : stations_) {
-        if (station.stationId == stationId) {
-            stationPreview_->setStation(station);
-            filterToggle_->setChecked(false);
-            currentOrderToggle_->setChecked(false);
-            layoutHomeOverlays();
-            return;
-        }
+        if (station.stationId != stationId) continue;
+        stationPreview_->setStation(station);
+        sheetPages_->setCurrentWidget(stationPreview_);
+        pages_->setCurrentWidget(listPage_);
+        setSheetPosition(1);
+        stationMap_->focusStation(stationId);
+        return;
     }
-    stationPreview_->hide();
+}
+
+void StationBrowserPage::setSheetPosition(int position)
+{
+    const bool wasFullscreen = sheetHidden_;
+    sheetHidden_ = false;
+    sheetPosition_ = qBound(0, position, 2);
+    sheetDragging_ = false;
+    if (wasFullscreen) emit mapFullscreenChanged(false);
     layoutHomeOverlays();
 }
 
 bool StationBrowserPage::eventFilter(QObject *watched, QEvent *event)
 {
-    if ((watched == listPage_ && (event->type() == QEvent::Resize || event->type() == QEvent::Show))
-        || ((watched == homeOverlay_ || watched == stationPreview_) && event->type() == QEvent::LayoutRequest)) {
-        layoutHomeOverlays();
+    if (watched == sheetHandle_) {
+        int y = 0;
+        bool begin = false, move = false, end = false;
+        if (event->type() == QEvent::MouseButtonPress || event->type() == QEvent::MouseMove
+            || event->type() == QEvent::MouseButtonRelease) {
+            auto *mouse = static_cast<QMouseEvent *>(event);
+            if (event->type() != QEvent::MouseMove && mouse->button() != Qt::LeftButton) return false;
+            y = mouse->globalPosition().toPoint().y();
+            begin = event->type() == QEvent::MouseButtonPress;
+            move = event->type() == QEvent::MouseMove && sheetDragging_;
+            end = event->type() == QEvent::MouseButtonRelease;
+        } else if (event->type() == QEvent::TouchBegin || event->type() == QEvent::TouchUpdate
+                   || event->type() == QEvent::TouchEnd || event->type() == QEvent::TouchCancel) {
+            auto *touch = static_cast<QTouchEvent *>(event);
+            if (!touch->points().isEmpty()) y = touch->points().first().globalPosition().toPoint().y();
+            begin = event->type() == QEvent::TouchBegin;
+            move = event->type() == QEvent::TouchUpdate;
+            end = event->type() == QEvent::TouchEnd || event->type() == QEvent::TouchCancel;
+            event->accept();
+        } else if (event->type() == QEvent::KeyPress) {
+            auto *key = static_cast<QKeyEvent *>(event);
+            if (key->key() == Qt::Key_Space || key->key() == Qt::Key_Return) {
+                setSheetPosition((sheetPosition_ + 1) % 3); return true;
+            }
+        }
+        if (begin) {
+            sheetDragging_ = true; dragStartY_ = y; dragStartHeight_ = homeOverlay_->height();
+            dragHeight_ = dragStartHeight_; return true;
+        }
+        if (move && sheetDragging_) {
+            dragHeight_ = dragStartHeight_ + dragStartY_ - y; layoutHomeOverlays(); return true;
+        }
+        if (end && sheetDragging_) {
+            const int delta = dragHeight_ - dragStartHeight_;
+            setSheetPosition(qAbs(delta) < 12 ? (sheetPosition_ + 1) % 3
+                                             : sheetPosition_ + (delta > 0 ? 1 : -1));
+            return true;
+        }
     }
+    if (watched == listPage_ && (event->type() == QEvent::Resize || event->type() == QEvent::Show))
+        layoutHomeOverlays();
     return QWidget::eventFilter(watched, event);
+}
+
+void StationBrowserPage::setBottomNavigationInset(int inset)
+{
+    if (bottomNavigationInset_ == inset) return;
+    bottomNavigationInset_ = inset;
+    layoutHomeOverlays();
 }
 
 void StationBrowserPage::layoutHomeOverlays()
 {
     if (!stationPreview_) return;
-    const int margin = listPage_->width() < 400 ? 12 : 16;
-    const int availableWidth = qMax(0, listPage_->width() - 2 * margin);
-    filterScroll_->setFixedHeight(qBound(140, listPage_->height() * 30 / 100, 240));
-    homeOverlay_->setFixedWidth(availableWidth);
-    homeOverlay_->layout()->activate();
-    homeOverlay_->setGeometry(margin, 12, availableWidth, homeOverlay_->sizeHint().height());
-    const bool showPreview = stationMap_->selectedStationId() > 0
-        && !filterToggle_->isChecked() && !currentOrderToggle_->isChecked();
-    stationPreview_->setVisible(showPreview);
-    stationPreview_->setFixedWidth(availableWidth);
-    stationPreview_->layout()->activate();
-    const int cardHeight = stationPreview_->heightForWidth(availableWidth) > 0
-        ? stationPreview_->heightForWidth(availableWidth) : stationPreview_->sizeHint().height();
-    // Preserve Tencent attribution / the explicit Demo caption below the card.
-    stationPreview_->setGeometry(margin, listPage_->height() - cardHeight - 30, availableWidth, cardHeight);
+    const int h = listPage_->height() - bottomNavigationInset_;
+    const int collapsed = 92;
+    const int expanded = qMax(collapsed, h - 170);
+    const int previewHeight = sheetPages_->currentWidget() == stationPreview_
+        ? stationPreview_->minimumSizeHint().height() + collapsed : 0;
+    const int normal = qBound(collapsed, qMax(h * 46 / 100, previewHeight), expanded);
+    const int target = sheetDragging_ ? qBound(collapsed, dragHeight_, expanded)
+                                     : sheetPosition_ == 0 ? collapsed : sheetPosition_ == 1 ? normal : expanded;
+    sheetPages_->setVisible(target > collapsed + 15);
+    homeOverlay_->setGeometry(8, h - target - 28, qMax(0, listPage_->width() - 16), target);
+    homeOverlay_->setVisible(!sheetHidden_);
     homeOverlay_->raise();
-    stationPreview_->raise();
-    stationMap_->setViewportMargins(QMargins(32, homeOverlay_->geometry().bottom() + 24, 70,
-                                             showPreview ? cardHeight + 52 : 50));
+    stationMap_->setViewportMargins(QMargins(24, 24, 112, (sheetHidden_ ? 32 : target + 40) + bottomNavigationInset_));
 }
 
-}  // namespace charging::client
+} // namespace charging::client

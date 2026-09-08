@@ -1,0 +1,42 @@
+#pragma once
+
+#include <QWidget>
+#include <QString>
+#include <QImage>
+
+class QLabel;
+class QListWidget;
+class QPushButton;
+class QStackedWidget;
+
+namespace charging::client {
+
+// Local demo album. Selecting a picture never starts a business order.
+class PhotoAlbumPage final : public QWidget {
+    Q_OBJECT
+public:
+    enum class Purpose { QrCode, Avatar };
+    explicit PhotoAlbumPage(QWidget *parent = nullptr, const QString &directory = {},
+                            Purpose purpose = Purpose::QrCode);
+    void reload();
+signals:
+    void imageSelected(const QString &path);
+    void imageSelectedImage(const QImage &image);
+    void backRequested();
+protected:
+    void resizeEvent(QResizeEvent *event) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
+private:
+    void layoutGrid();
+    void updateSelection();
+    void showPreview();
+    void updatePreview();
+    QString directory_;
+    Purpose purpose_;
+    QStackedWidget *pages_;
+    QListWidget *photos_;
+    QLabel *count_, *selection_, *empty_, *preview_;
+    QPushButton *confirm_, *previewButton_, *back_;
+};
+
+} // namespace charging::client

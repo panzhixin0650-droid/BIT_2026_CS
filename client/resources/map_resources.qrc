@@ -1,5 +1,7 @@
 <RCC>
   <qresource prefix="/map">
     <file alias="map.html">map/map.html</file>
+    <file alias="shenyang.json">map/shenyang.json</file>
+    <file alias="NOTICE.md">map/NOTICE.md</file>
   </qresource>
 </RCC>

@@ -1,24 +1,46 @@
 #include "ui/profile_page.h"
+#include "ui/avatar_art.h"
 #include "ui/client_theme.h"
+#include "ui/decorative_heading.h"
 
 #include <QDoubleValidator>
 #include <QButtonGroup>
-#include <QFileDialog>
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
-#include <QPainter>
-#include <QPainterPath>
-#include <QPixmap>
 #include <QScrollArea>
+#include <QStackedWidget>
+#include <QResizeEvent>
+#include <QTimer>
 #include <QVBoxLayout>
 
 namespace charging::client {
 
 namespace {
+
+class IdentityButton final : public QPushButton {
+public:
+    explicit IdentityButton(QWidget *parent) : QPushButton(parent)
+    {
+        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
+    }
+    QSize sizeHint() const override
+    {
+        return layout() ? layout()->sizeHint() : QPushButton::sizeHint();
+    }
+    QSize minimumSizeHint() const override
+    {
+        return layout() ? layout()->minimumSize() : QPushButton::minimumSizeHint();
+    }
+    bool hasHeightForWidth() const override { return true; }
+    int heightForWidth(int width) const override
+    {
+        return layout() ? layout()->totalHeightForWidth(width) : -1;
+    }
+};
 
 QFrame *createCard(QWidget *parent)
 {
@@ -61,89 +83,76 @@ ProfilePage::ProfilePage(QWidget *parent)
     : QWidget(parent)
 {
     setObjectName(QStringLiteral("profilePage"));
-    setStyleSheet(profileThemeStyleSheet());
 
     auto *pageLayout = new QVBoxLayout(this);
     pageLayout->setContentsMargins(0, 0, 0, 0);
-    pageLayout->setSpacing(0);
 
-    auto *scrollArea = new QScrollArea(this);
-    scrollArea->setObjectName(QStringLiteral("profileScrollArea"));
+    sections_ = new QStackedWidget(this);
+    sections_->setObjectName("profilePages");
+    pageLayout->addWidget(sections_);
+    auto *scrollArea = new QScrollArea(sections_);
+    sections_->addWidget(scrollArea);
     scrollArea->setWidgetResizable(true);
     scrollArea->setFrameShape(QFrame::NoFrame);
-    auto *scrollContent = new QWidget(scrollArea);
-    scrollContent->setObjectName(QStringLiteral("profileScrollContent"));
-    auto *scrollLayout = new QHBoxLayout(scrollContent);
-    scrollLayout->setContentsMargins(0, 0, 0, 0);
-    auto *content = new QWidget(scrollContent);
-    content->setObjectName(QStringLiteral("profileContent"));
-    content->setMaximumWidth(640);
-    content->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    scrollLayout->addStretch();
-    scrollLayout->addWidget(content, 1);
-    scrollLayout->addStretch();
+    auto *content = new QWidget(scrollArea);
     auto *contentLayout = new QVBoxLayout(content);
-    contentLayout->setContentsMargins(22, 16, 22, 20);
-    contentLayout->setSpacing(16);
+    contentLayout->setContentsMargins(20, 24, 20, 24);
+    contentLayout->setSpacing(14);
 
-    auto *headingLayout = new QHBoxLayout();
     auto *heading = new QLabel(QStringLiteral("我的"), content);
     heading->setObjectName(QStringLiteral("profileHeading"));
     QFont headingFont = heading->font();
     headingFont.setPointSize(24);
     headingFont.setBold(true);
     heading->setFont(headingFont);
-    refreshButton_ = new QPushButton(QStringLiteral("刷新"), content);
-    refreshButton_->setObjectName(QStringLiteral("profileRefreshButton"));
-    refreshButton_->setFlat(true);
-    refreshButton_->setFixedHeight(32);
-    refreshButton_->setToolTip(QStringLiteral("刷新个人资料和钱包余额"));
-    headingLayout->addWidget(heading, 1);
-    headingLayout->addWidget(refreshButton_);
 
-    auto *identityCard = createCard(content);
-    identityCard->setObjectName(QStringLiteral("profileIdentityCard"));
+    auto *identityCard = new IdentityButton(content);
+    identityCard->setObjectName("profileDetailsButton");
+    identityCard->setAccessibleName(QStringLiteral("查看个人详细信息"));
     auto *identityLayout = new QHBoxLayout(identityCard);
-    identityLayout->setContentsMargins(16, 16, 16, 16);
-    identityLayout->setSpacing(12);
+    identityLayout->setContentsMargins(18, 18, 18, 18);
+    identityLayout->setSpacing(16);
 
+    auto *avatarLayout = new QVBoxLayout();
     avatarLabel_ = new QLabel(QStringLiteral("用户"), identityCard);
     avatarLabel_->setObjectName(QStringLiteral("profileAvatar"));
-    avatarLabel_->setFixedSize(68, 68);
+    avatarLabel_->setFixedSize(64, 64);
     avatarLabel_->setAlignment(Qt::AlignCenter);
-    auto *changeAvatarButton = new QPushButton(identityCard);
-    changeAvatarButton->setObjectName(QStringLiteral("changeAvatarButton"));
-    changeAvatarButton->setIcon(clientNavigationIcon(NavigationIcon::ChevronRight));
-    changeAvatarButton->setIconSize(QSize(18, 18));
-    changeAvatarButton->setFixedSize(32, 32);
-    changeAvatarButton->setAccessibleName(QStringLiteral("更换头像"));
-    changeAvatarButton->setToolTip(QStringLiteral("更换头像"));
-    changeAvatarButton->setCursor(Qt::PointingHandCursor);
-    changeAvatarButton->setFlat(true);
+    avatarLabel_->setStyleSheet(QStringLiteral(
+        "background: #acb8a6; color: white; border-radius: 32px; font-weight: 600;"));
+    avatarLayout->addWidget(avatarLabel_, 0, Qt::AlignHCenter);
 
     auto *identityTextLayout = new QVBoxLayout();
-    identityTextLayout->setSpacing(6);
-    identityTextLayout->setAlignment(Qt::AlignVCenter);
     nicknameLabel_ = new QLabel(QStringLiteral("未登录"), identityCard);
     nicknameLabel_->setObjectName(QStringLiteral("profileNicknameLabel"));
     QFont nicknameFont = nicknameLabel_->font();
-    nicknameFont.setPointSize(14);
+    nicknameFont.setPointSize(15);
     nicknameFont.setBold(true);
     nicknameLabel_->setFont(nicknameFont);
     nicknameLabel_->setWordWrap(true);
     phoneLabel_ = new QLabel(QStringLiteral("手机号：--"), identityCard);
     phoneLabel_->setObjectName(QStringLiteral("profilePhoneLabel"));
-    phoneLabel_->setProperty("role", "profileSecondary");
+    phoneLabel_->setStyleSheet(QStringLiteral("color: #697969;"));
     phoneLabel_->setWordWrap(true);
     identityTextLayout->addWidget(nicknameLabel_);
     identityTextLayout->addWidget(phoneLabel_);
 
-    identityLayout->addWidget(avatarLabel_);
+    refreshButton_ = new QPushButton(QStringLiteral("刷新"), identityCard);
+    refreshButton_->setObjectName(QStringLiteral("profileRefreshButton"));
+    identityLayout->addLayout(avatarLayout);
     identityLayout->addLayout(identityTextLayout, 1);
-    identityLayout->addWidget(changeAvatarButton);
+    refreshButton_->hide();
+    auto *detailsHint = new QLabel(QStringLiteral("详细信息  ›"), identityCard);
+    identityTextLayout->addWidget(detailsHint);
+    for (auto *label : identityCard->findChildren<QLabel *>()) {
+        label->setTextFormat(Qt::PlainText);
+        label->setAttribute(Qt::WA_TransparentForMouseEvents);
+    }
+    connect(identityCard, &QPushButton::clicked, this, &ProfilePage::openDetails);
 
     auto *servicesCard = createCard(content);
     servicesCard->setObjectName(QStringLiteral("profileServicesCard"));
+    servicesCard->setStyleSheet(profileServicesStyleSheet());
     auto *servicesLayout = new QVBoxLayout(servicesCard);
     servicesLayout->setContentsMargins(4, 4, 4, 4);
     servicesLayout->setSpacing(0);
@@ -171,6 +180,7 @@ ProfilePage::ProfilePage(QWidget *parent)
 
     auto *walletCard = createCard(content);
     walletCard->setObjectName(QStringLiteral("profileWalletCard"));
+    walletCard->setStyleSheet(profileWalletStyleSheet());
     auto *walletLayout = new QVBoxLayout(walletCard);
     walletLayout->setContentsMargins(18, 18, 18, 18);
     walletLayout->setSpacing(12);
@@ -238,25 +248,39 @@ ProfilePage::ProfilePage(QWidget *parent)
     walletLayout->addLayout(quickAmounts);
     walletLayout->addLayout(rechargeLayout);
 
-    auto *profileCard = new QWidget(content);
-    profileCard->setObjectName(QStringLiteral("profileEditor"));
+    auto *detailPage = new QWidget(sections_);
+    detailPage->setObjectName("profileDetailPage");
+    sections_->addWidget(detailPage);
+    auto *detailsLayout = new QVBoxLayout(detailPage);
+    detailsLayout->setContentsMargins(20, 16, 20, 20);
+    auto *detailsBack = new QPushButton(QStringLiteral("‹ 返回我的"), detailPage);
+    detailsBack->setObjectName("profileDetailBack");
+    detailsLayout->addWidget(detailsBack, 0, Qt::AlignLeft);
+    connect(detailsBack, &QPushButton::clicked, this, &ProfilePage::showOverview);
+    auto *detailsTitle = new QLabel(QStringLiteral("详细信息"), detailPage);
+    detailsTitle->setProperty("role", "discoveryHeading");
+    detailsLayout->addWidget(detailsTitle);
+    avatarButton_ = new QPushButton(QStringLiteral("头像    查看与修改  ›"), detailPage);
+    avatarButton_->setObjectName("profileAvatarButton");
+    avatarButton_->setMinimumHeight(88);
+    avatarButton_->setIconSize(QSize(64,64));
+    detailsLayout->addWidget(avatarButton_);
+    detailPhone_ = new QLabel(detailPage);
+    detailPhone_->setObjectName("profileDetailPhone");
+    detailsLayout->addWidget(detailPhone_);
+    auto *profileCard = createCard(detailPage);
     auto *profileLayout = new QGridLayout(profileCard);
-    profileLayout->setContentsMargins(0, 0, 0, 0);
+    profileLayout->setContentsMargins(18, 18, 18, 18);
     profileLayout->setHorizontalSpacing(10);
-    profileLayout->setVerticalSpacing(10);
+    profileLayout->setVerticalSpacing(12);
     auto *nicknameTitle = new QLabel(QStringLiteral("修改昵称"), profileCard);
-    nicknameTitle->setProperty("role", "profileSection");
     nicknameInput_ = new QLineEdit(profileCard);
     nicknameInput_->setObjectName(QStringLiteral("nicknameInput"));
     nicknameInput_->setAttribute(Qt::WA_InputMethodEnabled, true);
     nicknameInput_->setInputMethodHints(Qt::ImhNone);
     nicknameInput_->setMaxLength(32);
-    nicknameInput_->setMinimumWidth(0);
-    nicknameInput_->setFixedHeight(40);
     saveNicknameButton_ = new QPushButton(QStringLiteral("保存"), profileCard);
     saveNicknameButton_->setObjectName(QStringLiteral("saveNicknameButton"));
-    saveNicknameButton_->setFixedSize(72, 40);
-    profileLayout->setColumnStretch(0, 1);
     profileLayout->addWidget(nicknameTitle, 0, 0, 1, 2);
     profileLayout->addWidget(nicknameInput_, 1, 0);
     profileLayout->addWidget(saveNicknameButton_, 1, 1);
@@ -268,34 +292,55 @@ ProfilePage::ProfilePage(QWidget *parent)
 
     logoutButton_ = new QPushButton(QStringLiteral("退出登录"), content);
     logoutButton_->setObjectName(QStringLiteral("logoutButton"));
-    logoutButton_->setFlat(true);
-    logoutButton_->setFixedHeight(36);
-    auto *footerLayout = new QHBoxLayout();
-    footerLayout->setSpacing(12);
-    footerLayout->addWidget(messageLabel_, 1);
-    footerLayout->addWidget(logoutButton_);
 
-    contentLayout->addLayout(headingLayout);
+    auto *decoratedHeading = new DecorativeHeading(heading, QStringLiteral("plant"), 66, 4, content);
+    decoratedHeading->setFixedHeight(66);
+    contentLayout->addWidget(decoratedHeading);
     contentLayout->addWidget(identityCard);
     contentLayout->addWidget(servicesCard);
     contentLayout->addWidget(walletCard);
-    contentLayout->addWidget(profileCard);
-    contentLayout->addLayout(footerLayout);
+    detailsLayout->addWidget(profileCard);
+    detailMessage_ = new QLabel(detailPage);
+    detailMessage_->setObjectName("profileDetailMessage");
+    detailMessage_->setWordWrap(true);
+    detailsLayout->addWidget(detailMessage_);
+    detailsLayout->addStretch();
+    auto *avatarPage = new QWidget(sections_);
+    avatarPage->setObjectName("profileAvatarPage");
+    sections_->addWidget(avatarPage);
+    auto *avatarPageLayout = new QVBoxLayout(avatarPage);
+    auto *avatarBack = new QPushButton(QStringLiteral("‹ 返回详细信息"), avatarPage);
+    avatarBack->setObjectName("profileAvatarBack");
+    avatarPageLayout->addWidget(avatarBack, 0, Qt::AlignLeft);
+    connect(avatarBack, &QPushButton::clicked, this, [this, detailPage] { sections_->setCurrentWidget(detailPage); });
+    fullAvatar_ = new QLabel(avatarPage);
+    fullAvatar_->setObjectName("profileFullAvatar");
+    fullAvatar_->setAlignment(Qt::AlignCenter);
+    fullAvatar_->setMinimumSize(0,0);
+    fullAvatar_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+    avatarPageLayout->addWidget(fullAvatar_, 1);
+    avatarMessage_ = new QLabel(avatarPage);
+    avatarMessage_->setWordWrap(true);
+    avatarPageLayout->addWidget(avatarMessage_);
+    auto *changeAvatarButton = new QPushButton(QStringLiteral("从相册更换头像"), avatarPage);
+    changeAvatarButton->setObjectName("changeAvatarButton");
+    changeAvatarButton->setProperty("role", "primary");
+    avatarPageLayout->addWidget(changeAvatarButton);
+    connect(avatarButton_, &QPushButton::clicked, this, [this, avatarPage] {
+        sections_->setCurrentWidget(avatarPage);
+        updateFullAvatar();
+        QTimer::singleShot(0, this, &ProfilePage::updateFullAvatar);
+    });
+    contentLayout->addWidget(messageLabel_);
+    contentLayout->addWidget(logoutButton_);
     contentLayout->addStretch();
 
-    scrollArea->setWidget(scrollContent);
-    pageLayout->addWidget(scrollArea);
+    scrollArea->setWidget(content);
+    setAvatarPath({});
 
     connect(refreshButton_, &QPushButton::clicked, this, &ProfilePage::refreshRequested);
     connect(changeAvatarButton, &QPushButton::clicked, this, [this]() {
-        const QString sourcePath = QFileDialog::getOpenFileName(
-            this,
-            QStringLiteral("选择头像"),
-            {},
-            QStringLiteral("图片文件 (*.png *.jpg *.jpeg *.bmp *.webp)"));
-        if (!sourcePath.isEmpty()) {
-            emit avatarSelected(sourcePath);
-        }
+        emit avatarSelectionRequested();
     });
     connect(saveNicknameButton_, &QPushButton::clicked, this, [this]() {
         emit nicknameUpdateRequested(nicknameInput_->text());
@@ -308,7 +353,9 @@ ProfilePage::ProfilePage(QWidget *parent)
 
 void ProfilePage::setUser(const protocol::UserDto &user)
 {
+    savedNickname_ = user.nickname;
     nicknameLabel_->setText(user.nickname);
+    detailPhone_->setText(QStringLiteral("手机号：%1").arg(user.phone));
     phoneLabel_->setText(QStringLiteral("手机号：%1").arg(user.phone));
     nicknameInput_->setText(user.nickname);
     setBalance(user.balanceCents);
@@ -321,29 +368,15 @@ void ProfilePage::setBalance(qint64 balanceCents)
 
 void ProfilePage::setAvatarPath(const QString &path)
 {
-    QPixmap source(path);
-    if (source.isNull()) {
-        avatarLabel_->setPixmap({});
-        avatarLabel_->setText(QStringLiteral("用户"));
-        return;
+    // Read the file afresh: each user replaces the same PNG on subsequent saves.
+    avatarImage_ = path.isEmpty() ? QImage() : QImage(path);
+    if (avatarImage_.isNull()) {
+        avatarImage_ = defaultAvatar();
     }
-
-    const QSize targetSize = avatarLabel_->size();
-    const QPixmap scaled = source.scaled(targetSize,
-                                         Qt::KeepAspectRatioByExpanding,
-                                         Qt::SmoothTransformation);
-    QPixmap circular(targetSize);
-    circular.fill(Qt::transparent);
-    QPainter painter(&circular);
-    painter.setRenderHint(QPainter::Antialiasing);
-    QPainterPath clipPath;
-    clipPath.addEllipse(circular.rect());
-    painter.setClipPath(clipPath);
-    const QPoint offset((scaled.width() - targetSize.width()) / 2,
-                        (scaled.height() - targetSize.height()) / 2);
-    painter.drawPixmap(-offset, scaled);
     avatarLabel_->setText({});
-    avatarLabel_->setPixmap(circular);
+    avatarLabel_->setPixmap(circularAvatar(avatarImage_, avatarLabel_->width(), devicePixelRatioF()));
+    avatarButton_->setIcon(QIcon(QPixmap::fromImage(avatarImage_)));
+    updateFullAvatar();
 }
 
 void ProfilePage::setBusy(bool busy)
@@ -358,10 +391,45 @@ void ProfilePage::setBusy(bool busy)
 
 void ProfilePage::showMessage(const QString &message, bool error)
 {
+    for (auto *label : {detailMessage_, avatarMessage_}) {
+        label->setText(message);
+        label->setStyleSheet(error ? QStringLiteral("color: #c62828;") : QStringLiteral("color: #386a3c;"));
+        label->setVisible(!message.isEmpty());
+    }
     messageLabel_->setText(message);
     messageLabel_->setStyleSheet(error ? QStringLiteral("color: #c62828;")
                                        : QStringLiteral("color: #386a3c;"));
     messageLabel_->setVisible(!message.isEmpty());
+}
+
+void ProfilePage::openDetails()
+{
+    nicknameInput_->setText(savedNickname_);
+    sections_->setCurrentIndex(1);
+}
+
+void ProfilePage::showOverview()
+{
+    sections_->setCurrentIndex(0);
+    nicknameInput_->setText(savedNickname_);
+}
+
+void ProfilePage::updateFullAvatar()
+{
+    const QPixmap source = QPixmap::fromImage(avatarImage_);
+    if (source.isNull()) {
+        fullAvatar_->setPixmap({});
+        fullAvatar_->setText(QStringLiteral("还没有设置头像"));
+    } else {
+        fullAvatar_->setText({});
+        fullAvatar_->setPixmap(source.scaled(fullAvatar_->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    }
+}
+
+void ProfilePage::resizeEvent(QResizeEvent *event)
+{
+    QWidget::resizeEvent(event);
+    QTimer::singleShot(0, this, &ProfilePage::updateFullAvatar);
 }
 
 QString ProfilePage::formatBalance(qint64 balanceCents) const
