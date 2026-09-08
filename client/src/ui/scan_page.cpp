@@ -1,156 +1,59 @@
 #include "ui/scan_page.h"
-#include "ui/charging_art.h"
-
-#include <QFrame>
-#include <QHBoxLayout>
+#ifdef CHARGING_CLIENT_HAS_SCANNER
+#include "ui/qr_scan_dialog.h"
+#endif
+#include <QDialog>
+#include <QHideEvent>
+#include <QShowEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
-#include <QScrollArea>
 #include <QVBoxLayout>
-
+#include <QTimer>
+#include <QRegularExpression>
 namespace charging::client {
-
-ScanPage::ScanPage(QWidget *parent)
-    : QWidget(parent)
-{
-    setObjectName(QStringLiteral("scanPage"));
-    auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(0, 0, 0, 0);
-    auto *scroll = new QScrollArea(this);
-    scroll->setWidgetResizable(true);
-    scroll->setFrameShape(QFrame::NoFrame);
-    auto *content = new QWidget(scroll);
-    auto *layout = new QVBoxLayout(content);
-    layout->setContentsMargins(20, 24, 20, 20);
-    layout->setSpacing(14);
-    auto *eyebrow = new QLabel(QStringLiteral("PLUG IN. CHARGE UP."), content);
-    eyebrow->setProperty("role", "eyebrow");
-    layout->addWidget(eyebrow);
-
-    auto *heading = new QLabel(QStringLiteral("扫一扫"), this);
-    heading->setObjectName(QStringLiteral("scanHeading"));
-    QFont headingFont = heading->font();
-    headingFont.setPointSize(24);
-    headingFont.setBold(true);
-    heading->setFont(headingFont);
-    auto *description = new QLabel(
-        QStringLiteral("连接电桩，开启你的补能时光。"),
-        this);
-    description->setWordWrap(true);
-    description->setStyleSheet(QStringLiteral("color: #697969;"));
-
-    auto *scannerCard = new QFrame(this);
-    scannerCard->setFrameShape(QFrame::StyledPanel);
-    scannerCard->setProperty("role", "card");
-    auto *scannerLayout = new QVBoxLayout(scannerCard);
-    scannerLayout->setContentsMargins(18, 18, 18, 18);
-    scannerLayout->setSpacing(12);
-    auto *cameraTitle = new QLabel(QStringLiteral("输入充电桩编号"), scannerCard);
-    QFont cameraTitleFont = cameraTitle->font();
-    cameraTitleFont.setBold(true);
-    cameraTitle->setFont(cameraTitleFont);
-    auto *cameraHint = new QLabel(
-        QStringLiteral("当前使用模拟扫码。输入桩身二维码中的编号，或选择下方示例。"),
-        scannerCard);
-    cameraHint->setObjectName(QStringLiteral("scanAdapterHint"));
-    cameraHint->setWordWrap(true);
-    cameraHint->setStyleSheet(QStringLiteral("color: #697969;"));
-    pileCodeInput_ = new QLineEdit(scannerCard);
-    pileCodeInput_->setObjectName(QStringLiteral("scanPileCodeInput"));
-    pileCodeInput_->setPlaceholderText(QStringLiteral("输入充电桩编号，如 PILE-A-01"));
-    pileCodeInput_->setMaxLength(64);
-    pileCodeInput_->setAccessibleName(QStringLiteral("充电桩编号"));
-
-    auto *quickRow = new QHBoxLayout();
-    for (const QString &pileCode : {QStringLiteral("PILE-A-01"),
-                                    QStringLiteral("PILE-B-02")}) {
-        auto *button = new QPushButton(pileCode, scannerCard);
-        button->setProperty("pileCode", pileCode);
-        connect(button, &QPushButton::clicked, this, [this, pileCode]() {
-            pileCodeInput_->setText(pileCode);
-        });
-        quickRow->addWidget(button);
-    }
-
-    startButton_ = new QPushButton(QStringLiteral("识别并开始充电"), scannerCard);
-    startButton_->setObjectName(QStringLiteral("scanStartButton"));
-    messageLabel_ = new QLabel(scannerCard);
-    messageLabel_->setObjectName(QStringLiteral("scanMessage"));
-    messageLabel_->setWordWrap(true);
-    messageLabel_->hide();
-
-    scannerLayout->addWidget(cameraTitle);
-    scannerLayout->addWidget(cameraHint);
-    scannerLayout->addWidget(pileCodeInput_);
-    scannerLayout->addLayout(quickRow);
-    scannerLayout->addWidget(startButton_);
-    repairButton_ = new QPushButton(QStringLiteral("充电桩报修"), scannerCard);
-    repairButton_->setObjectName(QStringLiteral("scanRepairButton"));
-    scannerLayout->addWidget(repairButton_);
-    connect(repairButton_, &QPushButton::clicked, this, [this] {
-        emit repairRequested(pileCodeInput_->text().trimmed());
-    });
-    scannerLayout->addWidget(messageLabel_);
-
-    layout->addWidget(heading);
-    layout->addWidget(description);
-    layout->addWidget(new ChargingArt(ChargingArt::Scene::Scan, content));
-    layout->addWidget(scannerCard);
-    auto *steps = new QLabel(QStringLiteral("01  连接充电枪    →    02  确认桩号    →    03  开始充电"), content);
-    steps->setWordWrap(true);
-    steps->setAlignment(Qt::AlignCenter);
-    steps->setProperty("role", "eyebrow");
-    layout->addWidget(steps);
-    layout->addStretch();
-    scroll->setWidget(content);
-    root->addWidget(scroll);
-
-    connect(startButton_, &QPushButton::clicked, this, [this]() {
-        emit scanRequested(pileCodeInput_->text());
-    });
-    connect(pileCodeInput_, &QLineEdit::returnPressed, this, [this]() {
-        emit scanRequested(pileCodeInput_->text());
-    });
+ScanPage::ScanPage(QWidget *parent):QWidget(parent){
+ setObjectName("scanPage");auto *v=new QVBoxLayout(this);v->setContentsMargins(20,24,20,24);v->setSpacing(16);
+ auto *title=new QLabel(QStringLiteral("扫一扫"),this);title->setObjectName("scanHeading");auto titleFont=title->font();titleFont.setPointSize(24);titleFont.setBold(true);title->setFont(titleFont);v->addWidget(title);
+ auto *hint=new QLabel(QStringLiteral("扫描桩身二维码，或输入电桩编号，前往充电页确认开始。"),this);hint->setObjectName("scanAdapterHint");hint->setWordWrap(true);v->addWidget(hint);v->addStretch();
+ cameraButton_=new QPushButton(QStringLiteral("打开摄像头扫码"),this);cameraButton_->setObjectName("scanCameraButton");v->addWidget(cameraButton_);
+ imageButton_=new QPushButton(QStringLiteral("识别二维码图片"),this);imageButton_->setObjectName("scanImageButton");v->addWidget(imageButton_);
+ pileCodeInput_=new QLineEdit(this);pileCodeInput_->setObjectName("scanPileCodeInput");pileCodeInput_->setPlaceholderText(QStringLiteral("输入电桩编号"));pileCodeInput_->setMaxLength(64);v->addWidget(pileCodeInput_);
+ startButton_=new QPushButton(QStringLiteral("确认电桩编号"),this);startButton_->setObjectName("scanStartButton");startButton_->setProperty("role","primary");v->addWidget(startButton_);
+ messageLabel_=new QLabel(this);messageLabel_->setObjectName("scanMessage");messageLabel_->setWordWrap(true);v->addWidget(messageLabel_);v->addStretch();
+ connect(startButton_,&QPushButton::clicked,this,[this]{submitPileCode(pileCodeInput_->text());});
+ connect(pileCodeInput_,&QLineEdit::returnPressed,this,[this]{submitPileCode(pileCodeInput_->text());});
+ connect(cameraButton_,&QPushButton::clicked,this,[this]{openScanner(true);});
+ connect(imageButton_,&QPushButton::clicked,this,[this]{openScanner(false);});
+#ifndef CHARGING_CLIENT_HAS_SCANNER
+ cameraButton_->hide();imageButton_->hide();hint->setText(QStringLiteral("此构建可输入电桩编号；启用摄像头构建后可直接扫码。"));
+#endif
 }
-
-void ScanPage::preparePileCode(const QString &pileCode)
-{
-    pileCodeInput_->setText(pileCode.trimmed());
-    pileCodeInput_->setFocus();
-    showMessage(QStringLiteral("已填入预约充电桩，请到桩后确认开始充电"));
+void ScanPage::submitPileCode(const QString &input){
+ const QString code=input.trimmed();static const QRegularExpression valid("^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$");
+ if(!valid.match(code).hasMatch()){showMessage(QStringLiteral("请输入有效的电桩编号"),true);return;}
+ pileCodeInput_->setText(code);closeScanner();emit scanRequested(code);
 }
-
-void ScanPage::prepareDirectPileCode(const QString &pileCode)
-{
-    pileCodeInput_->setText(pileCode.trimmed());
-    pileCodeInput_->setFocus();
-    showMessage(QStringLiteral("已填入充电桩编号，请在桩旁确认开始充电"));
+void ScanPage::preparePileCode(const QString &code){pileCodeInput_->setText(code.trimmed());}
+void ScanPage::prepareDirectPileCode(const QString &code){preparePileCode(code);}
+void ScanPage::setLoading(bool loading){if(loading)closeScanner();cameraButton_->setDisabled(loading);imageButton_->setDisabled(loading);pileCodeInput_->setDisabled(loading);startButton_->setDisabled(loading);}
+void ScanPage::showMessage(const QString &message,bool error){messageLabel_->setText(message);messageLabel_->setStyleSheet(error?"color:#c62828;":"color:#245c45;");}
+void ScanPage::reset(){closeScanner();setLoading(false);pileCodeInput_->clear();messageLabel_->clear();}
+void ScanPage::openScanner(bool camera){
+#ifdef CHARGING_CLIENT_HAS_SCANNER
+ if(scannerDialog_||!isVisible()||!startButton_->isEnabled())return;
+ auto *dialog=new QrScanDialog(camera?QrScanDialog::Source::Camera:QrScanDialog::Source::Image,this,true);
+ scannerDialog_=dialog;dialog->setAttribute(Qt::WA_DeleteOnClose);
+ connect(dialog,&QrScanDialog::pileCodeDecoded,this,[this](const QString&code){
+     QTimer::singleShot(0,this,[this,code]{if(isVisible())submitPileCode(code);});
+ });
+ connect(dialog,&QDialog::finished,this,[this,camera](int result){scannerDialog_.clear();if(camera&&result==QDialog::Rejected&&!closingScanner_&&isVisible())emit cancelled();});
+ dialog->open();if(!camera)QTimer::singleShot(0,dialog,&QrScanDialog::chooseImage);
+#else
+ Q_UNUSED(camera);
+#endif
 }
-
-void ScanPage::setLoading(bool loading)
-{
-    pileCodeInput_->setDisabled(loading);
-    startButton_->setDisabled(loading);
-    repairButton_->setDisabled(loading);
-    if (loading) {
-        showMessage(QStringLiteral("正在检查充电条件…"));
-    }
+void ScanPage::closeScanner(){closingScanner_=true;if(scannerDialog_)scannerDialog_->reject();scannerDialog_.clear();closingScanner_=false;}
+void ScanPage::showEvent(QShowEvent *event){QWidget::showEvent(event);QTimer::singleShot(0,this,[this]{if(isVisible())openScanner(true);});}
+void ScanPage::hideEvent(QHideEvent *event){closeScanner();QWidget::hideEvent(event);}
 }
-
-void ScanPage::showMessage(const QString &message, bool error)
-{
-    messageLabel_->setText(message);
-    messageLabel_->setStyleSheet(error ? QStringLiteral("color: #c62828;")
-                                       : QStringLiteral("color: #245c45;"));
-    messageLabel_->setVisible(!message.isEmpty());
-}
-
-void ScanPage::reset()
-{
-    setLoading(false);
-    pileCodeInput_->clear();
-    messageLabel_->hide();
-}
-
-}  // namespace charging::client

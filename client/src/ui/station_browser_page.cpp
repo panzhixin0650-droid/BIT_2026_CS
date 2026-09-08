@@ -442,7 +442,7 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
             reservationScanButton_->property("pileCode").toString());
     });
     connect(progressButton_, &QPushButton::clicked, this, [this]() {
-        emit progressRequested(progressButton_->property("orderId").toLongLong());
+        if (currentOrder_) emit reservationScanRequested(currentOrder_->pileCode);
     });
     connect(stopButton_, &QPushButton::clicked, this, [this]() {
         if (confirmChargingStop(this)) {
@@ -581,18 +581,11 @@ void StationBrowserPage::showCurrentOrder(
     reservationScanButton_->setVisible(
         order->status == protocol::OrderStatus::Reserved);
     progressButton_->setVisible(order->status == protocol::OrderStatus::Charging);
-    stopButton_->setVisible(order->status == protocol::OrderStatus::Charging);
+    stopButton_->hide();
     currentOrderProgressLabel_->hide();
-    if (order->status == protocol::OrderStatus::Charging) {
+    if (order->status == protocol::OrderStatus::PendingPayment) {
         currentOrderProgressLabel_->setText(
-            QStringLiteral("已充电 %1 度 · %2 分钟\n当前预估金额：%3")
-                .arg(order->energyWh / 1000.0, 0, 'f', 2)
-                .arg(order->durationSeconds / 60)
-                .arg(formatMoney(order->amountCents)));
-        currentOrderProgressLabel_->show();
-    } else if (order->status == protocol::OrderStatus::PendingPayment) {
-        currentOrderProgressLabel_->setText(
-            QStringLiteral("待支付金额：%1\n请前往“订单”查看并完成结算。")
+            QStringLiteral("待支付金额：%1\n请前往“我的 → 我的订单”完成结算。")
                 .arg(formatMoney(order->amountCents)));
         currentOrderProgressLabel_->show();
     }

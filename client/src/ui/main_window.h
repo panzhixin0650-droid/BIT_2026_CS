@@ -22,13 +22,14 @@ class OrderController;
 class OrderPage;
 class ProfileController;
 class ProfilePage;
-class ScanController;
+class ChargingController;
+class ChargingPage;
 class ScanPage;
 class StationBrowserController;
 class StationBrowserPage;
 class AssistantService;
 class SupportPage;
-class SupportDeskDialog;
+class SupportDeskPage;
 
 class MainWindow final : public QMainWindow {
 public:
@@ -41,6 +42,9 @@ public:
     ~MainWindow() override;
 
 private:
+    void openOrders();
+    void showProfile();
+    void openCharging(const QString &pileCode);
     void initialize(IChargingApi &api, IMapService &mapService,
                     const AssistantConfig &assistantConfig = {});
     void showAuthenticatedHome(const protocol::UserDto &user, bool isNewUser);
@@ -50,18 +54,21 @@ private:
     LoginPage *loginPage_ = nullptr;
     QTabWidget *mainTabs_ = nullptr;
     StationBrowserPage *homePage_ = nullptr;
+    ChargingPage *chargingPage_ = nullptr;
+    ChargingController *chargingController_ = nullptr;
+    QStackedWidget *profileSection_ = nullptr;
+    QWidget *orderContainer_ = nullptr;
     OrderPage *orderPage_ = nullptr;
     ScanPage *scanPage_ = nullptr;
     AssistantService *assistantService_ = nullptr;
     SupportPage *supportPage_ = nullptr;
-    SupportDeskDialog *supportDesk_ = nullptr;
+    SupportDeskPage *supportDesk_ = nullptr;
     ProfilePage *profilePage_ = nullptr;
     LoginController *loginController_ = nullptr;
     MapController *mapController_ = nullptr;
     ProfileController *profileController_ = nullptr;
     StationBrowserController *stationBrowserController_ = nullptr;
     OrderController *orderController_ = nullptr;
-    ScanController *scanController_ = nullptr;
     std::unique_ptr<AvatarStorage> avatarStorage_;
     std::unique_ptr<IMapService> ownedMapService_;
 };

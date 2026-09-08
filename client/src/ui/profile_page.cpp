@@ -55,6 +55,9 @@ ProfilePage::ProfilePage(QWidget *parent)
     headingFont.setBold(true);
     heading->setFont(headingFont);
 
+    auto *orders = new QPushButton(QStringLiteral("我的订单  ›"), content);
+    orders->setObjectName("profileOrdersButton");
+    connect(orders, &QPushButton::clicked, this, &ProfilePage::ordersRequested);
     auto *identityCard = createCard(content);
     auto *identityLayout = new QHBoxLayout(identityCard);
     identityLayout->setContentsMargins(18, 18, 18, 18);
@@ -187,6 +190,7 @@ ProfilePage::ProfilePage(QWidget *parent)
 
     contentLayout->addWidget(heading);
     contentLayout->addWidget(identityCard);
+    contentLayout->addWidget(orders);
     contentLayout->addWidget(walletCard);
     contentLayout->addWidget(profileCard);
     contentLayout->addWidget(messageLabel_);

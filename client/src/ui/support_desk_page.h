@@ -2,7 +2,7 @@
 
 #include "api/i_charging_api.h"
 #include "assistant/assistant_service.h"
-#include <QDialog>
+#include <QWidget>
 
 class QLabel;
 class QComboBox;
@@ -18,18 +18,19 @@ namespace charging::client {
 class BusyIndicator;
 
 // Isolated UI orchestration: models only produce text; only confirmed drafts reach IChargingApi.
-class SupportDeskDialog final : public QDialog {
+class SupportDeskPage final : public QWidget {
     Q_OBJECT
 public:
-    SupportDeskDialog(IChargingApi &api, AssistantService &desk, AssistantService &summarizer,
+    SupportDeskPage(IChargingApi &api, AssistantService &desk, AssistantService &summarizer,
                       QWidget *parent = nullptr);
     void openDesk(const QList<AssistantTurn> &history = {});
     void openRepair(const QString &pileCode);
     void resetSession();
 signals:
+    void backRequested();
     void invalidSession(const QString &message);
 protected:
-    void closeEvent(QCloseEvent *event) override;
+    void hideEvent(QHideEvent *event) override;
 private:
     void send();
     void generateDraft();

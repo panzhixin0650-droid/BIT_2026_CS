@@ -1,7 +1,7 @@
 #include "assistant/assistant_service.h"
 #include "assistant_test_network.h"
 #include "api/mock_charging_api.h"
-#include "ui/support_desk_dialog.h"
+#include "ui/support_desk_page.h"
 #include "ui/support_page.h"
 
 #include <QDir>
@@ -221,7 +221,7 @@ void AssistantResponsivenessTests::deskAndSummaryCanStopFromAnyTab()
         AssistantPurpose::TicketSummary, slowFactory(summaryState, 0, 1000, true));
     QSignalSpy created(&api, &IChargingApi::supportTicketCreated);
     {
-        SupportDeskDialog dialog(api, *desk, *summary);
+        SupportDeskPage dialog(api, *desk, *summary);
         dialog.resize(390, 650);
         dialog.openDesk({{QStringLiteral("结算提示异常"), QStringLiteral("请核实订单结果")}});
         auto *draft = child<QPlainTextEdit>(dialog, "ticketSummary");
@@ -286,7 +286,7 @@ void AssistantResponsivenessTests::deskStreamDoesNotRebuildHistory()
     assistant_test::Network network; network.hang = true;
     AssistantService desk(assistant_test::config(), nullptr, &network, AssistantPurpose::SupportDesk);
     AssistantService summary;
-    SupportDeskDialog dialog(api, desk, summary); dialog.openDesk();
+    SupportDeskPage dialog(api, desk, summary); dialog.openDesk();
     child<QPlainTextEdit>(dialog, "deskInput")->setPlainText(QStringLiteral("预约充电"));
     child<QPushButton>(dialog, "deskSend")->click();
     auto *chat = child<QTextBrowser>(dialog, "deskChat");

@@ -3,6 +3,8 @@
 #include <QtGlobal>
 
 namespace charging::protocol {
+inline constexpr int DemoChargingDurationSeconds = 180;
+
 
 inline constexpr int kProtocolVersion = 1;
 inline constexpr quint32 kMaxFrameBodyBytes = 256U * 1024U;

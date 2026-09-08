@@ -200,9 +200,9 @@ void StationBrowserPage::setupMapHome()
     cancelOrderButton_->setObjectName(QStringLiteral("cancelReservationButton"));
     currentOrderNavigationButton_ = new QPushButton(QStringLiteral("导航"), currentOrderDetails_);
     currentOrderNavigationButton_->setObjectName(QStringLiteral("currentOrderNavigationButton"));
-    reservationScanButton_ = new QPushButton(QStringLiteral("前往扫码充电"), currentOrderDetails_);
+    reservationScanButton_ = new QPushButton(QStringLiteral("前往充电"), currentOrderDetails_);
     reservationScanButton_->setObjectName(QStringLiteral("startReservedChargingButton"));
-    progressButton_ = new QPushButton(QStringLiteral("刷新充电进度"), currentOrderDetails_);
+    progressButton_ = new QPushButton(QStringLiteral("查看充电"), currentOrderDetails_);
     progressButton_->setObjectName(QStringLiteral("chargingProgressButton"));
     stopButton_ = new QPushButton(QStringLiteral("结束充电"), currentOrderDetails_);
     stopButton_->setObjectName(QStringLiteral("chargingStopButton"));
