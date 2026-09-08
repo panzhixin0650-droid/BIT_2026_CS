@@ -12,6 +12,7 @@ enum class NavigationIcon {
     Support,
     Profile,
     Route,
+    Location,
 };
 
 [[nodiscard]] QString clientThemeStyleSheet();

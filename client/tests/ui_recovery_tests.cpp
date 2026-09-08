@@ -371,7 +371,7 @@ private slots:
         QCOMPARE(window.findChild<QLabel *>(QStringLiteral("profileNicknameLabel"))->text(), QStringLiteral("用户2"));
         tabs->setCurrentIndex(4);
         window.findChild<QPushButton *>("profileOrdersButton")->click();
-        QCOMPARE(api.calls[QStringLiteral("order.list")], 2);
+        QCOMPARE(api.calls[QStringLiteral("order.list")], 4); // Home history + orders for each session.
         tabs->setCurrentIndex(4);
         QCOMPARE(api.calls[QStringLiteral("user.profile.get")], 2);
         QVERIFY(window.findChild<QPushButton *>(QStringLiteral("scanStartButton"))->isEnabled());
@@ -415,7 +415,7 @@ private slots:
         emit api.orderListCompleted(api.reply<OrderListResult>("order.list", protocol::ErrorCode::ServiceUnavailable));
         QVERIFY(window.findChild<QPushButton *>(QStringLiteral("orderRefreshButton"))->isEnabled());
         window.findChild<OrderPage *>()->refreshRequested();
-        QCOMPARE(api.calls[QStringLiteral("order.list")], 2);
+        QCOMPARE(api.calls[QStringLiteral("order.list")], 3); // Home history + orders + explicit retry.
         tabs->setCurrentIndex(2);
         auto *scan = window.findChild<ScanPage *>();
         scan->scanRequested(QStringLiteral("PILE-A-01"));

@@ -55,7 +55,9 @@ window.bitMap = (() => {
       anchor: { x: (current ? 22 : size) / 2, y: (current ? 22 : size) / 2 },
       src: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg) });
   }
+  let ignoreBlankUntil = 0;
   function queueSelection(id) {
+    if (!id && performance.now() < ignoreBlankUntil) return;
     // SDK marker/map click events may both fire, in either order. Coalesce that
     // event frame and prefer its marker. No polling or dependence on bubbling.
     if (pendingClick === undefined || id) pendingClick = id;
@@ -63,11 +65,17 @@ window.bitMap = (() => {
     clickFrame = requestAnimationFrame(() => {
       const selected = pendingClick;
       clickFrame = null; pendingClick = undefined;
+      if (!selected && performance.now() < ignoreBlankUntil) return;
       if (bridge && scene) bridge.selectStation(selected);
     });
   }
   function initStations() {
     if (stationMarkers) return;
+    // The native station page provides overview and nearby controls. Keep SDK attribution/scale.
+    if (typeof map.removeControl === 'function' && TMap.constants && TMap.constants.DEFAULT_CONTROL_ID) {
+      map.removeControl(TMap.constants.DEFAULT_CONTROL_ID.ZOOM);
+      map.removeControl(TMap.constants.DEFAULT_CONTROL_ID.ROTATION);
+    }
     stationMarkers = new TMap.MultiMarker({ map, geometries: [], styles: {
       available: stationStyle('#245c45'), full: stationStyle('#8b9d90'),
       selected: stationStyle('#388456', true), selectedFull: stationStyle('#8b9d90', true)
@@ -208,6 +216,7 @@ window.bitMap = (() => {
     if (!state.ready || !scene) return false;
     autoFit = false;
     lastStationFit = null;
+    if (Number.isFinite(point.zoom)) map.setZoom(point.zoom);
     const area = viewport(), p = projected(point), scale = 256 * Math.pow(2, map.getZoom());
     map.setCenter(unprojected(p.x - (area.left + area.width / 2 - innerWidth / 2) / scale,
                               p.y - (area.top + area.height / 2 - innerHeight / 2) / scale));
@@ -221,7 +230,7 @@ window.bitMap = (() => {
       selectStation(data.selected);
       locationMarker.setGeometries(data.location ? [{ id: 'current', styleId: 'current',
         position: new TMap.LatLng(data.location.lat, data.location.lng) }] : []);
-      return fitStations();
+      return autoFit ? fitStations() : true;
     } catch (_) { fail(); return false; }
   }
   function zoom(delta) {
@@ -237,8 +246,36 @@ window.bitMap = (() => {
     if (autoFit) { if (scene) fitStations(); else if (bounds) fit(); }
     return true;
   }
-  document.getElementById('map').addEventListener('wheel', () => { autoFit = false; lastStationFit = null; }, { passive: true });
-  document.getElementById('map').addEventListener('pointerdown', () => { autoFit = false; lastStationFit = null; }, { passive: true });
+  const mapElement = document.getElementById('map');
+  const pointers = new Map();
+  let pointerGesture = false;
+  function userInteraction() {
+    autoFit = false; lastStationFit = null;
+    ignoreBlankUntil = performance.now() + 300;
+    if (scene && bridge) bridge.interact();
+  }
+  mapElement.addEventListener('wheel', userInteraction, { passive: true, capture: true });
+  mapElement.addEventListener('dblclick', userInteraction, { passive: true, capture: true });
+  mapElement.addEventListener('pointerdown', event => {
+    autoFit = false; lastStationFit = null;
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointers.size > 1) { pointerGesture = true; userInteraction(); }
+  }, { passive: true, capture: true });
+  window.addEventListener('pointermove', event => {
+    const start = pointers.get(event.pointerId);
+    if (!start) return;
+    if (!pointerGesture && Math.hypot(event.clientX - start.x, event.clientY - start.y) > 6) {
+      pointerGesture = true; userInteraction();
+    }
+    if (pointerGesture) ignoreBlankUntil = performance.now() + 300;
+  }, { passive: true, capture: true });
+  function endPointer(event) {
+    if (pointerGesture) ignoreBlankUntil = performance.now() + 300;
+    pointers.delete(event.pointerId);
+    if (!pointers.size) pointerGesture = false;
+  }
+  window.addEventListener('pointerup', endPointer, { passive: true, capture: true });
+  window.addEventListener('pointercancel', endPointer, { passive: true, capture: true });
   let resizeFrame;
   new ResizeObserver(() => {
     cancelAnimationFrame(resizeFrame);

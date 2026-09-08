@@ -32,10 +32,16 @@ StationPreviewCard::StationPreviewCard(QWidget *parent) : QFrame(parent)
     auto *close = new QPushButton(QStringLiteral("×"), this);
     close->setObjectName(QStringLiteral("stationPreviewClose"));
     close->setProperty("role", "mapDismiss");
-    close->setFixedSize(28, 28);
-    close->setAccessibleName(QStringLiteral("收起充电站信息"));
+    close->setFixedSize(44, 44);
+    close->setAccessibleName(QStringLiteral("返回推荐电站"));
+    close->setToolTip(close->accessibleName());
     title->addWidget(name_, 1);
     title->addWidget(close, 0, Qt::AlignTop);
+    address_ = new QLabel(this);
+    address_->setObjectName(QStringLiteral("stationPreviewAddress"));
+    address_->setTextFormat(Qt::PlainText);
+    address_->setWordWrap(true);
+    address_->setMaximumHeight(36);
     metrics_ = new QLabel(this);
     metrics_->setObjectName(QStringLiteral("stationPreviewMetrics"));
     metrics_->setWordWrap(true);
@@ -43,17 +49,21 @@ StationPreviewCard::StationPreviewCard(QWidget *parent) : QFrame(parent)
     prediction_->setObjectName(QStringLiteral("stationPreviewPrediction"));
     prediction_->setWordWrap(true);
     auto *actions = new QHBoxLayout;
-    auto *details = new QPushButton(QStringLiteral("查看详情"), this);
+    auto *details = new QPushButton(QStringLiteral("选桩充电"), this);
     details->setObjectName(QStringLiteral("stationPreviewDetailsButton"));
-    auto *navigate = new QPushButton(QStringLiteral("导航"), this);
+    details->setProperty("role", "primary");
+    details->setMinimumHeight(44);
+    auto *navigate = new QPushButton(QStringLiteral("导航到站"), this);
     navigate->setObjectName(QStringLiteral("stationPreviewNavigationButton"));
-    navigate->setProperty("role", "primary");
+    navigate->setMinimumHeight(44);
     navigate->setIcon(clientNavigationIcon(NavigationIcon::Route));
-    actions->addWidget(details, 1);
     actions->addWidget(navigate, 1);
+    actions->addWidget(details, 1);
     layout->addLayout(title);
+    layout->addWidget(address_);
     layout->addWidget(metrics_);
     layout->addWidget(prediction_);
+    layout->addStretch(1);
     layout->addLayout(actions);
     connect(close, &QPushButton::clicked, this, &StationPreviewCard::dismissed);
     connect(details, &QPushButton::clicked, this, [this] {
@@ -71,6 +81,11 @@ void StationPreviewCard::setStation(const protocol::StationDto &station)
     setProperty("stationId", station.stationId);
     name_->setText(station.name);
     name_->setToolTip(station.name);
+    address_->setText(station.address.isEmpty() ? QStringLiteral("地址暂未提供") : station.address);
+    address_->setToolTip(address_->text());
+    auto *details = findChild<QPushButton *>(QStringLiteral("stationPreviewDetailsButton"));
+    details->setText(station.status == protocol::StationStatus::Active && station.availablePileCount > 0
+                         ? QStringLiteral("选桩充电") : QStringLiteral("查看电桩"));
     const QString distance = station.distanceKm
         ? QStringLiteral("%1 km").arg(*station.distanceKm, 0, 'f', 2)
         : QStringLiteral("距离待定位");

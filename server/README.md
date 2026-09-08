@@ -79,7 +79,7 @@ SQLite 作为 `server-app` 内的嵌入式数据库直接读写本地文件，�
 
 `prediction.latest` 仍未接入。当前订单使用现有五表和 V1，不启用预约到期、违约、跨时段分段计费、退款或报修状态；未来接入位置见[订单扩展候选说明](../docs/extension/order-evolution.md)。
 
-按 [ADR-0013](../docs/decisions/0013-demo-peak-pricing.md) 启用固定 Demo 高峰价：
+按 [ADR-0016](../docs/decisions/0016-demo-peak-pricing.md) 启用固定 Demo 高峰价：
 北京时间每天 `[08:00,11:00)`、`[18:00,21:00)` 基础价 ×1.2，其他时段原价。
 用户 `station.list/detail` 返回请求时参考价及可选 `pricingRule="DEMO_PEAK_START_V1"`；
 管理员/数据库站点价格仍是基础价。服务端在 `order.start` 同次取时计算并冻结整数分单价，

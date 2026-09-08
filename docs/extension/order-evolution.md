@@ -1,6 +1,6 @@
 # 订单扩展候选与现有接入位置
 
-状态：候选总体为 `IDEA`；NO.7 仅启用 [ADR-0013](../decisions/0013-demo-peak-pricing.md)
+状态：候选总体为 `IDEA`；NO.7 仅启用 [ADR-0016](../decisions/0016-demo-peak-pricing.md)
 的固定高峰 +20% 子集，其他复杂计价仍未激活。当前实现以
 [Demo 契约](../../contracts/overall-interface-v1.md)及编号迁移为准。
 

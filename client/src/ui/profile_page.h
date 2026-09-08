@@ -8,6 +8,7 @@
 class QLabel;
 class QLineEdit;
 class QPushButton;
+class QStackedWidget;
 
 namespace charging::client {
 
@@ -22,9 +23,13 @@ public:
     void setAvatarPath(const QString &path);
     void setBusy(bool busy);
     void showMessage(const QString &message, bool error = false);
+    void openDetails();
+    void showOverview();
 
 signals:
     void ordersRequested();
+    void repairRequested();
+    void ticketsRequested();
     void avatarSelectionRequested();
     void refreshRequested();
     void nicknameUpdateRequested(const QString &nickname);
@@ -33,11 +38,20 @@ signals:
     void avatarImageSelected(const QImage &image);
     void logoutRequested();
 
+protected:
+    void resizeEvent(QResizeEvent *event) override;
 private:
+    void updateFullAvatar();
+    QStackedWidget *sections_ = nullptr;
+    QLabel *detailMessage_ = nullptr;
+    QLabel *avatarMessage_ = nullptr;
+    QLabel *detailPhone_ = nullptr;
+    QLabel *fullAvatar_ = nullptr;
+    QPushButton *avatarButton_ = nullptr;
+    QString savedNickname_;
     [[nodiscard]] QString formatBalance(qint64 balanceCents) const;
 
     QImage avatarImage_;
-    QString avatarUserKey_;
     QLabel *avatarLabel_ = nullptr;
     QLabel *nicknameLabel_ = nullptr;
     QLabel *phoneLabel_ = nullptr;

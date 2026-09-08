@@ -7,7 +7,7 @@
 
 namespace charging::server {
 
-// ADR-0013: fixed Demo policy, evaluated only for quotes and charging start.
+// ADR-0016: fixed Demo policy, evaluated only for quotes and charging start.
 // Beijing clock, inclusive start / exclusive end. Never apply to stored orders.
 inline std::optional<qint64> chargingUnitPriceCents(qint64 basePrice,
                                                   const QDateTime &startedAt)

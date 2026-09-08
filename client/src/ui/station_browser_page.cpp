@@ -127,7 +127,7 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     detailPage_ = new QWidget(pages_);
     detailPage_->setObjectName(QStringLiteral("stationDetailPage"));
     auto *detailPageLayout = new QVBoxLayout(detailPage_);
-    detailPageLayout->setContentsMargins(20, 20, 20, 16);
+    detailPageLayout->setContentsMargins(2, 4, 2, 4);
     detailPageLayout->setSpacing(12);
     backButton_ = new QPushButton(QStringLiteral("‹ 返回充电地图"), detailPage_);
     backButton_->setObjectName(QStringLiteral("stationDetailBackButton"));
@@ -140,6 +140,7 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     auto *detailScrollArea = new QScrollArea(detailPage_);
     detailScrollArea->setWidgetResizable(true);
     detailScrollArea->setFrameShape(QFrame::NoFrame);
+    detailScrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     detailContent_ = new QWidget(detailScrollArea);
     detailContent_->setObjectName(QStringLiteral("stationDetailContent"));
     auto *detailLayout = new QVBoxLayout(detailContent_);
@@ -384,22 +385,16 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     navigationLayout->addWidget(routeDetails_);
 
     pages_->addWidget(listPage_);
-    pages_->addWidget(detailPage_);
+    sheetPages_->addWidget(detailPage_);
     pages_->addWidget(navigationPage_);
     connect(pages_, &QStackedWidget::currentChanged, this, [this]() {
         if (pages_->currentWidget() != navigationPage_) emit navigationClosed();
     });
     pages_->setCurrentWidget(listPage_);
 
-    const auto search = [this] {
-        filterToggle_->setChecked(false);
-        emit refreshRequested();
-    };
+    const auto search = [this] { submitSearch(); };
     connect(refreshButton_, &QPushButton::clicked, this, search);
-    connect(regionInput_, &QLineEdit::returnPressed, this, search);
     connect(keywordInput_, &QLineEdit::returnPressed, this, search);
-    connect(demoLocationCheck_, &QCheckBox::toggled,
-            this, &StationBrowserPage::updateLocationSummary);
     connect(locationPresetCombo_, &QComboBox::currentIndexChanged,
             this, [this](int index) {
                 const QString address = locationPresetCombo_->itemData(index).toString();
@@ -427,7 +422,7 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     });
     connect(backButton_, &QPushButton::clicked, this, &StationBrowserPage::detailBackRequested);
     connect(detailNavigationButton_, &QPushButton::clicked, this, [this]() {
-        navigationReturnPage_ = detailPage_;
+        navigationReturnPage_ = listPage_;
         emit navigationRequested(navigationStation_);
     });
     connect(navigationBackButton, &QPushButton::clicked, this, [this]() {
@@ -466,12 +461,9 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
 StationQuery StationBrowserPage::stationQuery() const
 {
     StationQuery query;
-    if (demoLocationCheck_->isChecked()) {
-        query.longitude = currentLocation_.longitude;
-        query.latitude = currentLocation_.latitude;
-    }
-    query.region = regionInput_->text().trimmed();
-    query.keyword = keywordInput_->text().trimmed();
+    query.longitude = currentLocation_.longitude;
+    query.latitude = currentLocation_.latitude;
+    query.keyword = appliedKeyword_;
     return query;
 }
 
@@ -496,9 +488,7 @@ void StationBrowserPage::setGreetingNickname(const QString &nickname)
 void StationBrowserPage::setListLoading(bool loading)
 {
     refreshButton_->setDisabled(loading);
-    regionInput_->setDisabled(loading);
     keywordInput_->setDisabled(loading);
-    demoLocationCheck_->setDisabled(loading);
     stationPreview_->setDisabled(loading);
     listMessageLabel_->setStyleSheet(QStringLiteral("color: #697969;"));
     listMessageLabel_->setText(loading ? QStringLiteral("正在获取充电站…") : QString{});
@@ -525,21 +515,9 @@ void StationBrowserPage::setReservationBusy(bool busy)
 
 void StationBrowserPage::showStations(const QList<protocol::StationDto> &stations)
 {
-    stations_ = stations;
+    catalog_ = stations;
     setListLoading(false);
-    stationMap_->setStations(stations);
-    const qint64 selected = stationMap_->selectedStationId();
-    if (selected > 0) {
-        for (const auto &station : stations) {
-            if (station.stationId == selected) stationPreview_->setStation(station);
-        }
-    }
-    stationCountLabel_->setText(QStringLiteral("%1 个站点").arg(stations.size()));
-    if (stations.isEmpty()) {
-        listMessageLabel_->setText(QStringLiteral("没有找到符合条件的充电站"));
-        listMessageLabel_->show();
-    }
-    layoutHomeOverlays();
+    applyDiscovery();
 }
 
 void StationBrowserPage::showListError(const QString &message)
@@ -548,6 +526,7 @@ void StationBrowserPage::showListError(const QString &message)
     listMessageLabel_->setText(message);
     listMessageLabel_->setStyleSheet(QStringLiteral("color: #c62828;"));
     listMessageLabel_->show();
+    searchMessage_->setText(message);
 }
 
 void StationBrowserPage::showListMessage(const QString &message, bool error)
@@ -611,18 +590,22 @@ void StationBrowserPage::showCurrentOrder(
 
 bool StationBrowserPage::isShowingStationDetail() const
 {
-    return pages_->currentWidget() == detailPage_;
+    return pages_->currentWidget() == listPage_ && sheetPages_->currentWidget() == detailPage_;
 }
 
 void StationBrowserPage::showListPage()
 {
     navigationReturnPage_ = listPage_;
+    stationMap_->selectStation(0);
+    sheetPages_->setCurrentWidget(overviewScroll_);
     pages_->setCurrentWidget(listPage_);
 }
 
 void StationBrowserPage::showDetailLoading()
 {
-    pages_->setCurrentWidget(detailPage_);
+    pages_->setCurrentWidget(listPage_);
+    sheetPages_->setCurrentWidget(detailPage_);
+    setSheetPosition(2);
     backButton_->setEnabled(true);
     detailContent_->hide();
     detailMessageLabel_->setText(QStringLiteral("正在获取充电站详情…"));
@@ -632,8 +615,10 @@ void StationBrowserPage::showDetailLoading()
 
 void StationBrowserPage::showStationDetail(const StationDetailPayload &detail)
 {
+    const bool alreadyShowingDetail = sheetPages_->currentWidget() == detailPage_;
     clearPileCards();
     navigationStation_ = detail.station;
+    stationMap_->selectStation(detail.station.stationId);
     detailMessageLabel_->hide();
     detailNameLabel_->setText(detail.station.name);
     detailMetaLabel_->setText(
@@ -692,16 +677,25 @@ void StationBrowserPage::showStationDetail(const StationDetailPayload &detail)
     }
     updateDirectChargingButtons();
     detailContent_->show();
-    pages_->setCurrentWidget(detailPage_);
+    if (!alreadyShowingDetail) {
+        pages_->setCurrentWidget(listPage_);
+        sheetPages_->setCurrentWidget(detailPage_);
+        setSheetPosition(2);
+    }
 }
 
 void StationBrowserPage::showDetailError(const QString &message)
 {
+    const bool alreadyShowingDetail = sheetPages_->currentWidget() == detailPage_;
     detailContent_->hide();
     detailMessageLabel_->setText(message);
     detailMessageLabel_->setStyleSheet(QStringLiteral("color: #c62828;"));
     detailMessageLabel_->show();
-    pages_->setCurrentWidget(detailPage_);
+    if (!alreadyShowingDetail) {
+        pages_->setCurrentWidget(listPage_);
+        sheetPages_->setCurrentWidget(detailPage_);
+        setSheetPosition(2);
+    }
 }
 
 void StationBrowserPage::showDetailMessage(const QString &message, bool error)
@@ -717,13 +711,20 @@ void StationBrowserPage::setLocationBusy(bool busy)
     locationPresetCombo_->setDisabled(busy);
     locationAddressInput_->setDisabled(busy);
     resolveLocationButton_->setDisabled(busy);
+    findChild<QPushButton *>("stationLocationDefault")->setDisabled(busy);
 }
 
 void StationBrowserPage::setResolvedLocation(const MapLocation &location)
 {
     currentLocation_ = location;
+    const QSignalBlocker presetSignals(locationPresetCombo_);
+    const int preset = locationPresetCombo_->findData(location.address);
+    locationPresetCombo_->setCurrentIndex(preset >= 0 ? preset : locationPresetCombo_->count() - 1);
+    locationAddressInput_->setText(location.address);
+    for (auto &station : catalog_) station.distanceKm.reset();
+    applyDiscovery();
     stationMap_->setCurrentLocation(location);
-    demoLocationCheck_->setChecked(true);
+    stationMap_->setCenter(location);
     updateLocationSummary();
 }
 
@@ -821,12 +822,26 @@ void StationBrowserPage::reset()
 {
     detailPricingInfo_->setRules({});
     setListLoading(false);
+    userId_ = 0;
+    searchHistory_.clear();
+    visitedStationIds_.clear();
+    visitHistoryFailed_ = false;
+    catalog_.clear();
+    appliedKeyword_.clear();
+    keywordInput_->clear();
+    currentLocation_ = {QStringLiteral("演示位置"), 123.42, 41.70};
+    locationPresetCombo_->setCurrentIndex(0);
+    locationAddressInput_->setText(currentLocation_.address);
+    stationMap_->setCurrentLocation(currentLocation_);
+    updateLocationSummary();
+    sheetPages_->setCurrentWidget(overviewScroll_);
+    setSheetPosition(1);
     stations_.clear();
+    renderDiscovery();
     stationMap_->setStations({});
     stationPreview_->hide();
     currentOrderToggle_->setChecked(false);
     stationCountLabel_->clear();
-    filterToggle_->setChecked(false);
     clearPileCards();
     listMessageLabel_->hide();
     actionMessageLabel_->hide();
@@ -872,8 +887,8 @@ void StationBrowserPage::updateDirectChargingButtons()
             canStart ? QStringLiteral("使用%1开始充电").arg(pileCode)
                      : QStringLiteral("%1当前不可开始充电").arg(pileCode));
         button->setToolTip(
-            ownReservation ? QStringLiteral("前往扫一扫并开始已预约的充电桩")
-                           : canStart ? QStringLiteral("前往扫一扫并预填充电桩编号")
+            ownReservation ? QStringLiteral("进入充电页确认已预约的充电桩")
+                           : canStart ? QStringLiteral("进入充电页确认此充电桩")
                                       : QStringLiteral("只有闲置或本人已预约的充电桩可以开始充电"));
         button->setDisabled(reservationBusy_ || !canStart);
     }
@@ -881,22 +896,11 @@ void StationBrowserPage::updateDirectChargingButtons()
 
 void StationBrowserPage::updateLocationSummary()
 {
-    locationCaption_->setText(demoLocationCheck_->isChecked()
-        ? QStringLiteral("◎  %1").arg(currentLocation_.address)
-        : QStringLiteral("◎  未指定位置"));
-    if (demoLocationCheck_->isChecked()) {
-        locationSummaryLabel_->setText(
-            QStringLiteral("%1 · %2, %3\n"
-                           "当前位置仅用于本次查询，不会保存到数据库。")
-                .arg(currentLocation_.address)
-                .arg(currentLocation_.longitude, 0, 'f', 4)
-                .arg(currentLocation_.latitude, 0, 'f', 4));
-        return;
-    }
-
-    locationSummaryLabel_->setText(
-        QStringLiteral("未指定位置 · 当前查询不计算距离\n"
-                       "仍可使用站名、地址关键词或完整区域名查找充电站。"));
+    locationCaption_->setText(currentLocation_.address == QStringLiteral("演示位置")
+        ? QStringLiteral("默认定位（演示）") : currentLocation_.address);
+    locationCaption_->setToolTip(locationCaption_->text());
+    locationSummaryLabel_->setText(QStringLiteral("当前位置：%1\n此位置用于附近电站距离与路线起点。")
+        .arg(currentLocation_.address));
 }
 
 }  // namespace charging::client

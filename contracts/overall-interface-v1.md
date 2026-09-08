@@ -381,7 +381,7 @@ DTO 表中列出的字段在成功响应里都必须出现；标为 `/null` 的�
 
 只返回该站所有 Mock 电桩及当前状态。所有桩型沿用该站同一价格。
 
-按 [ADR-0013](../docs/decisions/0013-demo-peak-pricing.md) 增量启用固定 Demo 高峰价：
+按 [ADR-0016](../docs/decisions/0016-demo-peak-pricing.md) 增量启用固定 Demo 高峰价：
 每天北京时间（Asia/Shanghai，UTC+8）`[08:00,11:00)`、`[18:00,21:00)`，
 基础价乘 `1.2`，其他时间乘 `1`。不做低谷折扣、节假日、季节或跨时段分段计费，
 也不代表当地真实电价。用户站点响应附 `pricingRule="DEMO_PEAK_START_V1"`；

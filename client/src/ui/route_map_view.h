@@ -20,10 +20,12 @@ public slots:
     void ready() { emit connected(); }
     void tilesReady() { emit tilesLoaded(); }
     void selectStation(const QString &id) { emit stationClicked(id); }
+    void interact() { emit interacted(); }
 signals:
     void connected();
     void tilesLoaded();
     void stationClicked(const QString &id);
+    void interacted();
 };
 
 class RouteMapView final : public QWidget {
@@ -57,6 +59,7 @@ signals:
     void retryAvailableChanged(bool available);
     void statusChanged(const QString &message, bool error);
     void stationSelected(const QString &stationId);
+    void interactionStarted();
 
 protected:
     void hideEvent(QHideEvent *event) override;

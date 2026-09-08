@@ -669,6 +669,8 @@ void NavigationTests::stationMarkersAndBridgeUseSharedCanvas()
     // Marker/map events may arrive for the same click, in either order.
     evaluate(view, QStringLiteral("sdkMap.events.click({}); sdkLayers[2].events.click({geometry:{id:'1'}})"));
     QTRY_COMPARE(map->selectedStationId(), 1);
+    QTRY_COMPARE(evaluate(view, QStringLiteral("sdkCounts.zoom")).toInt(), 15);
+    QTRY_VERIFY(evaluate(view, QStringLiteral("!!window.lastCenter")).toBool());
     QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationPreviewCard"))->isVisible());
     QTRY_COMPARE(evaluate(view, QStringLiteral("sdkLayers[2].geometries[0].styleId")).toString(), QStringLiteral("selected"));
     QCOMPARE(details.size(), 0);
@@ -676,8 +678,18 @@ void NavigationTests::stationMarkersAndBridgeUseSharedCanvas()
     QTRY_COMPARE(map->selectedStationId(), 2);
     QTRY_COMPARE(selected.size(), 2);
     evaluate(view, QStringLiteral("sdkMap.events.click({})"));
-    QTRY_COMPARE(map->selectedStationId(), 0);
-    QVERIFY(!window.findChild<QWidget *>(QStringLiteral("stationPreviewCard"))->isVisible());
+    QTRY_VERIFY(!window.findChild<QWidget *>("stationHomeOverlay")->isVisible());
+    QCOMPARE(map->selectedStationId(), 2);
+    evaluate(view, QStringLiteral("sdkMap.events.click({})"));
+    QTRY_VERIFY(window.findChild<QWidget *>("stationHomeOverlay")->isVisible());
+    QTRY_VERIFY(window.findChild<QWidget *>("stationPreviewCard")->isVisible());
+    // Real browser input is bridged independently of programmatic camera changes.
+    evaluate(view, QStringLiteral("document.getElementById('map').dispatchEvent(new WheelEvent('wheel', {deltaY: 120, bubbles: true}))"));
+    QTRY_VERIFY(!window.findChild<QWidget *>("stationSheetPages")->isVisible());
+    QVERIFY(window.findChild<QWidget *>("stationHomeOverlay")->isVisible());
+    map->focusStation(2);
+    QTRY_COMPARE(evaluate(view, QStringLiteral("sdkCounts.zoom")).toInt(), 15);
+    evaluate(view, QStringLiteral("sdkMap.setZoom(12)"));
     window.findChild<QLineEdit *>(QStringLiteral("stationKeywordInput"))->setText(QStringLiteral("和平"));
     window.findChild<QPushButton *>(QStringLiteral("stationRefreshButton"))->click();
     QTRY_COMPARE(evaluate(view, QStringLiteral("sdkLayers[2].geometries.length")).toInt(), 1);
@@ -687,6 +699,12 @@ void NavigationTests::stationMarkersAndBridgeUseSharedCanvas()
     QTRY_COMPARE(evaluate(view, QStringLiteral("sdkCounts.zoom")).toInt(), 13);
     window.findChild<QPushButton *>(QStringLiteral("stationMapLocate"))->click();
     QTRY_VERIFY(evaluate(view, QStringLiteral("!!window.lastCenter")).toBool());
+    QTRY_COMPARE(evaluate(view, QStringLiteral("sdkCounts.zoom")).toInt(), 15);
+    const QVariant savedCenter = evaluate(view, QStringLiteral("JSON.stringify(lastCenter)"));
+    emit window.findChild<StationBrowserPage *>()->refreshRequested();
+    QTRY_VERIFY(window.findChild<QPushButton *>("stationRefreshButton")->isEnabled());
+    QCOMPARE(evaluate(view, QStringLiteral("sdkCounts.zoom")).toInt(), 15);
+    QCOMPARE(evaluate(view, QStringLiteral("JSON.stringify(lastCenter)")), savedCenter);
     auto *tabs = window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
     tabs->setCurrentIndex(1);
     QTRY_COMPARE(view->page()->lifecycleState(), QWebEnginePage::LifecycleState::Frozen);

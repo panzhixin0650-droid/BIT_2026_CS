@@ -32,6 +32,7 @@ public:
     void setCurrentLocation(const std::optional<MapLocation> &location);
     void setStations(const QList<protocol::StationDto> &stations);
     void selectStation(qint64 stationId);
+    void focusStation(qint64 stationId);
     void fitStations();
     void zoomIn();
     void zoomOut();
@@ -42,6 +43,8 @@ public:
 
 signals:
     void stationSelected(qint64 stationId);
+    void backgroundClicked();
+    void interactionStarted();
     void mapReady();
 
 protected:
@@ -59,6 +62,7 @@ private:
     void updateControls();
     void applyWebScene();
     void changeZoom(int delta);
+    void beginInteraction();
     void activateStation(qint64 stationId);
     void paintOfflineMap(QPainter &painter);
     void updatePreview();

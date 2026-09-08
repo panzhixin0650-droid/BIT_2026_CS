@@ -9,6 +9,7 @@
 #include "ui/support_desk_page.h"
 #include "ui/photo_album_page.h"
 #include "ui/profile_page.h"
+#include "ui/avatar_art.h"
 #include "local/avatar_storage.h"
 #include <QFile>
 #include <QListWidget>
@@ -58,7 +59,7 @@ private slots:
     void floatingNavigationSurvivesPartialRepaints_data();
     void floatingNavigationSurvivesPartialRepaints();
     void clientUsesConsistentVisualTheme();
-    void stationFiltersExpandAndPreserveQuery();
+    void stationLocationCanChangeAndRestoreDefault();
     void chargingHomeMapFiltersAndOpensStationDetail();
     void stationDetailCanPrepareDirectCharging();
     void chargingStartLeavesNavigationForHomeOverview();
@@ -132,37 +133,50 @@ void MainWindowTests::supportDeskUsesInAppPageAndPreservesDraft()
 {
     MockChargingApi api; MainWindow window(api);
     window.resize(360,640); window.show(); loginFixtureUser(window);
-    auto *tabs=window.findChild<QTabWidget *>("mainNavigation");
-    auto *pages=window.findChild<QStackedWidget *>("applicationPages");
-    QSignalSpy created(&api,&IChargingApi::supportTicketCreated);
+    auto *tabs = window.findChild<QTabWidget *>("mainNavigation");
+    auto *pages = window.findChild<QStackedWidget *>("applicationPages");
+    QSignalSpy created(&api, &IChargingApi::supportTicketCreated);
     tabs->setCurrentIndex(3);
     window.findChild<QPushButton *>("supportDeskEntry")->click();
-    auto *desk=window.findChild<SupportDeskPage *>();
+    auto *desk = window.findChild<SupportDeskPage *>("supportDeskPage");
     QVERIFY(desk && !desk->isWindow());
-    QCOMPARE(pages->currentWidget(),desk);
-    QTRY_COMPARE(window.size(),QSize(360,640));
-    auto *back=desk->findChild<QPushButton *>("deskBackButton");
-    QTRY_VERIFY(back->visibleRegion().contains(back->rect().center()));
-    auto directory=qEnvironmentVariable("CHARGING_FLOW_SCREENSHOTS");
-    if(!directory.isEmpty())window.grab().save(QDir(directory).filePath("support-page-360.png"));
-    desk->findChild<QTabWidget *>("deskTabs")->setCurrentIndex(1);
-    desk->findChild<QLineEdit *>("ticketTitle")->setText(QStringLiteral("待核对的问题"));
-    desk->findChild<QPlainTextEdit *>("ticketSummary")->setPlainText(QStringLiteral("返回后应保留这份未提交的草稿。"));
-    auto *submit=desk->findChild<QPushButton *>("ticketSubmit");
-    desk->findChild<QScrollArea *>("ticketDraftScroll")->ensureWidgetVisible(submit);
+    QCOMPARE(pages->currentWidget(), desk);
+    QCOMPARE(desk->findChild<QTabWidget *>("deskTabs")->currentIndex(), 0);
+    QVERIFY(!desk->findChild<QPushButton *>("ticketGenerate")->isVisible());
+    QVERIFY(!desk->findChild<QListWidget *>("myTickets")->isVisible());
+    desk->findChild<QPlainTextEdit *>("deskInput")->setPlainText(QStringLiteral("尚未发送的问题"));
+    desk->findChild<QPushButton *>("deskBackButton")->click();
+    tabs->setCurrentIndex(4);
+    window.findChild<QPushButton *>("profileRepairButton")->click();
+    auto *repair = window.findChild<SupportDeskPage *>("repairPage");
+    QVERIFY(repair && repair != desk);
+    QCOMPARE(pages->currentWidget(), repair);
+    repair->findChild<QLineEdit *>("repairPileCode")->setText("PILE-A-01");
+    repair->findChild<QPlainTextEdit *>("ticketSummary")->setPlainText(QStringLiteral("返回后保留报修内容"));
+    auto *submit = repair->findChild<QPushButton *>("ticketSubmit");
+    repair->findChild<QScrollArea *>("ticketDraftScroll")->ensureWidgetVisible(submit);
     QTRY_VERIFY(submit->visibleRegion().contains(submit->rect().center()));
-    if(!directory.isEmpty())window.grab().save(QDir(directory).filePath("support-draft-360.png"));
-    back->click();
-    QCOMPARE(pages->currentWidget(),tabs); QCOMPARE(tabs->currentIndex(),3);
+    repair->findChild<QPushButton *>("deskBackButton")->click();
+    window.findChild<QPushButton *>("profileTicketsButton")->click();
+    auto *tracking = window.findChild<SupportDeskPage *>("ticketsPage");
+    QVERIFY(tracking && tracking != repair && tracking != desk);
+    QCOMPARE(pages->currentWidget(), tracking);
+    QVERIFY(tracking->findChild<QListWidget *>("myTickets")->isVisible());
+    QVERIFY(!tracking->findChild<QPlainTextEdit *>("deskInput")->isVisible());
+    tracking->findChild<QPushButton *>("deskBackButton")->click();
+    tabs->setCurrentIndex(3);
     window.findChild<QPushButton *>("supportDeskEntry")->click();
-    QCOMPARE(desk->findChild<QLineEdit *>("ticketTitle")->text(),QStringLiteral("待核对的问题"));
-    back->click();
+    QCOMPARE(pages->currentWidget(), desk);
+    QCOMPARE(desk->findChild<QTabWidget *>("deskTabs")->currentIndex(), 0);
+    QCOMPARE(desk->findChild<QPlainTextEdit *>("deskInput")->toPlainText(), QStringLiteral("尚未发送的问题"));
+    desk->findChild<QPushButton *>("deskBackButton")->click();
     window.findChild<ScanPage *>()->submitPileCode("PILE-A-01");
     window.findChild<QPushButton *>("chargingRepairButton")->click();
-    QCOMPARE(pages->currentWidget(),desk);
-    back->click();
-    QCOMPARE(pages->currentWidget(),tabs); QCOMPARE(tabs->currentIndex(),1);
-    QCOMPARE(created.count(),0);
+    QCOMPARE(pages->currentWidget(), repair);
+    QCOMPARE(repair->findChild<QPlainTextEdit *>("ticketSummary")->toPlainText(), QStringLiteral("返回后保留报修内容"));
+    repair->findChild<QPushButton *>("deskBackButton")->click();
+    QCOMPARE(pages->currentWidget(), tabs); QCOMPARE(tabs->currentIndex(), 1);
+    QCOMPARE(created.count(), 0);
 }
 
 void MainWindowTests::profileAvatarUsesSharedAlbum()
@@ -190,6 +204,10 @@ void MainWindowTests::profileAvatarUsesSharedAlbum()
     auto *avatar = profile->findChild<QLabel *>("profileAvatar");
     auto *change = profile->findChild<QPushButton *>("changeAvatarButton");
     QSignalSpy selected(profile, &ProfilePage::avatarSelected);
+    profile->findChild<QPushButton *>("profileDetailsButton")->click();
+    QVERIFY(profile->findChild<QWidget *>("profileDetailPage")->isVisible());
+    profile->findChild<QPushButton *>("profileAvatarButton")->click();
+    QVERIFY(profile->findChild<QWidget *>("profileAvatarPage")->isVisible());
     change->click();
     auto *album = window.findChild<PhotoAlbumPage *>();
     QVERIFY(album && !album->isWindow());
@@ -213,6 +231,8 @@ void MainWindowTests::profileAvatarUsesSharedAlbum()
     QCOMPARE(pages->currentWidget(), tabs);
     QCOMPARE(tabs->currentIndex(), 4);
     QCOMPARE(selected.count(), 1);
+    QVERIFY(profile->findChild<QWidget *>("profileAvatarPage")->isVisible());
+    QVERIFY(!profile->findChild<QLabel *>("profileFullAvatar")->pixmap(Qt::ReturnByValue).isNull());
     QCOMPARE(selected.first().first().toString(), sourcePath);
     QVERIFY2(!avatar->pixmap(Qt::ReturnByValue).isNull(),
              qPrintable(profile->findChild<QLabel *>("profileMessageLabel")->text()));
@@ -228,6 +248,32 @@ void MainWindowTests::profileAvatarUsesSharedAlbum()
     QCOMPARE(pages->currentWidget(), tabs);
     QCOMPARE(selected.count(), 1);
     QCOMPARE(QImage(savedPath), saved);
+
+    // Built-in images from main must follow the same embedded album return path
+    // and refresh both the identity thumbnail and the complete avatar preview.
+    QSignalSpy imageSelected(profile, &ProfilePage::avatarImageSelected);
+    for (const auto &basic : basicAvatars()) {
+        change->click();
+        QCOMPARE(pages->currentWidget(), album);
+        QPushButton *basicButton = nullptr;
+        for (auto *button : album->findChildren<QPushButton *>()) {
+            if (button->text() == basic.name) basicButton = button;
+        }
+        QVERIFY(basicButton);
+        basicButton->click();
+        QCOMPARE(pages->currentWidget(), tabs);
+        QVERIFY(profile->findChild<QWidget *>("profileAvatarPage")->isVisible());
+        const QImage updated(savedPath);
+        QCOMPARE(updated.convertToFormat(QImage::Format_ARGB32),
+                 basic.image.convertToFormat(QImage::Format_ARGB32));
+        QCOMPARE(avatar->pixmap().toImage(),
+                 circularAvatar(updated, avatar->width(), profile->devicePixelRatioF()).toImage());
+        auto *full = profile->findChild<QLabel *>("profileFullAvatar");
+        QCOMPARE(full->pixmap().toImage(), QPixmap::fromImage(updated).scaled(
+                     full->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation).toImage());
+    }
+    QCOMPARE(imageSelected.count(), 4);
+    QCOMPARE(selected.count(), 1); // Image selection does not emit a bogus path.
 }
 
 void MainWindowTests::scanRepairSubmitsToSharedTickets()
@@ -589,10 +635,26 @@ void MainWindowTests::floatingNavigationResizesAndKeepsEntriesClickable()
             QCOMPARE(navigation->childAt(bar->mapTo(navigation, clickPoint)), bar);
             QTest::mouseClick(bar, Qt::LeftButton, Qt::NoModifier, clickPoint);
             QTRY_COMPARE(navigation->currentIndex(), index);
+            if (index == 2) {
+                if (auto *scanner = window.findChild<QDialog *>("qrScanDialog")) {
+                    QVERIFY(!scanner->isWindow());
+                    QCOMPARE(scanner->parentWidget(), navigation->currentWidget());
+                    QTRY_COMPARE(scanner->size(), navigation->currentWidget()->size());
+                }
+            }
+            QTRY_COMPARE(container->height(), 92);
+            QTRY_COMPARE(bar->height(), 120);
+            QTRY_COMPARE(navigation->height() - container->geometry().bottom() - 1, 28);
+            QCOMPARE(window.findChild<QWidget *>("applicationHeader")->height(), 64);
             auto *page = navigation->currentWidget();
             QVERIFY(page->isVisible());
             const QRect pageRect(page->mapTo(navigation, QPoint()), page->size());
-            QVERIFY(pageRect.bottom() < container->y());
+            if (index == 0) {
+                QTRY_COMPARE(page->mapTo(navigation, QPoint()).y() + page->height() - 1, navigation->rect().bottom());
+                QVERIFY(QRect(page->mapTo(navigation, QPoint()), page->size()).intersects(container->geometry()));
+            } else {
+                QVERIFY(pageRect.bottom() < container->y());
+            }
         }
         QVERIFY(occupiedWidth >= bar->width() - 2);
         bar->setFocus();
@@ -663,6 +725,11 @@ void MainWindowTests::floatingNavigationSurvivesPartialRepaints()
         // Explicitly coalesce two distant updates, regardless of platform mouse
         // event timing. A live sibling effect repaints the clean middle as well.
         QTest::qWait(60);
+        // Scanning intentionally covers the shell; return before sampling the navigation pixels.
+        if (auto *scanner = window.findChild<QDialog *>(QStringLiteral("qrScanDialog"))) {
+            if (scanner->isVisible()) scanner->reject();
+        }
+        QTRY_VERIFY(navigation->isVisible());
         bar->update(QRegion(bar->tabRect(0)) | QRegion(bar->tabRect(4)));
         image = navigation_test::presentedNavigation(
             *bar, QStringLiteral("disjoint-%1").arg(index));
@@ -733,37 +800,31 @@ void MainWindowTests::clientUsesConsistentVisualTheme()
     QCOMPARE(balance->font().pointSize(), 30);
 }
 
-void MainWindowTests::stationFiltersExpandAndPreserveQuery()
+void MainWindowTests::stationLocationCanChangeAndRestoreDefault()
 {
-    MockChargingApi api;
-    MainWindow window(api);
-    window.resize(360, 640);
-    window.show();
-    loginFixtureUser(window);
-    auto *toggle = window.findChild<QPushButton *>(QStringLiteral("stationFilterToggle"));
-    auto *filters = window.findChild<QWidget *>(QStringLiteral("stationAdvancedFilters"));
-    auto *region = window.findChild<QLineEdit *>(QStringLiteral("stationRegionInput"));
-    auto *query = window.findChild<QPushButton *>(QStringLiteral("stationRefreshButton"));
-    auto *count = window.findChild<QLabel *>(QStringLiteral("stationResultCount"));
-    QVERIFY(toggle && filters && region && query && count);
-    QTRY_COMPARE(count->text(), QStringLiteral("2 个站点"));
-    QTRY_VERIFY(query->isEnabled());
-    QVERIFY(!filters->isVisible());
-    toggle->setFocus();
-    QTest::keyClick(toggle, Qt::Key_Space);
-    QVERIFY(filters->isVisible());
-    region->setText(QStringLiteral("和平区"));
-    QTest::mouseClick(toggle, Qt::LeftButton);
-    QVERIFY(!filters->isVisible());
-    QTest::mouseClick(query, Qt::LeftButton);
-    QTRY_COMPARE(count->text(), QStringLiteral("1 个站点"));
-    QVERIFY(window.findChild<QWidget *>(QStringLiteral("stationMarker_1")) == nullptr);
-    QVERIFY(window.findChild<QWidget *>(QStringLiteral("stationMarker_2")) != nullptr);
-    QTest::mouseClick(toggle, Qt::LeftButton);
-    QCOMPARE(region->text(), QStringLiteral("和平区"));
-    auto *scroll = window.findChild<QScrollArea *>(QStringLiteral("stationFilterScrollArea"));
-    QVERIFY(scroll != nullptr);
-    QTRY_VERIFY(scroll->widget()->width() <= scroll->viewport()->width());
+    MockChargingApi api; MainWindow window(api);
+    window.resize(360,640); window.show(); loginFixtureUser(window);
+    auto *page = window.findChild<StationBrowserPage *>();
+    auto *entry = window.findChild<QPushButton *>("stationHomeLocationButton");
+    QVERIFY(!entry->icon().isNull());
+    QVERIFY(!window.findChild<QLineEdit *>("stationRegionInput"));
+    const auto initial = page->currentLocation();
+    QVERIFY(page->stationQuery().longitude.has_value());
+    entry->click();
+    auto *address = window.findChild<QLineEdit *>("locationAddressInput");
+    address->setText(QStringLiteral("沈阳市和平区"));
+    window.findChild<QPushButton *>("stationLocationBack")->click();
+    QCOMPARE(page->currentLocation().longitude, initial.longitude);
+    entry->click();
+    QCOMPARE(address->text(), initial.address);
+    address->setText(QStringLiteral("沈阳市和平区"));
+    window.findChild<QPushButton *>("resolveLocationButton")->click();
+    QTRY_COMPARE(page->currentLocation().address, QStringLiteral("沈阳市和平区"));
+    QCOMPARE(*page->stationQuery().longitude, 123.40);
+    window.findChild<QPushButton *>("stationLocationDefault")->click();
+    QTRY_COMPARE(page->currentLocation().longitude, initial.longitude);
+    QCOMPARE(page->currentLocation().latitude, initial.latitude);
+    QVERIFY(page->stationQuery().longitude.has_value());
 }
 
 void MainWindowTests::chargingHomeMapFiltersAndOpensStationDetail()
@@ -826,14 +887,12 @@ void MainWindowTests::chargingHomeMapFiltersAndOpensStationDetail()
     QTest::mouseClick(backButton, Qt::LeftButton);
     QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationMarker_1")) != nullptr);
 
-    auto *regionInput =
-        window.findChild<QLineEdit *>(QStringLiteral("stationRegionInput"));
     auto *keywordInput =
         window.findChild<QLineEdit *>(QStringLiteral("stationKeywordInput"));
     auto *refreshButton =
         window.findChild<QPushButton *>(QStringLiteral("stationRefreshButton"));
-    QVERIFY(keywordInput->accessibleName().contains(QStringLiteral("和平")));
-    QVERIFY(regionInput->placeholderText().contains(QStringLiteral("完整区域名")));
+    window.findChild<QPushButton *>("stationSearchEntry")->click();
+    QVERIFY(window.findChild<QWidget *>("stationSearchPage")->isVisible());
 
     keywordInput->setText(QStringLiteral("和平"));
     QTest::mouseClick(refreshButton, Qt::LeftButton);
@@ -841,20 +900,12 @@ void MainWindowTests::chargingHomeMapFiltersAndOpensStationDetail()
     QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationMarker_2")) != nullptr);
     QTRY_VERIFY(refreshButton->isEnabled());
 
-    keywordInput->clear();
-    regionInput->setText(QStringLiteral("和平区"));
-    QTest::mouseClick(refreshButton, Qt::LeftButton);
-    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationMarker_1")) == nullptr);
-    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationMarker_2")) != nullptr);
-    QTRY_VERIFY(refreshButton->isEnabled());
-
     auto *message =
         window.findChild<QLabel *>(QStringLiteral("stationListMessage"));
-    regionInput->clear();
     keywordInput->setText(QStringLiteral("不存在的站点"));
     QTest::mouseClick(refreshButton, Qt::LeftButton);
     QTRY_COMPARE(message->text(), QStringLiteral("没有找到符合条件的充电站"));
-    QVERIFY(message->isVisible());
+    QVERIFY(window.findChild<QLabel *>("stationSearchMessage")->text().contains(QStringLiteral("0")));
 }
 
 void MainWindowTests::stationDetailCanPrepareDirectCharging()
@@ -895,7 +946,7 @@ void MainWindowTests::locationCanResolveAndOpenMockRoute()
     window.resize(360, 640);
     window.show();
     loginFixtureUser(window);
-    window.findChild<QPushButton *>(QStringLiteral("stationFilterToggle"))->click();
+    window.findChild<QPushButton *>(QStringLiteral("stationLocationEntry"))->click();
 
     auto *preset =
         window.findChild<QComboBox *>(QStringLiteral("locationPresetCombo"));
@@ -912,7 +963,7 @@ void MainWindowTests::locationCanResolveAndOpenMockRoute()
     QVERIFY(preset != nullptr);
     QCOMPARE(preset->count(), 4);
     QVERIFY(address->placeholderText().contains(QStringLiteral("城市")));
-    QVERIFY(locationHint->text().contains(QStringLiteral("城市名称")));
+    QVERIFY(locationHint->text().contains(QStringLiteral("城市和地址")));
 
     preset->setCurrentIndex(1);
     QCOMPARE(address->text(), QStringLiteral("沈阳市和平区"));
@@ -927,14 +978,14 @@ void MainWindowTests::locationCanResolveAndOpenMockRoute()
     QTRY_COMPARE(locationMessage->text(),
                  QStringLiteral("位置已更新，充电站距离已重新计算"));
     QVERIFY(summary->text().contains(QStringLiteral("沈阳市和平区")));
-    QVERIFY(summary->text().contains(QStringLiteral("123.4000, 41.7900")));
+    QCOMPARE(window.findChild<StationBrowserPage *>()->currentLocation().longitude, 123.4);
 
     address->setText(QStringLiteral("无法解析的位置"));
     QTest::mouseClick(resolve, Qt::LeftButton);
     QTRY_VERIFY(locationMessage->text().contains(QStringLiteral("未能解析")));
     QVERIFY(summary->text().contains(QStringLiteral("沈阳市和平区")));
 
-    window.findChild<QPushButton *>(QStringLiteral("stationFilterToggle"))->setChecked(false);
+    window.findChild<QPushButton *>(QStringLiteral("stationLocationBack"))->click();
     QTRY_VERIFY(window.findChild<QAbstractButton *>(QStringLiteral("stationMarker_2")));
     QTest::mouseClick(window.findChild<QAbstractButton *>(QStringLiteral("stationMarker_2")), Qt::LeftButton);
     auto *navigate = window.findChild<QPushButton *>(QStringLiteral("stationPreviewNavigationButton"));
@@ -1469,14 +1520,25 @@ void MainWindowTests::profileCanRefreshUpdateNicknameAndRecharge()
     navigation->setCurrentIndex(4);
     QTRY_COMPARE(messageLabel->text(), QStringLiteral("资料已刷新"));
     QCOMPARE(nicknameLabel->text(), QStringLiteral("演示用户0001"));
+    QTRY_VERIFY(nicknameLabel->visibleRegion().contains(nicknameLabel->rect().center()));
+    QTRY_VERIFY(phoneLabel->visibleRegion().contains(phoneLabel->rect().center()));
     QCOMPARE(phoneLabel->text(), QStringLiteral("手机号：13800000001"));
     QCOMPARE(balanceLabel->text(), QStringLiteral("¥200.00"));
 
+    window.findChild<QPushButton *>("profileDetailsButton")->click();
+    QVERIFY(window.findChild<QWidget *>("profileDetailPage")->isVisible());
     nicknameInput->setText(QStringLiteral("新的昵称"));
     QTest::mouseClick(saveButton, Qt::LeftButton);
     QTRY_COMPARE(messageLabel->text(), QStringLiteral("昵称已更新"));
     QCOMPARE(nicknameLabel->text(), QStringLiteral("新的昵称"));
+    QVERIFY(window.findChild<QPushButton *>("headerAccountButton")->text().contains(QStringLiteral("新的昵称")));
     QCOMPARE(welcomeLabel->text(), QStringLiteral("你好，新的昵称"));
+
+    nicknameInput->setText(QStringLiteral("尚未保存的昵称"));
+    window.findChild<QPushButton *>("profileDetailBack")->click();
+    window.findChild<QPushButton *>("profileDetailsButton")->click();
+    QCOMPARE(nicknameInput->text(), QStringLiteral("新的昵称"));
+    QVERIFY(window.findChild<QPushButton *>("headerAccountButton")->text().contains("138****0001"));
 
     navigation->setCurrentIndex(0);
     QCOMPARE(welcomeLabel->text(), QStringLiteral("你好，新的昵称"));
