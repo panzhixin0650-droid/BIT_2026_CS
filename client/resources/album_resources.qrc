@@ -1,0 +1,13 @@
+<RCC>
+  <qresource prefix="/demo-album">
+    <file alias="PILE-A-01.png">../demo-album/PILE-A-01.png</file>
+    <file alias="PILE-A-02.png">../demo-album/PILE-A-02.png</file>
+    <file alias="PILE-B-02.png">../demo-album/PILE-B-02.png</file>
+    <file alias="PILE-B-03.png">../demo-album/PILE-B-03.png</file>
+    <file alias="PILE-B-04.png">../demo-album/PILE-B-04.png</file>
+    <file alias="PILE-B-05.png">../demo-album/PILE-B-05.png</file>
+    <file alias="sample-coffee.png">../demo-album/sample-coffee.png</file>
+    <file alias="sample-landscape.png">../demo-album/sample-landscape.png</file>
+    <file alias="sample-plant.png">../demo-album/sample-plant.png</file>
+  </qresource>
+</RCC>

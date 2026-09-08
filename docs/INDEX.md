@@ -39,6 +39,8 @@
 | [`decisions/0009-admin-account-rbac.md`](decisions/0009-admin-account-rbac.md) | 管理员账号管理、三角色权限、站点范围和密码升级 |
 | [`../contracts/client-assistant-local.md`](../contracts/client-assistant-local.md) | 智能助理本地检索与外部 HTTPS 边界，不改变 V1 TCP |
 
+- [ADR 0012：找桩、扫码与充电会话分离](decisions/0012-client-charging-flow.md)。
+
 ## 规则
 
 扫一扫报修：[ADR-0010](decisions/0010-scan-repair-tickets.md)，

@@ -1,7 +1,9 @@
-#include "ui/support_desk_dialog.h"
+#include "ui/support_desk_page.h"
 #include "ui/busy_indicator.h"
 
-#include <QCloseEvent>
+#include <QHideEvent>
+#include <QScrollArea>
+#include <QTabBar>
 #include <QComboBox>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -33,35 +35,45 @@ QString htmlText(const QString &text)
 }
 }
 
-SupportDeskDialog::SupportDeskDialog(IChargingApi &api, AssistantService &desk,
+SupportDeskPage::SupportDeskPage(IChargingApi &api, AssistantService &desk,
                                      AssistantService &summarizer, QWidget *parent)
-    : QDialog(parent), api_(api), desk_(desk), summarizer_(summarizer)
+    : QWidget(parent), api_(api), desk_(desk), summarizer_(summarizer)
 {
-    setObjectName(QStringLiteral("supportDeskDialog"));
+    setObjectName(QStringLiteral("supportDeskPage"));
     setWindowTitle(QStringLiteral("BIT CHARGE · 客服与工单"));
-    setModal(false);
-    resize(620, 730);
-    setMinimumSize(380, 520);
+    setMinimumSize(0, 0);
     setStyleSheet(QStringLiteral(R"(
-        QDialog#supportDeskDialog { background: #f6f7f2; }
+        QWidget#supportDeskPage { background: #f6f7f2; }
         QLabel { background: transparent; color: #304d42; }
         QLabel#deskHeading { font-size: 21px; font-weight: 700; }
         QLabel#deskDisclosure { color: #597668; font-size: 12px; }
         QTextBrowser, QPlainTextEdit, QLineEdit, QListWidget { background: white;
             color: #203d33; border: 1px solid #dce5d8; border-radius: 10px; padding: 9px; }
         QPushButton { background: #e8eee2; color: #31543f; border: none;
-            border-radius: 9px; padding: 9px 12px; }
+            border-radius: 12px; min-height:38px; padding:0 12px; font-size:12px; }
         QPushButton#deskSend, QPushButton#ticketSubmit { background: #245c45; color: white; }
         QPushButton:disabled, QPushButton#deskSend:disabled, QPushButton#ticketSubmit:disabled {
             color: #929c92; background: #edf0e9; }
         QTabWidget::pane { border: none; }
-        QTabBar::tab { padding: 10px 14px; background: transparent; color: #597668; }
+        QTabBar::tab { padding: 10px 8px; font-size:12px; background: transparent; color: #597668; }
         QTabBar::tab:selected { color: #245c45; border-bottom: 2px solid #245c45; }
     )"));
     auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(18, 18, 18, 18);
+    root->setContentsMargins(20, 20, 20, 20);
     root->setSpacing(10);
-    root->addWidget(label(QStringLiteral("已切换至真人客服"), this, "deskHeading"));
+    auto *header = new QHBoxLayout;
+    header->setSpacing(12);
+    auto *back = new QPushButton(QStringLiteral("‹ 返回"), this);
+    back->setObjectName("deskBackButton");
+    back->setFlat(true);
+    back->setCursor(Qt::PointingHandCursor);
+    header->addWidget(back);
+    header->addWidget(label(QStringLiteral("客服与工单"), this, "deskHeading"), 1);
+    root->addLayout(header);
+    connect(back, &QPushButton::clicked, this, &SupportDeskPage::backRequested);
+    auto *backShortcut = new QShortcut(QKeySequence(Qt::Key_Escape), this);
+    backShortcut->setContext(Qt::WidgetWithChildrenShortcut);
+    connect(backShortcut, &QShortcut::activated, this, &SupportDeskPage::backRequested);
     root->addWidget(label(QStringLiteral("课程演示 · AI 模拟坐席  |  客服小悦 · 工号 008"), this, "deskDisclosure"));
     notice_ = label(QStringLiteral("仅发送你输入的内容和最近 4 轮对话；请勿提供密码、验证码或支付凭证。"), this, "deskNotice");
     root->addWidget(notice_);
@@ -77,6 +89,8 @@ SupportDeskDialog::SupportDeskDialog(IChargingApi &api, AssistantService &desk,
     root->addLayout(waiting);
     tabs_ = new QTabWidget(this);
     tabs_->setObjectName(QStringLiteral("deskTabs"));
+    tabs_->tabBar()->setExpanding(true);
+    tabs_->setUsesScrollButtons(false);
     root->addWidget(tabs_, 1);
 
     auto *conversation = new QWidget(tabs_);
@@ -90,7 +104,7 @@ SupportDeskDialog::SupportDeskDialog(IChargingApi &api, AssistantService &desk,
     input_ = new QPlainTextEdit(conversation);
     input_->setObjectName(QStringLiteral("deskInput"));
     input_->setPlaceholderText(QStringLiteral("告诉小悦你遇到的问题（最多 1200 字，Ctrl+Enter 发送）"));
-    input_->setMaximumHeight(100);
+    input_->setFixedHeight(80);
     chatLayout->addWidget(input_);
     auto *actions = new QHBoxLayout;
     generate_ = new QPushButton(QStringLiteral("生成工单摘要"), conversation);
@@ -118,7 +132,7 @@ SupportDeskDialog::SupportDeskDialog(IChargingApi &api, AssistantService &desk,
     draftLayout->addWidget(label(QStringLiteral("工单标题"), draft, "ticketTitleLabel"));
     draftLayout->addWidget(title_);
     repairFields_ = new QWidget(draft);
-    auto *repairLayout = new QHBoxLayout(repairFields_);
+    auto *repairLayout = new QVBoxLayout(repairFields_);
     repairLayout->setContentsMargins(0, 0, 0, 0);
     repairPile_ = new QLineEdit(repairFields_);
     repairPile_->setObjectName(QStringLiteral("repairPileCode"));
@@ -138,6 +152,7 @@ SupportDeskDialog::SupportDeskDialog(IChargingApi &api, AssistantService &desk,
     summary_->setObjectName(QStringLiteral("ticketSummary"));
     summary_->setPlaceholderText(QStringLiteral("问题现象、操作步骤、希望如何处理（1–4000 字）"));
     draftLayout->addWidget(label(QStringLiteral("问题摘要"), draft, "ticketSummaryLabel"));
+    summary_->setMinimumHeight(140);
     draftLayout->addWidget(summary_, 1);
     draftNotice_ = label(QStringLiteral("AI 摘要可能有误，请核对；草稿尚未提交。"), draft, "ticketDraftNotice");
     draftLayout->addWidget(draftNotice_);
@@ -150,7 +165,12 @@ SupportDeskDialog::SupportDeskDialog(IChargingApi &api, AssistantService &desk,
     draftActions->addStretch();
     draftActions->addWidget(submit_);
     draftLayout->addLayout(draftActions);
-    tabs_->addTab(draft, QStringLiteral("工单草稿"));
+    auto *draftScroll = new QScrollArea(tabs_);
+    draftScroll->setObjectName("ticketDraftScroll");
+    draftScroll->setFrameShape(QFrame::NoFrame);
+    draftScroll->setWidgetResizable(true);
+    draftScroll->setWidget(draft);
+    tabs_->addTab(draftScroll, QStringLiteral("工单草稿"));
 
     auto *tracking = new QWidget(tabs_);
     auto *trackingLayout = new QVBoxLayout(tracking);
@@ -174,15 +194,15 @@ SupportDeskDialog::SupportDeskDialog(IChargingApi &api, AssistantService &desk,
     trackingLayout->addWidget(ticketDetail_, 1);
     tabs_->addTab(tracking, QStringLiteral("我的工单"));
 
-    connect(send_, &QPushButton::clicked, this, &SupportDeskDialog::send);
+    connect(send_, &QPushButton::clicked, this, &SupportDeskPage::send);
     auto *shortcut = new QShortcut(QKeySequence(QStringLiteral("Ctrl+Return")), input_);
-    connect(shortcut, &QShortcut::activated, this, &SupportDeskDialog::send);
+    connect(shortcut, &QShortcut::activated, this, &SupportDeskPage::send);
     connect(stop_, &QPushButton::clicked, this, [this] { cancelModels(); updateControls(); });
     connect(cancelWaiting_, &QPushButton::clicked, this, [this] { cancelModels(); updateControls(); });
     waitingTimer_.setInterval(1000);
-    connect(&waitingTimer_, &QTimer::timeout, this, &SupportDeskDialog::updateControls);
-    connect(generate_, &QPushButton::clicked, this, &SupportDeskDialog::generateDraft);
-    connect(submit_, &QPushButton::clicked, this, &SupportDeskDialog::submitDraft);
+    connect(&waitingTimer_, &QTimer::timeout, this, &SupportDeskPage::updateControls);
+    connect(generate_, &QPushButton::clicked, this, &SupportDeskPage::generateDraft);
+    connect(submit_, &QPushButton::clicked, this, &SupportDeskPage::submitDraft);
     connect(newDraft_, &QPushButton::clicked, this, [this] {
         if (!createId_.isEmpty() || (draftLocked_ && !submitted_)) return;
         draftLocked_ = submitted_ = false;
@@ -193,9 +213,9 @@ SupportDeskDialog::SupportDeskDialog(IChargingApi &api, AssistantService &desk,
         draftNotice_->setText(QStringLiteral("新草稿尚未提交。"));
         updateControls();
     });
-    for (auto *edit : {input_, summary_}) connect(edit, &QPlainTextEdit::textChanged, this, &SupportDeskDialog::updateControls);
-    connect(title_, &QLineEdit::textChanged, this, &SupportDeskDialog::updateControls);
-    connect(repairPile_, &QLineEdit::textChanged, this, &SupportDeskDialog::updateControls);
+    for (auto *edit : {input_, summary_}) connect(edit, &QPlainTextEdit::textChanged, this, &SupportDeskPage::updateControls);
+    connect(title_, &QLineEdit::textChanged, this, &SupportDeskPage::updateControls);
+    connect(repairPile_, &QLineEdit::textChanged, this, &SupportDeskPage::updateControls);
     connect(refresh_, &QPushButton::clicked, this, [this] { refreshTickets(); });
     connect(more_, &QPushButton::clicked, this, [this] { refreshTickets(true); });
     connect(tickets_, &QListWidget::currentRowChanged, this, [this] { showTicket(); });
@@ -283,7 +303,7 @@ SupportDeskDialog::SupportDeskDialog(IChargingApi &api, AssistantService &desk,
     updateControls();
 }
 
-void SupportDeskDialog::openDesk(const QList<AssistantTurn> &history)
+void SupportDeskPage::openDesk(const QList<AssistantTurn> &history)
 {
     if (!initialized_) {
         initialized_ = true;
@@ -291,10 +311,10 @@ void SupportDeskDialog::openDesk(const QList<AssistantTurn> &history)
         if (!history_.isEmpty()) notice_->setText(QStringLiteral("已衔接助理最近 4 轮以内的对话。请勿发送密码或验证码。"));
     }
     updateControls();
-    show(); raise(); activateWindow();
+    show();
 }
 
-void SupportDeskDialog::send()
+void SupportDeskPage::send()
 {
     const auto question = input_->toPlainText().trimmed();
     if (chatId_ || summaryId_ || question.isEmpty() || question.size() > 1200 || transcript_.size() >= 24) return;
@@ -305,12 +325,12 @@ void SupportDeskDialog::send()
     input_->clear(); renderChat(); updateControls();
 }
 
-void SupportDeskDialog::openRepair(const QString &pileCode)
+void SupportDeskPage::openRepair(const QString &pileCode)
 {
     openDesk();
     tabs_->setCurrentIndex(1);
     if (!submitted_ && (draftLocked_ || !title_->text().isEmpty() || !summary_->toPlainText().isEmpty())) {
-        draftNotice_->setText(QStringLiteral("已保留当前草稿。请先提交，或点击‘新建草稿’后再次从扫一扫进入报修。"));
+        draftNotice_->setText(QStringLiteral("已保留当前草稿。请先提交，或点击‘新建草稿’后再次从充电页进入报修。"));
         return;
     }
     cancelModels();
@@ -327,7 +347,7 @@ void SupportDeskDialog::openRepair(const QString &pileCode)
     (pileCode.isEmpty() ? static_cast<QWidget *>(repairPile_) : static_cast<QWidget *>(summary_))->setFocus();
 }
 
-void SupportDeskDialog::generateDraft()
+void SupportDeskPage::generateDraft()
 {
     if (chatId_ || summaryId_ || history_.isEmpty() || draftLocked_ || repairDraft_) return;
     tabs_->setCurrentIndex(1);
@@ -336,7 +356,7 @@ void SupportDeskDialog::generateDraft()
     updateControls();
 }
 
-void SupportDeskDialog::submitDraft()
+void SupportDeskPage::submitDraft()
 {
     if (!createId_.isEmpty() || summaryId_ || submitted_) return;
     if (submissionId_.isEmpty()) submissionId_ = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -357,7 +377,7 @@ void SupportDeskDialog::submitDraft()
     updateControls();
 }
 
-void SupportDeskDialog::refreshTickets(bool more)
+void SupportDeskPage::refreshTickets(bool more)
 {
     if (!listId_.isEmpty()) return;
     if (more && (!hasMore_ || ticketRows_.isEmpty())) return;
@@ -366,7 +386,7 @@ void SupportDeskDialog::refreshTickets(bool more)
     updateControls();
 }
 
-void SupportDeskDialog::cancelModels()
+void SupportDeskPage::cancelModels()
 {
     const bool hadChat = chatId_ != 0;
     const bool hadSummary = summaryId_ != 0;
@@ -378,13 +398,13 @@ void SupportDeskDialog::cancelModels()
     renderChat();
 }
 
-void SupportDeskDialog::closeEvent(QCloseEvent *event)
+void SupportDeskPage::hideEvent(QHideEvent *event)
 {
     cancelModels(); updateControls();
-    QDialog::closeEvent(event);
+    QWidget::hideEvent(event);
 }
 
-void SupportDeskDialog::resetSession()
+void SupportDeskPage::resetSession()
 {
     createId_.clear(); listId_.clear();
     cancelModels();
@@ -400,7 +420,7 @@ void SupportDeskDialog::resetSession()
     renderChat(); updateControls(); hide();
 }
 
-void SupportDeskDialog::renderChat()
+void SupportDeskPage::renderChat()
 {
     const bool bottom = chat_->verticalScrollBar()->value() >= chat_->verticalScrollBar()->maximum() - 24;
     const int previous = chat_->verticalScrollBar()->value();
@@ -427,7 +447,7 @@ void SupportDeskDialog::renderChat()
     chat_->verticalScrollBar()->setValue(bottom ? chat_->verticalScrollBar()->maximum() : previous);
 }
 
-void SupportDeskDialog::updatePendingAnswer(const QString &text)
+void SupportDeskPage::updatePendingAnswer(const QString &text)
 {
     const bool bottom = chat_->verticalScrollBar()->value() >= chat_->verticalScrollBar()->maximum() - 24;
     const int previous = chat_->verticalScrollBar()->value();
@@ -446,7 +466,7 @@ void SupportDeskDialog::updatePendingAnswer(const QString &text)
     chat_->verticalScrollBar()->setValue(bottom ? chat_->verticalScrollBar()->maximum() : previous);
 }
 
-void SupportDeskDialog::updateControls()
+void SupportDeskPage::updateControls()
 {
     const bool busy = chatId_ || summaryId_;
     busyIndicator_->setRunning(busy);
@@ -464,7 +484,7 @@ void SupportDeskDialog::updateControls()
     repairFields_->setVisible(repairDraft_);
     const bool repairView = repairDraft_ && tabs_->currentIndex() == 1;
     findChild<QLabel *>(QStringLiteral("deskHeading"))->setText(repairView
-        ? QStringLiteral("充电桩报修") : QStringLiteral("已切换至真人客服"));
+        ? QStringLiteral("充电桩报修") : QStringLiteral("客服与工单"));
     findChild<QLabel *>(QStringLiteral("deskDisclosure"))->setVisible(!repairView);
     notice_->setVisible(!repairView);
     tabs_->setTabText(1, repairDraft_ ? QStringLiteral("报修单") : QStringLiteral("工单草稿"));
@@ -490,7 +510,7 @@ void SupportDeskDialog::updateControls()
     if (transcript_.size() >= 24) notice_->setText(QStringLiteral("本次客服对话已达 24 轮，可提交工单继续跟进。"));
 }
 
-void SupportDeskDialog::showTicket()
+void SupportDeskPage::showTicket()
 {
     const int row = tickets_->currentRow();
     if (row < 0 || row >= ticketRows_.size()) { ticketDetail_->clear(); return; }
@@ -502,7 +522,7 @@ void SupportDeskDialog::showTicket()
         QStringLiteral("\n充电桩报修 · %1\n故障类型：%2").arg(ticket.pileCode, ticket.faultType));
 }
 
-QString SupportDeskDialog::errorMessage(const ApiResponse &response)
+QString SupportDeskPage::errorMessage(const ApiResponse &response)
 {
     if (response.message == QStringLiteral("REPAIR_TICKETS_MIGRATION_REQUIRED"))
         return QStringLiteral("服务端尚未启用报修，请联系管理员升级报修功能。");

@@ -54,6 +54,8 @@ public:
     [[nodiscard]] ServiceResult getOrderProgress(const QString &token,
                                                 const QJsonObject &input) const;
     [[nodiscard]] ServiceResult stopOrder(const QString &token, const QJsonObject &input);
+    void enableDemoAutomaticStop();
+    int completeDueDemoCharges(const QDateTime &now);
     [[nodiscard]] ServiceResult payOrder(const QString &token, const QJsonObject &input);
 
     [[nodiscard]] ServiceResult createSupportTicket(const QString &token, const QJsonObject &input);
@@ -117,6 +119,8 @@ public:
     [[nodiscard]] ServiceResult listAdminOrders(qint64 actorAdminId) const;
 
 private:
+    ServiceResult settleChargingOrder(qint64 orderId, qint64 userId, const QDateTime &now);
+    bool demoAutomaticStop_ = false;
     [[nodiscard]] std::optional<qint64> authenticatedUserId(
         const QString &token,
         ServiceResult *failure) const;

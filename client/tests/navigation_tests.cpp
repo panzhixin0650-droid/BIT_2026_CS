@@ -8,6 +8,7 @@
 #include "ui/station_map_view.h"
 
 #include <QJsonObject>
+#include <QDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPlainTextEdit>
@@ -301,6 +302,10 @@ void NavigationTests::floatingNavigationSurvivesEmbeddedMapRepaints()
         QTest::mouseClick(bar, Qt::LeftButton, Qt::NoModifier, bar->tabRect(index).center());
         QTRY_COMPARE(tabs->currentIndex(), index);
         QTest::qWait(60);
+        // Scan now opens a full camera page. Return from it before inspecting
+        // the underlying navigation bar's presented pixels.
+        if (auto *scanner = window.findChild<QDialog *>(QStringLiteral("qrScanDialog")))
+            scanner->reject();
         bar->update(QRegion(bar->tabRect(0)) | QRegion(bar->tabRect(4)));
         image = navigation_test::presentedNavigation(
             *bar, QStringLiteral("map-tab-%1").arg(index));
@@ -378,6 +383,8 @@ void NavigationTests::startupPreloadsHomeBeforeLogin()
     QElapsedTimer startup;
     startup.start();
     window.show();
+    window.activateWindow();
+    QVERIFY(QTest::qWaitForWindowActive(&window));
     auto *phone = window.findChild<QLineEdit *>(QStringLiteral("phoneInput"));
     phone->setFocus();
     QTest::keyClicks(phone, QStringLiteral("13800000001"));
@@ -534,10 +541,11 @@ void NavigationTests::mockModeDoesNotPreloadMap()
     MockChargingApi api;
     MainWindow window(api);
     window.show();
-    QTest::qWait(400);
+    // Offline geometry is prepared asynchronously; VM load need not fit an
+    // arbitrary 400 ms sleep. Wait for readiness before checking no web view.
+    QTRY_VERIFY_WITH_TIMEOUT(window.findChild<StationMapView *>()->isReady(), 5000);
     QVERIFY(!window.findChild<QWebEngineView *>(QStringLiteral("routeWebView")));
     QVERIFY(!window.findChild<QWebEngineView *>(QStringLiteral("stationWebView")));
-    QVERIFY(window.findChild<StationMapView *>()->isReady());
 }
 
 void NavigationTests::zoomFitAndRepeatedRoutesReuseMap()
@@ -628,7 +636,7 @@ void NavigationTests::mapTimeoutReleasesBusyState()
     QTRY_VERIFY_WITH_TIMEOUT(plan->isEnabled(), 17000);
     const QString message =
         page.findChild<QLabel *>(QStringLiteral("routeMessage"))->text();
-    QVERIFY(message.contains(QStringLiteral("加载超时（15 秒）")));
+    QVERIFY2(message.contains(QStringLiteral("加载超时（15 秒）")), qPrintable(message));
     QVERIFY(message.contains(QStringLiteral("网络较慢")));
     QVERIFY(!page.findChild<QPushButton *>(QStringLiteral("mapZoomInButton"))->isEnabled());
     QVERIFY(page.findChild<QPushButton *>(QStringLiteral("mapRetryButton"))->isEnabled());

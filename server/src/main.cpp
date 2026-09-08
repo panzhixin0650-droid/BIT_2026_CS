@@ -81,6 +81,7 @@ int main(int argc, char *argv[])
     charging::server::MockPredictionProvider predictions;
     charging::server::ApplicationService service(
         repository.get(), &sessions, &pileGateway, &predictions);
+    service.enableDemoAutomaticStop();
     charging::server::RequestRouter router(&service);
     charging::server::TcpGateway gateway(&router);
 

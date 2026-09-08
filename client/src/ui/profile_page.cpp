@@ -3,7 +3,6 @@
 
 #include <QDoubleValidator>
 #include <QButtonGroup>
-#include <QFileDialog>
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -56,6 +55,9 @@ ProfilePage::ProfilePage(QWidget *parent)
     headingFont.setBold(true);
     heading->setFont(headingFont);
 
+    auto *orders = new QPushButton(QStringLiteral("我的订单  ›"), content);
+    orders->setObjectName("profileOrdersButton");
+    connect(orders, &QPushButton::clicked, this, &ProfilePage::ordersRequested);
     auto *identityCard = createCard(content);
     auto *identityLayout = new QHBoxLayout(identityCard);
     identityLayout->setContentsMargins(18, 18, 18, 18);
@@ -189,6 +191,7 @@ ProfilePage::ProfilePage(QWidget *parent)
     contentLayout->addWidget(new DecorativeHeading(heading, QStringLiteral("plant"),
                                                   66, 4, content));
     contentLayout->addWidget(identityCard);
+    contentLayout->addWidget(orders);
     contentLayout->addWidget(walletCard);
     contentLayout->addWidget(profileCard);
     contentLayout->addWidget(messageLabel_);
@@ -199,16 +202,7 @@ ProfilePage::ProfilePage(QWidget *parent)
     pageLayout->addWidget(scrollArea);
 
     connect(refreshButton_, &QPushButton::clicked, this, &ProfilePage::refreshRequested);
-    connect(changeAvatarButton, &QPushButton::clicked, this, [this]() {
-        const QString sourcePath = QFileDialog::getOpenFileName(
-            this,
-            QStringLiteral("选择头像"),
-            {},
-            QStringLiteral("图片文件 (*.png *.jpg *.jpeg *.bmp *.webp)"));
-        if (!sourcePath.isEmpty()) {
-            emit avatarSelected(sourcePath);
-        }
-    });
+    connect(changeAvatarButton, &QPushButton::clicked, this, &ProfilePage::avatarSelectionRequested);
     connect(saveNicknameButton_, &QPushButton::clicked, this, [this]() {
         emit nicknameUpdateRequested(nicknameInput_->text());
     });

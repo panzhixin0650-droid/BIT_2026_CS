@@ -3,6 +3,7 @@
 #include "api/i_charging_api.h"
 
 #include <QHash>
+#include <QDateTime>
 
 #include <optional>
 
@@ -36,6 +37,7 @@ public:
     [[nodiscard]] QString getSupportTicket(qint64 ticketId) override;
 
 private:
+    ChargingStopPayload finishCharge(qint64 orderId, const QDateTime &endedAt);
     [[nodiscard]] QString nextRequestId();
     [[nodiscard]] ApiResponse response(const QString &requestId,
                                        const char *type,

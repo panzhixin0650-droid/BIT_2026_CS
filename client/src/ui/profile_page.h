@@ -23,9 +23,11 @@ public:
     void showMessage(const QString &message, bool error = false);
 
 signals:
+    void ordersRequested();
     void refreshRequested();
     void nicknameUpdateRequested(const QString &nickname);
     void rechargeRequested(const QString &amountYuan);
+    void avatarSelectionRequested();
     void avatarSelected(const QString &sourcePath);
     void logoutRequested();
 

@@ -6,6 +6,7 @@
 #include <QHideEvent>
 #include <QJsonDocument>
 #include <QPointer>
+#include <QResizeEvent>
 #include <QShowEvent>
 #include <QVBoxLayout>
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
@@ -245,6 +246,18 @@ void RouteMapView::checkInitialization()
 {
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
     if (!initializing_ || !pageLoaded_ || !channelReady_ || !view_) return;
+    // WebEngine inserts its render widget asynchronously while loading. The
+    // hidden login-time view needs another layout pass before SDK construction.
+    if (view_->layout()) view_->layout()->activate();
+    if (!view_->isVisible()) {
+        // QWidget defers resize events for hidden children. Deliver the current
+        // geometry to WebEngine's render widget without showing the login-hidden
+        // page or moving keyboard focus.
+        for (auto *child : view_->findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly)) {
+            QResizeEvent resize(child->size(), child->size());
+            QCoreApplication::sendEvent(child, &resize);
+        }
+    }
     QPointer<RouteMapView> guard(this);
     QPointer<QWebEngineView> source(view_);
     view_->page()->runJavaScript(QStringLiteral(R"JS(

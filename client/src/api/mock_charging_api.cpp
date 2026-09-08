@@ -124,6 +124,19 @@ MockChargingApi::MockChargingApi(QObject *parent)
                       protocol::OrderMode::Reservation);
     addCompletedOrder(109, QStringLiteral("PILE-A-01"), 28, 3600, 9000, 1215,
                       protocol::OrderMode::Direct);
+    auto *timer = new QTimer(this);
+    connect(timer, &QTimer::timeout, this, [this] {
+        const auto now = QDateTime::currentDateTimeUtc();
+        const auto ids = ordersById_.keys();
+        for (auto id : ids) {
+            const auto order = ordersById_.value(id);
+            if (order.status != protocol::OrderStatus::Charging || !order.startedAt) continue;
+            const auto deadline = QDateTime::fromString(*order.startedAt, Qt::ISODate).addSecs(protocol::DemoChargingDurationSeconds);
+            if (deadline.isValid() && deadline <= now) finishCharge(id, deadline);
+        }
+    });
+    timer->start(1000);
+
 }
 
 QString MockChargingApi::loginUser(const QString &phone)
@@ -860,42 +873,28 @@ QString MockChargingApi::stopCharging(qint64 orderId)
             return;
         }
 
-        order = orderWithProgress(order);
-        const QString now = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
-        order.endedAt = now;
-        protocol::PileDto pile = pilesByCode_.value(order.pileCode);
-        pile.status = protocol::PileStatus::Idle;
-        pilesByCode_.insert(pile.pileCode, pile);
-
-        protocol::UserDto updatedUser = *user;
-        const bool paid = updatedUser.balanceCents >= order.amountCents;
-        std::optional<qint64> shortfallCents;
-        if (paid) {
-            updatedUser.balanceCents -= order.amountCents;
-            order.status = protocol::OrderStatus::Completed;
-            order.paidAt = now;
-        } else {
-            order.status = protocol::OrderStatus::PendingPayment;
-            shortfallCents = order.amountCents - updatedUser.balanceCents;
-        }
-        usersByPhone_.insert(updatedUser.phone, updatedUser);
-        ordersById_.insert(order.orderId, order);
-        simulatedDurationByOrder_.remove(order.orderId);
-
-        result.response = response(requestId,
-                                   protocol::MessageType::OrderStop,
-                                   protocol::ErrorCode::Ok,
-                                   QStringLiteral("OK"));
-        result.payload = ChargingStopPayload{
-            order,
-            paid,
-            updatedUser.balanceCents,
-            shortfallCents,
-        };
+        result.response = response(requestId, protocol::MessageType::OrderStop, protocol::ErrorCode::Ok, QStringLiteral("OK"));
+        result.payload = finishCharge(orderId, QDateTime::currentDateTimeUtc());
         emit chargingStopCompleted(result);
     });
 
     return requestId;
+}
+
+ChargingStopPayload MockChargingApi::finishCharge(qint64 orderId, const QDateTime &endedAt)
+{
+    auto order = orderWithProgress(ordersById_.value(orderId));
+    auto userIt = usersByPhone_.begin();
+    while (userIt != usersByPhone_.end() && userIt->userId != order.userId) ++userIt;
+    Q_ASSERT(userIt != usersByPhone_.end());
+    order.endedAt = endedAt.toString(Qt::ISODate);
+    const bool paid = userIt->balanceCents >= order.amountCents;
+    if (paid) { userIt->balanceCents -= order.amountCents; order.paidAt = order.endedAt; }
+    order.status = paid ? protocol::OrderStatus::Completed : protocol::OrderStatus::PendingPayment;
+    pilesByCode_[order.pileCode].status = protocol::PileStatus::Idle;
+    ordersById_[orderId] = order;
+    simulatedDurationByOrder_.remove(orderId);
+    return {order, paid, userIt->balanceCents, paid ? std::nullopt : std::optional<qint64>(order.amountCents-userIt->balanceCents)};
 }
 
 QString MockChargingApi::payOrder(qint64 orderId)
@@ -1076,14 +1075,14 @@ protocol::OrderDto MockChargingApi::orderWithProgress(
     if (!startedAt.isValid()) {
         return order;
     }
-    const qint64 elapsedSeconds = std::max({
+    const qint64 elapsedSeconds = qMin<qint64>(protocol::DemoChargingDurationSeconds, std::max({
         order.durationSeconds,
         simulatedDurationByOrder_.value(order.orderId),
         startedAt.secsTo(QDateTime::currentDateTimeUtc()),
-    });
+    }));
     const protocol::PileDto pile = pilesByCode_.value(order.pileCode);
     const qint64 measuredEnergyWh = static_cast<qint64>(
-        pile.ratedPowerKw * 1000.0 * elapsedSeconds / 3600.0);
+        7.2 * 1000.0 * elapsedSeconds / 3600.0);
     order.durationSeconds = elapsedSeconds;
     order.energyWh = std::max(order.energyWh, measuredEnergyWh);
     order.amountCents =
