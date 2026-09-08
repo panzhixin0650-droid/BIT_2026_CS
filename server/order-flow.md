@@ -7,7 +7,7 @@
 | 操作 | 订单变化 | 桩变化 | 余额 |
 | --- | --- | --- | --- |
 | 预约 | 新建 `RESERVED` | `IDLE → RESERVED` | 不变 |
-| 取消 | `RESERVED → CANCELLED` | `RESERVED → IDLE` | 不变 |
+| 手动取消 / 30 分钟未开始自动取消 | `RESERVED → CANCELLED` | `RESERVED → IDLE` | 不变 |
 | 预约开始 | 原单 `RESERVED → CHARGING` | `RESERVED → CHARGING` | 不变 |
 | 直接开始 | 新建 `CHARGING` | `IDLE → CHARGING` | 不变 |
 | 停止，余额够 | `CHARGING → COMPLETED` | `CHARGING → IDLE` | 扣完整金额 |
@@ -17,6 +17,11 @@
 `order.current` 返回本人的唯一当前单或 null；`order.list` 返回本人全部订单。预约、充电中、待支付都会阻止同一用户再开一单。每次调用重新校验 token 和用户冻结状态；跨用户操作被拒绝。
 
 ## 计费和事务
+
+- 预约保留 `reservedAt + 1800 秒`，含截止点即失效；启动和每秒独立回收，客户端关闭
+  不影响。订单/站点读取与预约/开始/取消前同步检查，到期取消事务独立提交，避免随后
+  拒绝启动时把取消回滚。到期旧 ID 返回 `40903`，不改成直接充电；已开始订单不受影响。
+  继续使用 `CANCELLED`，不填写结束/支付时间、不产生费用或违约，不区分取消原因。
 
 - `ApplicationService` 的订单逻辑集中在 `src/application/order_service.cpp`。`RepositoryTransaction` 负责在提前返回或提交失败时回滚；SQL 只出现在 Repository 中。
 - 所有订单写路径使用同一 SQLite `BEGIN IMMEDIATE` 事务，涵盖检查、订单写入、占用/释放桩和余额更新。`updateOrder` 还检查预期旧状态；现有唯一索引保留最后一道一致性检查。
@@ -63,4 +68,7 @@ ctest --test-dir build/server --output-on-failure
 
 `charging_order_flow_tests` 覆盖两个 Repository 的正常/待支付闭环、归属、冻结、状态保护、价格快照、整数舍入、只读进度、账单不重复扣款，以及 SQLite 的插入/更新/提交失败回滚、重新打开数据库和真实客户端 TCP 适配器对接。
 
-未来的预约到期与违约、复杂计价、故障报修、钱包流水/退款候选见 [订单扩展说明](../docs/extension/order-evolution.md)。这些不是本次 Demo 的前置条件。
+预约边界、离线定时回收、SQLite 重启补处理、重复回收、更新/提交失败回滚，以及
+已经开始不受影响，均通过注入时钟验证，不等待 30 分钟。
+
+未来的可配置预约策略与违约、复杂计价、故障报修、钱包流水/退款候选见 [订单扩展说明](../docs/extension/order-evolution.md)。这些不是本次 Demo 的前置条件。

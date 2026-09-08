@@ -65,6 +65,7 @@ private slots:
     void chargingStartLeavesNavigationForHomeOverview();
     void locationCanResolveAndOpenMockRoute();
     void reservationAppearsOnHomeAndCanBeCancelled();
+    void reservationExpiryRefreshesHomeWithoutNavigation();
     void ordersPageShowsHistoryDetailAndReservationChanges();
     void leavingOrderDetailRefreshesChangedOrderState();
     void simulatedScanStartsChargingAndRefreshesHome();
@@ -1082,6 +1083,8 @@ void MainWindowTests::reservationAppearsOnHomeAndCanBeCancelled()
                     QStringLiteral("stationDetailPage"))->isVisible());
         QCOMPARE(dialog->windowTitle(), QStringLiteral("预约成功"));
         QCOMPARE(dialog->button(QMessageBox::Ok)->text(), QStringLiteral("知道了"));
+        QVERIFY(dialog->text().contains(QStringLiteral("30 分钟")));
+        QVERIFY(dialog->text().contains(QStringLiteral("前开始充电")));
         reservationDialogSeen = true;
         dialog->button(QMessageBox::Ok)->click();
     });
@@ -1098,6 +1101,7 @@ void MainWindowTests::reservationAppearsOnHomeAndCanBeCancelled()
     expandCurrentOrder(window);
     QVERIFY(currentOrderSummary->text().contains(QStringLiteral("PILE-A-01")));
     QVERIFY(currentOrderSummary->text().contains(QStringLiteral("预约中")));
+    QVERIFY(currentOrderSummary->text().contains(QStringLiteral("北京时间")));
     QCOMPARE(actionMessage->text(), QStringLiteral("预约成功"));
 
     QTRY_VERIFY(window.findChild<QWidget *>(
@@ -1388,6 +1392,33 @@ void MainWindowTests::reservationStartsSameOrderOnChargingPage()
     QVERIFY(result.ok());
     QCOMPARE(result.payload->order.orderId,reservation.payload->order.orderId);
     QVERIFY(result.payload->order.status==charging::protocol::OrderStatus::Charging);
+}
+
+void MainWindowTests::reservationExpiryRefreshesHomeWithoutNavigation()
+{
+    auto now = QDateTime::fromString(QStringLiteral("2026-09-08T15:45:00Z"), Qt::ISODate);
+    MockChargingApi api(nullptr, [&now] { return now; });
+    MainWindow window(api); window.show(); loginFixtureUser(window);
+    QSignalSpy reserved(&api, &IChargingApi::reservationCompleted);
+    QSignalSpy started(&api, &IChargingApi::chargingStartCompleted);
+    (void)api.reserve("PILE-A-01"); QTRY_COMPARE(reserved.count(), 1);
+    QVERIFY(qvariant_cast<OrderResult>(reserved.first().first()).ok());
+    auto *card = window.findChild<QWidget *>("currentOrderCard");
+    auto *summary = window.findChild<QLabel *>("currentOrderSummary");
+    QTRY_VERIFY(card->isVisible());
+    QVERIFY(summary->text().contains(QStringLiteral("09-09 00:15:00")));
+    auto *navigation = window.findChild<QTabWidget *>("mainNavigation");
+    QCOMPARE(navigation->currentIndex(), 0);
+    now = now.addSecs(charging::protocol::DemoReservationDurationSeconds);
+    QTRY_VERIFY(!card->isVisible());
+    QCOMPARE(navigation->currentIndex(), 0); // background refresh does not steal the tab
+    QCOMPARE(started.count(), 0);
+    QCOMPARE(window.findChild<QLabel *>("chargingState")->text(), QStringLiteral("预约已取消"));
+    QTRY_VERIFY(window.findChild<QWidget *>("stationMarker_1") != nullptr);
+    QTest::mouseClick(window.findChild<QWidget *>("stationMarker_1"), Qt::LeftButton);
+    openPreviewDetails(window);
+    QTRY_VERIFY(window.findChild<QPushButton *>("reserveButton_PILE-A-01") != nullptr);
+    QVERIFY(window.findChild<QPushButton *>("reserveButton_PILE-A-01")->isEnabled());
 }
 
 void MainWindowTests::scannerAdapterCanSubmitDecodedPileCode()

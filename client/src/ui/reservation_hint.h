@@ -1,0 +1,23 @@
+#pragma once
+
+#include "charging/protocol/dto.h"
+#include "charging/protocol/protocol_constants.h"
+
+#include <QDateTime>
+
+namespace charging::client {
+
+// Display only: cancellation and its deadline check belong to the API producer.
+inline QString reservationHint(const protocol::OrderDto &order)
+{
+    if (order.status != protocol::OrderStatus::Reserved) return {};
+    const auto reserved = order.reservedAt
+        ? QDateTime::fromString(*order.reservedAt, Qt::ISODate) : QDateTime{};
+    if (!reserved.isValid()) return QStringLiteral("预约保留 30 分钟，超时自动取消");
+    const auto deadline = reserved.addSecs(protocol::DemoReservationDurationSeconds)
+                             .toOffsetFromUtc(8 * 3600);
+    return QStringLiteral("请在 %1 前开始充电（北京时间）\n预约保留 30 分钟，超时自动取消，不扣费")
+        .arg(deadline.toString(QStringLiteral("MM-dd HH:mm:ss")));
+}
+
+}  // namespace charging::client

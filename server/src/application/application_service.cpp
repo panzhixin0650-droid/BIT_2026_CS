@@ -494,6 +494,7 @@ ServiceResult ApplicationService::listStations(const QString &token,
         return invalidRequest();
     }
 
+    if (expireDueReservations(nowUtc()) < 0) return internalError();
     const QList<StationDto> storedStations = repository_->listActiveStations();
     if (!repository_->lastOperationSucceeded()) {
         return internalError();
@@ -562,6 +563,7 @@ ServiceResult ApplicationService::getStation(const QString &token,
         return invalidRequest();
     }
 
+    if (expireDueReservations(nowUtc()) < 0) return internalError();
     std::optional<StationDto> station = repository_->findStationById(stationId);
     if (!repository_->lastOperationSucceeded()) {
         return internalError();

@@ -69,7 +69,9 @@ void AssistantTests::knowledgeFollowUpAndNoHit()
     const auto follow = base.retrieve(QStringLiteral("那可以取消吗？"), QStringLiteral("如何预约充电？"));
     QVERIFY(!follow.isEmpty());
     QCOMPARE(follow.first().id, QStringLiteral("reserve"));
-    QVERIFY(follow.first().content.contains(QStringLiteral("不实现预约自动过期")));
+    QVERIFY(follow.first().content.contains(QStringLiteral("预约保留 30 分钟")));
+    QVERIFY(follow.first().content.contains(QStringLiteral("自动取消并释放电桩")));
+    QVERIFY(follow.first().content.contains(QStringLiteral("不扣费、不累计违约或禁约")));
     const auto price = base.retrieve(QStringLiteral("充电怎么收费？")).first();
     QVERIFY(price.content.contains(QStringLiteral("+ 500")));
 }

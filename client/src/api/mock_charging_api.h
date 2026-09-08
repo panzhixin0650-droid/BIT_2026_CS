@@ -42,6 +42,7 @@ public:
 private:
     [[nodiscard]] QDateTime nowUtc() const { return clock_().toUTC(); }
     ChargingStopPayload finishCharge(qint64 orderId, const QDateTime &endedAt);
+    void expireDueReservations(const QDateTime &now);
     [[nodiscard]] QString nextRequestId();
     [[nodiscard]] ApiResponse response(const QString &requestId,
                                        const char *type,

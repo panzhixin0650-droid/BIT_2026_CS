@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "order.start",
+  "requestId": "fixture-order-start-expired",
+  "code": 40903,
+  "message": "ILLEGAL_ORDER_STATE",
+  "data": {}
+}
