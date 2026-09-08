@@ -6,6 +6,7 @@ class QLabel;
 class QPushButton;
 namespace charging::client {
 class ChargingRing;
+class PricingInfoButton;
 class ChargingPage final : public QWidget {
     Q_OBJECT
 public:
@@ -21,7 +22,7 @@ public:
     QString pileCode() const { return pileCode_; }
 signals:
     void startRequested(const QString &pileCode);
-    void quoteRefreshRequested();
+    void quoteRetryRequested();
     void stopRequested();
     void homeRequested();
     void scanRequested();
@@ -37,7 +38,8 @@ private:
     bool quoteLoading_ = false;
     bool busy_ = false;
     ChargingRing *ring_;
-    QLabel *state_, *station_, *message_, *power_, *energy_, *duration_, *amount_, *price_, *pricingRule_;
-    QPushButton *start_, *stop_, *home_, *scan_, *recharge_, *orders_, *repair_, *refreshPrice_;
+    QLabel *state_, *station_, *message_, *power_, *energy_, *duration_, *amount_, *price_;
+    PricingInfoButton *pricingInfo_;
+    QPushButton *start_, *stop_, *home_, *scan_, *recharge_, *orders_, *repair_;
 };
 }

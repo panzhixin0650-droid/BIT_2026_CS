@@ -141,6 +141,15 @@ QFrame[role="card"] {
 
 QFrame[role="card"] QLabel { background: transparent; border: none; }
 
+QToolButton[role="pricingHelp"] {
+    background: #edf4e8; color: #386a3c; border: 1px solid #c8d8bd;
+    border-radius: 14px; padding: 0; font-size: 14px; font-weight: 600;
+}
+QToolButton[role="pricingHelp"]:hover { background: #e1ecd6; }
+QToolButton[role="pricingHelp"]:focus { border: 2px solid #567b52; }
+QToolButton[role="pricingHelp"]:pressed { background: #d4e3c6; }
+QDialog#pricingRulesDialog { background: #fffefa; }
+
 QWidget#stationHomeOverlay, QWidget#stationMapControls,
 QWidget#currentOrderDetails { background: transparent; }
 QFrame[role="mapCard"] {

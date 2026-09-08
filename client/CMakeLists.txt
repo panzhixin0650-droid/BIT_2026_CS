@@ -94,6 +94,8 @@ add_library(charging_client_ui STATIC
     src/ui/charging_page.cpp
     src/ui/charging_page.h
     src/ui/pricing_hint.h
+    src/ui/pricing_info_button.cpp
+    src/ui/pricing_info_button.h
     src/ui/charging_controller.cpp
     src/ui/charging_controller.h
     src/ui/charging_art.cpp

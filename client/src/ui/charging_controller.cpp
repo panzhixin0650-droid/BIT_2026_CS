@@ -12,12 +12,12 @@ ChargingController::ChargingController(ChargingPage &page,IChargingApi &api,QObj
     timer_->setInterval(1000);connect(timer_,&QTimer::timeout,this,&ChargingController::refresh);
     connect(&page_,&ChargingPage::startRequested,this,&ChargingController::begin);
     connect(&page_,&ChargingPage::stopRequested,this,&ChargingController::stop);
-    connect(&page_, &ChargingPage::quoteRefreshRequested, this, &ChargingController::requestQuote);
+    connect(&page_, &ChargingPage::quoteRetryRequested, this, &ChargingController::requestQuote);
     connect(&api_, &IChargingApi::stationListCompleted, this, [this](const StationListResult &r) {
         if (r.response.type != StationList || !acceptQuote(r.response)) return;
         if (!r.payload) {
             clearQuoteRequest();
-            page_.showQuoteError(QStringLiteral("价格响应不完整，请刷新参考价"));
+            page_.showQuoteError(QStringLiteral("价格响应不完整，请重试加载，暂未产生费用"));
             return;
         }
         for (const auto &station : r.payload->items) quoteStations_.append(station.stationId);
@@ -27,7 +27,7 @@ ChargingController::ChargingController(ChargingPage &page,IChargingApi &api,QObj
         if (r.response.type != StationDetail || !acceptQuote(r.response)) return;
         if (!r.payload) {
             clearQuoteRequest();
-            page_.showQuoteError(QStringLiteral("价格响应不完整，请刷新参考价"));
+            page_.showQuoteError(QStringLiteral("价格响应不完整，请重试加载，暂未产生费用"));
             return;
         }
         for (const auto &pile : r.payload->piles) {
@@ -141,7 +141,7 @@ void ChargingController::requestNextStation()
 {
     if (quoteStations_.isEmpty()) {
         clearQuoteRequest();
-        page_.showQuoteError(QStringLiteral("未找到该桩的参考价，请检查编号或刷新参考价"));
+        page_.showQuoteError(QStringLiteral("未找到该桩的参考价，请重新选桩或重试加载"));
         return;
     }
     quoteRequestId_ = api_.getStation(quoteStations_.takeFirst());
@@ -157,7 +157,7 @@ bool ChargingController::acceptQuote(const ApiResponse &response)
     }
     if (!response.ok()) {
         clearQuoteRequest();
-        page_.showQuoteError(apiErrorMessage(response, QStringLiteral("价格加载失败，请刷新参考价")));
+        page_.showQuoteError(apiErrorMessage(response, QStringLiteral("价格加载失败，请重试加载")));
         return false;
     }
     return true;

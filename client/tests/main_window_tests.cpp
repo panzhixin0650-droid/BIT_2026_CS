@@ -34,6 +34,7 @@
 #include <QStackedWidget>
 #include <QTabBar>
 #include <QTabWidget>
+#include <QToolButton>
 #include <QTimer>
 #include <QtTest>
 
@@ -296,28 +297,57 @@ void MainWindowTests::peakQuoteAndLockedPriceFitSmallWindow()
     QTRY_VERIFY(window.findChild<QLabel *>("stationPreviewMetrics")->text().contains("1.62"));
     openPreviewDetails(window);
     auto *detailPrice = window.findChild<QLabel *>("stationDetailPrice");
-    QTRY_VERIFY(detailPrice->text().contains(QStringLiteral("高峰 +20%")));
-    QVERIFY(detailPrice->text().contains("1.62"));
+    QTRY_COMPARE(detailPrice->text(), QStringLiteral("当前参考单价：¥1.62/度"));
+    auto *detailHelp = window.findChild<QToolButton *>("stationPricingInfoButton");
+    QVERIFY(detailHelp && detailHelp->isVisible());
+    QTest::mouseClick(detailHelp, Qt::LeftButton);
+    auto *detailDialog = window.findChild<QDialog *>("pricingRulesDialog");
+    QTRY_VERIFY(detailDialog && detailDialog->isVisible());
+    QVERIFY(detailDialog->findChild<QLabel *>("pricingRulesText")->text().contains(QStringLiteral("高峰 +20%")));
+    detailDialog->findChild<QPushButton *>("pricingRulesCloseButton")->click();
+    QTRY_VERIFY(!window.findChild<QDialog *>("pricingRulesDialog"));
     window.findChild<ScanPage *>()->submitPileCode("PILE-A-01");
     auto *page = window.findChild<ChargingPage *>();
     auto *start = page->findChild<QPushButton *>("chargingStartButton");
     auto *price = page->findChild<QLabel *>("chargingPrice");
-    auto *rule = page->findChild<QLabel *>("chargingPricingRule");
+    auto *help = page->findChild<QToolButton *>("chargingPricingInfoButton");
     auto *scroll = page->findChild<QScrollArea *>();
     QTRY_VERIFY(start->isEnabled());
     QCOMPARE(price->text(), QStringLiteral("当前参考单价：¥1.62/度"));
+    QVERIFY(help && help->isVisible());
+    QVERIFY(!page->findChild<QLabel *>("chargingPricingRule"));
+    QVERIFY(!page->findChild<QPushButton *>("chargingRefreshPriceButton"));
     for (const QSize size : {QSize(480, 860), QSize(360, 640)}) {
         window.resize(size);
         QTest::qWait(80);
         scroll->ensureWidgetVisible(start);
         QTRY_VERIFY(start->visibleRegion().contains(start->rect().center()));
         QCOMPARE(scroll->horizontalScrollBar()->maximum(), 0);
-        QVERIFY(rule->wordWrap());
+        QVERIFY(help->visibleRegion().contains(help->rect().center()));
+        QVERIFY(help->geometry().left() >= price->geometry().right());
         const auto directory = qEnvironmentVariable("CHARGING_FLOW_SCREENSHOTS");
         if (!directory.isEmpty()) {
             QVERIFY(window.grab().save(QDir(directory).filePath(
                 QStringLiteral("peak-price-%1x%2.png").arg(size.width()).arg(size.height()))));
         }
+        help->setFocus();
+        QTest::keyClick(help, Qt::Key_Space);
+        auto *dialog = page->findChild<QDialog *>("pricingRulesDialog");
+        QTRY_VERIFY(dialog && dialog->isVisible());
+        QVERIFY(dialog->width() < window.width());
+        QVERIFY(dialog->height() < window.height());
+        auto *rules = dialog->findChild<QLabel *>("pricingRulesText");
+        QVERIFY(rules->wordWrap());
+        QVERIFY(rules->height() >= rules->heightForWidth(rules->width()));
+        QVERIFY(rules->text().contains(QStringLiteral("高峰 +20%")));
+        QVERIFY(rules->text().contains(QStringLiteral("08:00–11:00、18:00–21:00")));
+        QVERIFY(rules->text().contains(QStringLiteral("开始充电时单价锁定全单")));
+        if (!directory.isEmpty()) {
+            QVERIFY(dialog->grab().save(QDir(directory).filePath(
+                QStringLiteral("pricing-rules-%1x%2.png").arg(size.width()).arg(size.height()))));
+        }
+        QTest::keyClick(dialog, Qt::Key_Escape);
+        QTRY_VERIFY(!page->findChild<QDialog *>("pricingRulesDialog"));
     }
     QSignalSpy started(&api, &IChargingApi::chargingStartCompleted);
     start->click();

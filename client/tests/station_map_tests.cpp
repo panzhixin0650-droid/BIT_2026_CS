@@ -163,15 +163,24 @@ void StationMapTests::closingDuringPreloadIsSafe()
 void StationMapTests::mapHomeFitsAndSelects_data()
 {
     QTest::addColumn<QSize>("size");
-    QTest::newRow("default") << QSize(480, 860);
-    QTest::newRow("small") << QSize(360, 640);
-    QTest::newRow("wide") << QSize(900, 640);
+    QTest::addColumn<QDateTime>("now");
+    QTest::addColumn<QString>("expectedPrice");
+    const auto regular = QDateTime::fromString(QStringLiteral("2026-09-08T04:00:00Z"), Qt::ISODate);
+    const auto peak = QDateTime::fromString(QStringLiteral("2026-09-08T02:59:00Z"), Qt::ISODate);
+    QTest::newRow("default") << QSize(480, 860) << regular << QStringLiteral("1.35");
+    QTest::newRow("small") << QSize(360, 640) << regular << QStringLiteral("1.35");
+    QTest::newRow("wide") << QSize(900, 640) << regular << QStringLiteral("1.35");
+    QTest::newRow("peak-default") << QSize(480, 860) << peak << QStringLiteral("1.62");
+    QTest::newRow("peak-small") << QSize(360, 640) << peak << QStringLiteral("1.62");
+    QTest::newRow("peak-wide") << QSize(900, 640) << peak << QStringLiteral("1.62");
 }
 
 void StationMapTests::mapHomeFitsAndSelects()
 {
     QFETCH(QSize, size);
-    MockChargingApi api;
+    QFETCH(QDateTime, now);
+    QFETCH(QString, expectedPrice);
+    MockChargingApi api(nullptr, [now] { return now; });
     MainWindow window(api);
     window.resize(size);
     login(window);
@@ -202,7 +211,8 @@ void StationMapTests::mapHomeFitsAndSelects()
     QVERIFY(one->isChecked());
     QVERIFY(!two->isChecked());
     QCOMPARE(window.findChild<QLabel *>("stationPreviewName")->text(), QStringLiteral("浑南演示充电站"));
-    QVERIFY(window.findChild<QLabel *>("stationPreviewMetrics")->text().contains(QStringLiteral("1/2 空闲 · ¥1.35/度")));
+    QVERIFY(window.findChild<QLabel *>("stationPreviewMetrics")->text().contains(
+        QStringLiteral("1/2 空闲 · ¥%1/度").arg(expectedPrice)));
     QVERIFY(map->usableViewport().contains(one->geometry().center()));
     QVERIFY(map->usableViewport().contains(two->geometry().center()));
     QVERIFY(preview->geometry().bottom() < home->height());

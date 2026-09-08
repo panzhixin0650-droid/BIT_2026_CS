@@ -9,8 +9,9 @@ namespace charging::client {
 inline QString pricingHint(const protocol::StationDto &station)
 {
     if (station.pricingRule == QLatin1String(protocol::DemoPeakPricingRule)) {
-        return QStringLiteral("Demo 高峰 +20% · 北京时间 08:00–11:00、18:00–21:00\n"
-                              "其他时间原价；以开始充电时单价锁定全单，跨时段不变价");
+        return QStringLiteral("Demo 高峰 +20%\n08:00–11:00、18:00–21:00（北京时间）\n\n"
+                              "其他时间原价；以开始充电时单价锁定全单，跨时段不变价。\n\n"
+                              "仅用于课程演示，不代表实际电价。");
     }
     return QStringLiteral("当前为参考价，以开始充电时的订单单价为准");
 }

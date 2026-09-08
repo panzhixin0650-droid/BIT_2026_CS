@@ -5,6 +5,7 @@
 #include "ui/station_preview_card.h"
 #include "ui/client_theme.h"
 #include "ui/pricing_hint.h"
+#include "ui/pricing_info_button.h"
 #include "ui/route_map_view.h"
 #include <QPlainTextEdit>
 
@@ -159,6 +160,13 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     detailPriceLabel_->setWordWrap(true);
     detailPriceLabel_->setTextFormat(Qt::PlainText);
     detailPriceLabel_->setStyleSheet(QStringLiteral("color: #386a3c; font-weight: 600;"));
+    detailPricingInfo_ = new PricingInfoButton(detailContent_);
+    detailPricingInfo_->setObjectName(QStringLiteral("stationPricingInfoButton"));
+    auto *detailPriceRow = new QHBoxLayout;
+    detailPriceRow->setSpacing(6);
+    detailPriceRow->addWidget(detailPriceLabel_, 0, Qt::AlignVCenter);
+    detailPriceRow->addWidget(detailPricingInfo_, 0, Qt::AlignVCenter);
+    detailPriceRow->addStretch();
     detailNavigationButton_ = new QPushButton(QStringLiteral("导航"), detailContent_);
     detailNavigationButton_->setObjectName(QStringLiteral("stationDetailNavigationButton"));
     auto *pileTitle = new QLabel(QStringLiteral("充电桩"), detailContent_);
@@ -169,7 +177,7 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     pileListLayout_->setSpacing(10);
     detailLayout->addWidget(detailNameLabel_);
     detailLayout->addWidget(detailMetaLabel_);
-    detailLayout->addWidget(detailPriceLabel_);
+    detailLayout->addLayout(detailPriceRow);
     detailLayout->addWidget(detailNavigationButton_, 0, Qt::AlignLeft);
     detailLayout->addWidget(pileTitle);
     detailLayout->addLayout(pileListLayout_);
@@ -636,8 +644,8 @@ void StationBrowserPage::showStationDetail(const StationDetailPayload &detail)
             .arg(detail.station.totalPileCount)
             .arg(detail.station.onlineRatePercent, 0, 'f', 0));
     detailPriceLabel_->setText(
-        QStringLiteral("当前参考价：%1\n%2")
-            .arg(formatPrice(detail.station.priceCentsPerKwh), pricingHint(detail.station)));
+        QStringLiteral("当前参考单价：%1").arg(formatPrice(detail.station.priceCentsPerKwh)));
+    detailPricingInfo_->setRules(pricingHint(detail.station));
 
     for (const auto &pile : detail.piles) {
         auto *card = createCard(detailContent_);
@@ -811,6 +819,7 @@ void StationBrowserPage::showRouteResult(const RouteResult &result)
 
 void StationBrowserPage::reset()
 {
+    detailPricingInfo_->setRules({});
     setListLoading(false);
     stations_.clear();
     stationMap_->setStations({});
