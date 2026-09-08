@@ -93,6 +93,9 @@ add_library(charging_client_ui STATIC
     src/ui/client_theme.h
     src/ui/charging_page.cpp
     src/ui/charging_page.h
+    src/ui/pricing_hint.h
+    src/ui/pricing_info_button.cpp
+    src/ui/pricing_info_button.h
     src/ui/charging_controller.cpp
     src/ui/charging_controller.h
     src/ui/charging_art.cpp
@@ -275,6 +278,8 @@ if(BUILD_TESTING)
     )
 
     add_test(NAME charging_client_mock_api_tests COMMAND charging_client_mock_api_tests)
+    target_compile_definitions(charging_client_mock_api_tests PRIVATE
+        CHARGING_PEAK_FIXTURE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../contracts/examples/demo-peak-pricing.local.json")
 
     add_executable(charging_client_tcp_api_tests
         tests/tcp_charging_api_tests.cpp

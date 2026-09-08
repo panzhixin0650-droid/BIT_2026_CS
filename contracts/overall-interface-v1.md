@@ -260,7 +260,8 @@ DTO 表中列出的字段在成功响应里都必须出现；标为 `/null` 的�
 | `region` | string | 区域 |
 | `address` | string | 地址 |
 | `longitude` / `latitude` | number | 站点坐标 |
-| `priceCentsPerKwh` | integer | 当前站点价格 |
+| `priceCentsPerKwh` | integer | 分/kWh；用户 `station.list/detail` 为请求时参考价，管理端为基础价 |
+| `pricingRule` | string，可省略 | 用户报价规则标识；`DEMO_PEAK_START_V1` 见 §6.2；省略表示旧版/未声明，未知值不得自行推断规则 |
 | `status` | `StationStatus` | 启用状态 |
 | `totalPileCount` | integer | 实时聚合总桩数 |
 | `availablePileCount` | integer | 站点为 `ACTIVE` 时的 `IDLE` 数量；停用站点固定为 0 |
@@ -378,7 +379,19 @@ DTO 表中列出的字段在成功响应里都必须出现；标为 `/null` 的�
 
 响应：`{station: StationDto, piles: PileDto[]}`。
 
-只返回该站所有 Mock 电桩及当前状态。当前价格来自站点，不按桩型或时段再计算。
+只返回该站所有 Mock 电桩及当前状态。所有桩型沿用该站同一价格。
+
+按 [ADR-0016](../docs/decisions/0016-demo-peak-pricing.md) 增量启用固定 Demo 高峰价：
+每天北京时间（Asia/Shanghai，UTC+8）`[08:00,11:00)`、`[18:00,21:00)`，
+基础价乘 `1.2`，其他时间乘 `1`。不做低谷折扣、节假日、季节或跨时段分段计费，
+也不代表当地真实电价。用户站点响应附 `pricingRule="DEMO_PEAK_START_V1"`；
+`priceCentsPerKwh` 是服务端处理请求时的参考价，不是预约锁价承诺。
+先以整数分四舍五入：`(basePriceCentsPerKwh * permille + 500) / 1000`，
+高峰 `permille=1200`，其他时间 `1000`。计算需检查溢出，不能用浮点金额。
+管理端读写和数据库的站点价格仍是基础价，不将参考价写回站点，避免重复加价。
+`pricingRule` 不落库；缺失/未知规则仅显示收到的价格，不套用客户端算法。
+示例见 `examples/station-detail-peak.response.json`，边界测试表见
+`examples/demo-peak-pricing.local.json`（本地验收数据，不是新 TCP 消息）。
 
 #### `prediction.latest`
 
@@ -405,7 +418,7 @@ DTO 表中列出的字段在成功响应里都必须出现；标为 `/null` 的�
 2. 用户有 `RESERVED/CHARGING/PENDING_PAYMENT` 订单时，不能再预约或直接开始另一单。
 3. 只有站点 `ACTIVE` 且桩 `IDLE` 才可预约/直接开始。
 4. 预约没有课程说明书规定的有效期，本版不擅自增加 30 分钟超时和违约规则。
-5. `order.start` 将站点当前 `priceCentsPerKwh` 写入订单；之后调价不影响该订单。
+5. `order.start` 根据服务端开始充电时间计算 §6.2 的高峰/平时单价，并与同次取时的 UTC `startedAt` 一起写入订单 `unitPriceCentsPerKwh`；预约不锁价。之后跨时段、站点调价、重启、自动结束或补付款均不影响该单价。金额继续为 `(energyWh * unitPriceCentsPerKwh + 500) / 1000`，整数分四舍五入，`pay` 使用已冻结最终金额，不再次乘倍率。历史订单不补算。本轮订单 DTO、状态机及数据库结构不变。
 6. `order.progress` 不需要每秒写数据库。Mock 可基于开始时间和额定功率生成单调增长读数。
 7. `server-app` 启用演示会话策略：每次充电目标时长为 180 秒，服务端每秒检查到期订单，复用停止和结算事务；客户端离线或退出不取消此策略，服务重启后补处理到期订单。进度表示本次模拟会话完成比例，不代表车辆真实 SOC。到期读数以开始时间 + 180 秒为上限；轮询最终状态使用 `order.current` / `order.list`，自动结束后 `order.progress` 仍按既有规则返回 `40903`。自动停止结果见 `examples/order-auto-completed.response.json`。
 

@@ -40,6 +40,7 @@
 | [`../contracts/client-assistant-local.md`](../contracts/client-assistant-local.md) | 智能助理本地检索与外部 HTTPS 边界，不改变 V1 TCP |
 
 - [ADR 0012：找桩、扫码与充电会话分离](decisions/0012-client-charging-flow.md)。
+- [ADR 0016：Demo 高峰加价，开始充电时锁价](decisions/0016-demo-peak-pricing.md)。
 
 ## 规则
 

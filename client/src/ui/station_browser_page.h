@@ -22,6 +22,7 @@ namespace charging::client {
 class RouteMapView;
 class StationMapView;
 class StationPreviewCard;
+class PricingInfoButton;
 
 class StationBrowserPage final : public QWidget {
     Q_OBJECT
@@ -166,6 +167,7 @@ private:
     QLabel *detailNameLabel_ = nullptr;
     QLabel *detailMetaLabel_ = nullptr;
     QLabel *detailPriceLabel_ = nullptr;
+    PricingInfoButton *detailPricingInfo_ = nullptr;
     QPushButton *detailNavigationButton_ = nullptr;
     QVBoxLayout *pileListLayout_ = nullptr;
     QLineEdit *routeStartInput_ = nullptr;
