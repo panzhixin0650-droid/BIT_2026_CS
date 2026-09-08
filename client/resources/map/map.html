@@ -16,11 +16,12 @@
 // Shared route/station canvas. Payloads are JSON; no station text is executed.
 window.bitMap = (() => {
   let map, lines, markers, bounds, autoFit = true;
-  let stationMarkers, locationMarker, scene, bridge, clickFrame, pendingClick;
-  const state = { sdkReady: false, ready: false, error: false };
+  let stationMarkers, locationMarker, scene, bridge, clickFrame, pendingClick, lastStationFit;
+  const state = { sdkReady: false, ready: false, tilesReady: false, error: false };
   new QWebChannel(qt.webChannelTransport, channel => {
     bridge = channel.objects.mapEvents;
     bridge.ready();
+    if (state.tilesReady) bridge.tilesReady();
   });
   function fail() { state.ready = false; state.error = true; }
   function sdkLoaded() {
@@ -85,6 +86,14 @@ window.bitMap = (() => {
         minZoom: 3, maxZoom: 20, pitch: 0, rotation: 0, viewMode: '2D',
         draggable: true, scrollable: true, doubleClickZoom: true
       });
+      map.on('tilesloaded', () => {
+        if (state.tilesReady) return;
+        // This is the SDK's visible-tile event, not HTML/SDK download completion.
+        state.tilesReady = true;
+        // A hidden WebEngine view can suspend animation frames even while its
+        // SDK/tiles download. Forward the event immediately, not through rAF.
+        if (bridge) bridge.tilesReady();
+      });
       lines = new TMap.MultiPolyline({ map, geometries: [], styles: {
         route: new TMap.PolylineStyle({ color: '#245b48', width: 7, borderWidth: 2,
           borderColor: '#ffffff', lineCap: 'round' }),
@@ -148,7 +157,21 @@ window.bitMap = (() => {
       width: Math.max(80, innerWidth - (p.left || 24) - (p.right || 24)),
       height: Math.max(100, innerHeight - (p.top || 24) - (p.bottom || 24)) };
   }
+  let stationFitFrame;
   function fitStations() {
+    if (!state.ready || !scene) return false;
+    autoFit = true;
+    // First hidden preload must run without an animation frame. Thereafter
+    // coalesce native layout/auth updates until Chromium's viewport is settled;
+    // QStackedWidget can briefly deliver its old hidden-page size on show.
+    if (!lastStationFit) return fitStationsNow();
+    if (!stationFitFrame) stationFitFrame = requestAnimationFrame(() => {
+      stationFitFrame = null;
+      if (autoFit) fitStationsNow();
+    });
+    return true;
+  }
+  function fitStationsNow() {
     if (!state.ready || !scene) return false;
     autoFit = true;
     const points = (scene.defaultBounds || scene.stations.concat(scene.location ? [scene.location] : [])).map(projected);
@@ -160,12 +183,19 @@ window.bitMap = (() => {
                            area.height / Math.max(bottom - top, .000035)) * .90;
     const cx = (left + right) / 2 - (area.left + area.width / 2 - innerWidth / 2) / scale;
     const cy = (top + bottom) / 2 - (area.top + area.height / 2 - innerHeight / 2) / scale;
+    const camera = {cx, cy, scale, width: innerWidth, height: innerHeight};
+    if (lastStationFit && Math.abs(lastStationFit.cx-cx)*scale < .5
+        && Math.abs(lastStationFit.cy-cy)*scale < .5 && Math.abs(lastStationFit.scale-scale) < .5
+        && lastStationFit.width === innerWidth && lastStationFit.height === innerHeight) return true;
+    lastStationFit = camera;
     // Extend the geographic bounds to account for native floating controls.
     // This uses the same numeric fitBounds padding as the route scene.
     const fitted = new TMap.LatLngBounds();
     fitted.extend(unprojected(cx - innerWidth / scale / 2, cy - innerHeight / scale / 2));
     fitted.extend(unprojected(cx + innerWidth / scale / 2, cy + innerHeight / scale / 2));
-    map.fitBounds(fitted, { padding: 0 });
+    // fitBounds defaults to a 500 ms ease. Repeated layout/authentication fits
+    // must not animate through intermediate cameras and request extra tiles.
+    map.fitBounds(fitted, { padding: 0, ease: { duration: 0 } });
     return true;
   }
   function setStationPadding(padding) {
@@ -177,6 +207,7 @@ window.bitMap = (() => {
   function setCenter(point) {
     if (!state.ready || !scene) return false;
     autoFit = false;
+    lastStationFit = null;
     const area = viewport(), p = projected(point), scale = 256 * Math.pow(2, map.getZoom());
     map.setCenter(unprojected(p.x - (area.left + area.width / 2 - innerWidth / 2) / scale,
                               p.y - (area.top + area.height / 2 - innerHeight / 2) / scale));
@@ -196,6 +227,7 @@ window.bitMap = (() => {
   function zoom(delta) {
     if (!state.ready) return false;
     autoFit = false;
+    lastStationFit = null;
     map.setZoom(Math.max(3, Math.min(20, map.getZoom() + delta)));
     return true;
   }
@@ -205,8 +237,8 @@ window.bitMap = (() => {
     if (autoFit) { if (scene) fitStations(); else if (bounds) fit(); }
     return true;
   }
-  document.getElementById('map').addEventListener('wheel', () => { autoFit = false; }, { passive: true });
-  document.getElementById('map').addEventListener('pointerdown', () => { autoFit = false; }, { passive: true });
+  document.getElementById('map').addEventListener('wheel', () => { autoFit = false; lastStationFit = null; }, { passive: true });
+  document.getElementById('map').addEventListener('pointerdown', () => { autoFit = false; lastStationFit = null; }, { passive: true });
   let resizeFrame;
   new ResizeObserver(() => {
     cancelAnimationFrame(resizeFrame);

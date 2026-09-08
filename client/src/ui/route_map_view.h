@@ -18,9 +18,11 @@ public:
     using QObject::QObject;
 public slots:
     void ready() { emit connected(); }
+    void tilesReady() { emit tilesLoaded(); }
     void selectStation(const QString &id) { emit stationClicked(id); }
 signals:
     void connected();
+    void tilesLoaded();
     void stationClicked(const QString &id);
 };
 
@@ -31,6 +33,7 @@ public:
     ~RouteMapView() override;
     [[nodiscard]] bool isPreloaded() const { return sdkLoaded_; }
     [[nodiscard]] bool isReady() const { return initialized_; }
+    [[nodiscard]] bool isBaseMapReady() const { return baseMapReady_; }
     [[nodiscard]] bool isLoading() const { return initializing_; }
     void preload(const QUrl &scriptUrl);
     void prepareMap();
@@ -48,6 +51,7 @@ public:
 
 signals:
     void preloadReady();
+    void baseMapReadyChanged(bool ready);
     void loadingChanged(bool loading);
     void readyChanged(bool ready);
     void retryAvailableChanged(bool available);
@@ -86,6 +90,7 @@ private:
 
     QWebEngineView *view_ = nullptr;
     QTimer timeout_;
+    QTimer tileTimeout_;
     QUrl scriptUrl_;
     QJsonArray paths_;
     QJsonObject stationScene_;
@@ -98,6 +103,7 @@ private:
     bool stationMode_ = false;
     bool pageLoaded_ = false;
     bool channelReady_ = false;
+    bool baseMapReady_ = false;
 };
 
 }  // namespace charging::client
