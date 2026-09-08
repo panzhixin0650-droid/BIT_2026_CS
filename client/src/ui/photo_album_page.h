@@ -2,6 +2,7 @@
 
 #include <QWidget>
 #include <QString>
+#include <QImage>
 
 class QLabel;
 class QListWidget;
@@ -20,6 +21,7 @@ public:
     void reload();
 signals:
     void imageSelected(const QString &path);
+    void imageSelectedImage(const QImage &image);
     void backRequested();
 protected:
     void resizeEvent(QResizeEvent *event) override;

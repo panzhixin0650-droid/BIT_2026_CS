@@ -1,6 +1,5 @@
 #include "ui/profile_page.h"
 #include "ui/avatar_art.h"
-#include "ui/avatar_picker_dialog.h"
 #include "ui/decorative_heading.h"
 
 #include <QDoubleValidator>
@@ -204,19 +203,7 @@ ProfilePage::ProfilePage(QWidget *parent)
 
     connect(refreshButton_, &QPushButton::clicked, this, &ProfilePage::refreshRequested);
     connect(changeAvatarButton, &QPushButton::clicked, this, [this]() {
-        if (avatarPicker_) {
-            avatarPicker_->raise();
-            return;
-        }
-        auto *picker = new AvatarPickerDialog(avatarImage_, this);
-        avatarPicker_ = picker;
-        picker->setAttribute(Qt::WA_DeleteOnClose);
-        connect(picker, &QDialog::accepted, this, [this, picker]() {
-            if (!picker->selectedImage().isNull()) {
-                emit avatarSelected(picker->selectedImage());
-            }
-        });
-        picker->open();
+        emit avatarSelectionRequested();
     });
     connect(saveNicknameButton_, &QPushButton::clicked, this, [this]() {
         emit nicknameUpdateRequested(nicknameInput_->text());
@@ -230,9 +217,6 @@ ProfilePage::ProfilePage(QWidget *parent)
 void ProfilePage::setUser(const protocol::UserDto &user)
 {
     const QString key = QStringLiteral("%1:%2").arg(user.userId).arg(user.phone);
-    if (key != avatarUserKey_ && avatarPicker_) {
-        avatarPicker_->reject();
-    }
     avatarUserKey_ = key;
     nicknameLabel_->setText(user.nickname);
     phoneLabel_->setText(QStringLiteral("手机号：%1").arg(user.phone));

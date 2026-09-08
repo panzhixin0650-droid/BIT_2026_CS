@@ -302,11 +302,6 @@ if(BUILD_TESTING)
         tests/avatar_storage_tests.cpp
     )
 
-    add_executable(charging_client_avatar_picker_tests tests/avatar_picker_tests.cpp)
-    target_link_libraries(charging_client_avatar_picker_tests PRIVATE charging_client_ui Qt6::Test)
-    add_test(NAME charging_client_avatar_picker_tests COMMAND charging_client_avatar_picker_tests)
-    set_tests_properties(charging_client_avatar_picker_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     target_link_libraries(charging_client_avatar_storage_tests
         PRIVATE

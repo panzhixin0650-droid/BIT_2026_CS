@@ -4,15 +4,12 @@
 
 #include <QWidget>
 #include <QImage>
-#include <QPointer>
 
 class QLabel;
 class QLineEdit;
 class QPushButton;
 
 namespace charging::client {
-
-class AvatarPickerDialog;
 
 class ProfilePage final : public QWidget {
     Q_OBJECT
@@ -28,6 +25,7 @@ public:
 
 signals:
     void ordersRequested();
+    void avatarSelectionRequested();
     void refreshRequested();
     void nicknameUpdateRequested(const QString &nickname);
     void rechargeRequested(const QString &amountYuan);
@@ -39,7 +37,6 @@ private:
 
     QImage avatarImage_;
     QString avatarUserKey_;
-    QPointer<AvatarPickerDialog> avatarPicker_;
     QLabel *avatarLabel_ = nullptr;
     QLabel *nicknameLabel_ = nullptr;
     QLabel *phoneLabel_ = nullptr;

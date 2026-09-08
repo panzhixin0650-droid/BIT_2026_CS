@@ -1,4 +1,5 @@
 #include "ui/photo_album_page.h"
+#include "ui/avatar_art.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -23,6 +24,7 @@ static void initializeAlbumResources()
 namespace charging::client {
 namespace {
 constexpr int pathRole = Qt::UserRole;
+constexpr int imageRole = Qt::UserRole + 1;
 
 QImage readAlbumImage(const QString &path, int maximumSide)
 {
@@ -173,7 +175,10 @@ PhotoAlbumPage::PhotoAlbumPage(QWidget *parent, const QString &directory, Purpos
     });
     connect(confirm_, &QPushButton::clicked, this, [this] {
         const auto items = photos_->selectedItems();
-        if (!items.isEmpty()) emit imageSelected(items.first()->data(pathRole).toString());
+        if (items.isEmpty()) return;
+        const auto image = items.first()->data(imageRole);
+        if (image.isValid()) emit imageSelectedImage(qvariant_cast<QImage>(image));
+        else emit imageSelected(items.first()->data(pathRole).toString());
     });
 }
 
@@ -189,6 +194,14 @@ void PhotoAlbumPage::reload()
         if (!QDir(directory).exists()) directory = QStringLiteral(":/demo-album");
     }
     const QDir folder(directory);
+    if (purpose_ == Purpose::Avatar) {
+        for (const auto &avatar : basicAvatars()) {
+            auto *item = new QListWidgetItem(avatar.name, photos_);
+            item->setData(imageRole, avatar.image);
+            item->setData(Qt::DecorationRole, QPixmap::fromImage(avatar.image.scaled(
+                200, 200, Qt::KeepAspectRatio, Qt::SmoothTransformation)));
+        }
+    }
     const auto files = folder.entryInfoList(QDir::Files | QDir::Readable, QDir::Name);
     for (const auto &file : files) {
         if (!QStringList{"png", "jpg", "jpeg", "bmp", "webp"}.contains(file.suffix().toLower())) continue;
