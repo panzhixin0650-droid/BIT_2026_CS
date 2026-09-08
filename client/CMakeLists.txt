@@ -45,6 +45,9 @@ target_link_libraries(charging_client_api
 )
 
 add_library(charging_client_ui STATIC
+    resources/decorations.qrc
+    src/ui/decorative_heading.cpp
+    src/ui/decorative_heading.h
     resources/assistant_resources.qrc
     resources/map_resources.qrc
     src/assistant/assistant_config.cpp
@@ -146,6 +149,11 @@ target_link_libraries(user-client
 
 if(BUILD_TESTING)
     find_package(Qt6 6.2 REQUIRED COMPONENTS Test)
+
+    add_executable(charging_client_decoration_tests tests/decoration_tests.cpp)
+    target_link_libraries(charging_client_decoration_tests PRIVATE charging_client_ui Qt6::Test)
+    add_test(NAME charging_client_decoration_tests COMMAND charging_client_decoration_tests)
+    set_tests_properties(charging_client_decoration_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     add_executable(charging_client_station_map_tests tests/station_map_tests.cpp)
     target_link_libraries(charging_client_station_map_tests PRIVATE charging_client_ui Qt6::Test)
