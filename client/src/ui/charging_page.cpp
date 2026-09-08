@@ -1,5 +1,6 @@
 #include "ui/charging_page.h"
 #include "ui/client_theme.h"
+#include "ui/pricing_hint.h"
 #include "charging/protocol/protocol_constants.h"
 
 #include <QFrame>
@@ -153,6 +154,17 @@ ChargingPage::ChargingPage(QWidget *parent) : QWidget(parent)
     amount_ = metric(QStringLiteral("本次费用"), "chargingAmount", 1, 1);
     layout->addLayout(grid);
 
+    price_ = new QLabel(body);
+    price_->setObjectName("chargingPrice");
+    pricingRule_ = new QLabel(body);
+    pricingRule_->setObjectName("chargingPricingRule");
+    pricingRule_->setProperty("role", "caption");
+    for (auto *label : {price_, pricingRule_}) {
+        label->setWordWrap(true);
+        label->setTextFormat(Qt::PlainText);
+        layout->addWidget(label);
+    }
+
     auto *note = new QLabel(QStringLiteral("模拟充电 · 每次约 3 分钟，满进度自动结束"), body);
     note->setWordWrap(true);
     note->setAlignment(Qt::AlignCenter);
@@ -171,6 +183,8 @@ ChargingPage::ChargingPage(QWidget *parent) : QWidget(parent)
         return result;
     };
     start_ = button(QStringLiteral("开始充电"), "chargingStartButton");
+    refreshPrice_ = button(QStringLiteral("刷新参考价"), "chargingRefreshPriceButton");
+    layout->addWidget(refreshPrice_);
     start_->setProperty("role", "primary");
     stop_ = button(QStringLiteral("结束充电"), "chargingEndButton");
     recharge_ = button(QStringLiteral("充值并结算"), "chargingRechargeButton");
@@ -194,6 +208,7 @@ ChargingPage::ChargingPage(QWidget *parent) : QWidget(parent)
     layout->addWidget(repair_, 0, Qt::AlignHCenter);
 
     connect(start_, &QPushButton::clicked, this, [this] { emit startRequested(pileCode_); });
+    connect(refreshPrice_, &QPushButton::clicked, this, &ChargingPage::quoteRefreshRequested);
     connect(stop_, &QPushButton::clicked, this, &ChargingPage::stopRequested);
     connect(home_, &QPushButton::clicked, this, &ChargingPage::homeRequested);
     connect(scan_, &QPushButton::clicked, this, &ChargingPage::scanRequested);
@@ -204,11 +219,32 @@ ChargingPage::ChargingPage(QWidget *parent) : QWidget(parent)
     root->addWidget(scroll);
     render();
 }
-void ChargingPage::prepare(const QString &code){pileCode_=code.trimmed();order_.reset();message_->clear();render();}
+void ChargingPage::prepare(const QString &code){pileCode_=code.trimmed();order_.reset();message_->clear();clearQuote();}
 void ChargingPage::showOrder(const protocol::OrderDto &order){order_=order;pileCode_=order.pileCode;render();}
+void ChargingPage::clearQuote()
+{
+    quote_.reset();
+    quoteError_.clear();
+    quoteLoading_ = !pileCode_.isEmpty();
+    render();
+}
+void ChargingPage::showQuote(const protocol::StationDto &station)
+{
+    quote_ = station;
+    quoteError_.clear();
+    quoteLoading_ = false;
+    render();
+}
+void ChargingPage::showQuoteError(const QString &message)
+{
+    quote_.reset();
+    quoteError_ = message;
+    quoteLoading_ = false;
+    render();
+}
 void ChargingPage::setBusy(bool busy){busy_=busy;render();}
 void ChargingPage::showMessage(const QString &message,bool error){message_->setText(message);message_->setVisible(!message.isEmpty());message_->setStyleSheet(error?"color:#b54b38;":"color:#386a3c;");}
-void ChargingPage::reset(){pileCode_.clear();order_.reset();busy_=false;message_->clear();render();}
+void ChargingPage::reset(){pileCode_.clear();order_.reset();busy_=false;message_->clear();clearQuote();}
 void ChargingPage::render(){
     message_->setVisible(!message_->text().isEmpty());
     using S=protocol::OrderStatus;
@@ -218,14 +254,29 @@ void ChargingPage::render(){
     const bool finished=order_&&(order_->status==S::Completed||debt);
     const bool ready=!pileCode_.isEmpty()&&(!order_||reserved);
     state_->setText(charging?QStringLiteral("● 正在充电"):reserved?QStringLiteral("已预约 · 等待开始"):debt?QStringLiteral("充电已结束 · 待结算"):finished?QStringLiteral("充电已结束"):ready?QStringLiteral("已选定充电桩"):QStringLiteral("准备好，为下一程充电"));
-    station_->setText(pileCode_.isEmpty()?QStringLiteral("在首页选桩，或扫一扫桩身二维码"):(order_?order_->stationName+" · ":QString())+pileCode_);
+    station_->setText(pileCode_.isEmpty()?QStringLiteral("在首页选桩，或扫一扫桩身二维码"):(order_?order_->stationName+" · ":quote_?quote_->name+" · ":QString())+pileCode_);
     qint64 secs=order_?order_->durationSeconds:0;
     ring_->percent=qBound(0,int(secs*100/protocol::DemoChargingDurationSeconds),100);
     ring_->caption=charging?QStringLiteral("预计剩余 %1 秒").arg(qMax<qint64>(0,protocol::DemoChargingDurationSeconds-secs)):finished?QStringLiteral("本次充电结束"):QStringLiteral("连接充电枪后开始");ring_->update();
     power_->setText(charging?QStringLiteral("7.2 kW"):QStringLiteral("—"));energy_->setText(QStringLiteral("%1 kWh").arg((order_?order_->energyWh:0)/1000.0,0,'f',3));
     duration_->setText(QStringLiteral("%1:%2").arg(secs/60,2,10,QChar('0')).arg(secs%60,2,10,QChar('0')));
     amount_->setText(QStringLiteral("¥ %1").arg((order_?order_->amountCents:0)/100.0,0,'f',2));
-    start_->setVisible(ready);start_->setEnabled(!busy_);stop_->setVisible(charging);stop_->setEnabled(!busy_);
+    const bool locked = order_ && order_->unitPriceCentsPerKwh.has_value();
+    price_->setVisible(ready || locked);
+    pricingRule_->setVisible(ready || locked);
+    if (locked) {
+        price_->setText(QStringLiteral("本单锁定单价：%1").arg(chargingPriceText(*order_->unitPriceCentsPerKwh)));
+        pricingRule_->setText(QStringLiteral("按开始时单价结算；跨时段结束或稍后补付款均不变价"));
+    } else if (ready && quote_) {
+        price_->setText(QStringLiteral("当前参考单价：%1").arg(chargingPriceText(quote_->priceCentsPerKwh)));
+        pricingRule_->setText(pricingHint(*quote_));
+    } else {
+        price_->setText(quoteLoading_ ? QStringLiteral("正在获取充电参考价…") : quoteError_);
+        pricingRule_->setText(QStringLiteral("确认参考价后再开始充电，暂未产生费用"));
+    }
+    refreshPrice_->setVisible(ready);
+    refreshPrice_->setEnabled(!busy_ && !quoteLoading_);
+    start_->setVisible(ready);start_->setEnabled(!busy_ && quote_.has_value());stop_->setVisible(charging);stop_->setEnabled(!busy_);
     recharge_->setVisible(debt);orders_->setVisible(finished||reserved);home_->setVisible(!charging&&!debt);scan_->setVisible(!charging&&!debt);repair_->setVisible(!pileCode_.isEmpty()&&!charging);
 }
 }

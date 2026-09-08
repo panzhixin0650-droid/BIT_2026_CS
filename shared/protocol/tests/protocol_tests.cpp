@@ -60,10 +60,42 @@ private slots:
     void responseEnvelopeRoundTrip();
     void envelopeRejectsInvalidFields();
     void dtoRoundTrips();
+    void optionalPricingRuleIsBackwardCompatible();
     void fixtureEnvelopesMatch();
     void progressFixturesAreMonotonicAndBillCorrectly();
     void supportTicketContract();
 };
+
+void ProtocolTests::optionalPricingRuleIsBackwardCompatible()
+{
+    const auto original = loadObject(QStringLiteral("station-detail.response.json"))
+                              .value("data").toObject().value("station").toObject();
+    StationDto station;
+    QVERIFY(fromJson(original, &station));
+    QVERIFY(station.pricingRule.isEmpty());
+    QCOMPARE(toJson(station), original);
+    const auto peak = loadObject(QStringLiteral("station-detail-peak.response.json"))
+                          .value("data").toObject().value("station").toObject();
+    QVERIFY(fromJson(peak, &station));
+    QCOMPARE(station.priceCentsPerKwh, qint64{162});
+    QCOMPARE(station.pricingRule, QString::fromLatin1(DemoPeakPricingRule));
+    QCOMPARE(toJson(station), peak);
+    auto future = original;
+    future.insert("pricingRule", "FUTURE_RULE");
+    QVERIFY(fromJson(future, &station));
+    QCOMPARE(toJson(station), future);
+    for (const auto &bad : {QJsonValue(1200), QJsonValue(true), QJsonValue(QJsonValue::Null)}) {
+        auto invalid = original;
+        invalid.insert("pricingRule", bad);
+        QVERIFY(!fromJson(invalid, &station));
+    }
+    OrderDto order;
+    const auto started = loadObject(QStringLiteral("order-start-peak.response.json"))
+                             .value("data").toObject().value("order").toObject();
+    QVERIFY(fromJson(started, &order));
+    QCOMPARE(order.unitPriceCentsPerKwh.value(), qint64{162});
+    QCOMPARE(toJson(order), started);
+}
 
 void ProtocolTests::supportTicketContract()
 {

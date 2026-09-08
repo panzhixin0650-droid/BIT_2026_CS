@@ -48,6 +48,8 @@ struct StationDto {
     std::optional<double> distanceKm;
     std::optional<CongestionLevel> predictedCongestion;
     bool recommended = false;
+    // Optional V1 quote metadata; absent/unknown rules do not imply peak pricing.
+    QString pricingRule;
 };
 
 struct PileDto {

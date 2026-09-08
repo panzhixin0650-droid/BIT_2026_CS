@@ -46,6 +46,7 @@ class MainWindowTests : public QObject {
 
 private slots:
     void chargingLayoutFitsSmallWindow();
+    void peakQuoteAndLockedPriceFitSmallWindow();
     void constructsCodeOnlyLoginPage();
     void existingUserCanLogin();
     void newUserIsAutomaticallyRegistered();
@@ -280,6 +281,52 @@ void MainWindowTests::chargingLayoutFitsSmallWindow()
         window.findChild<ChargingPage *>()->findChild<QScrollArea *>()->ensureWidgetVisible(stop);
         QTRY_VERIFY(stop->visibleRegion().contains(stop->rect().center()));
     }
+}
+
+void MainWindowTests::peakQuoteAndLockedPriceFitSmallWindow()
+{
+    auto now = QDateTime::fromString(QStringLiteral("2026-09-08T02:59:00Z"), Qt::ISODate);
+    MockChargingApi api(nullptr, [&now] { return now; });
+    MainWindow window(api);
+    window.show();
+    loginFixtureUser(window);
+    QTRY_VERIFY(window.findChild<QAbstractButton *>("stationMarker_1") != nullptr);
+    auto *marker = window.findChild<QAbstractButton *>("stationMarker_1");
+    marker->click();
+    QTRY_VERIFY(window.findChild<QLabel *>("stationPreviewMetrics")->text().contains("1.62"));
+    openPreviewDetails(window);
+    auto *detailPrice = window.findChild<QLabel *>("stationDetailPrice");
+    QTRY_VERIFY(detailPrice->text().contains(QStringLiteral("高峰 +20%")));
+    QVERIFY(detailPrice->text().contains("1.62"));
+    window.findChild<ScanPage *>()->submitPileCode("PILE-A-01");
+    auto *page = window.findChild<ChargingPage *>();
+    auto *start = page->findChild<QPushButton *>("chargingStartButton");
+    auto *price = page->findChild<QLabel *>("chargingPrice");
+    auto *rule = page->findChild<QLabel *>("chargingPricingRule");
+    auto *scroll = page->findChild<QScrollArea *>();
+    QTRY_VERIFY(start->isEnabled());
+    QCOMPARE(price->text(), QStringLiteral("当前参考单价：¥1.62/度"));
+    for (const QSize size : {QSize(480, 860), QSize(360, 640)}) {
+        window.resize(size);
+        QTest::qWait(80);
+        scroll->ensureWidgetVisible(start);
+        QTRY_VERIFY(start->visibleRegion().contains(start->rect().center()));
+        QCOMPARE(scroll->horizontalScrollBar()->maximum(), 0);
+        QVERIFY(rule->wordWrap());
+        const auto directory = qEnvironmentVariable("CHARGING_FLOW_SCREENSHOTS");
+        if (!directory.isEmpty()) {
+            QVERIFY(window.grab().save(QDir(directory).filePath(
+                QStringLiteral("peak-price-%1x%2.png").arg(size.width()).arg(size.height()))));
+        }
+    }
+    QSignalSpy started(&api, &IChargingApi::chargingStartCompleted);
+    start->click();
+    QTRY_COMPARE(started.count(), 1);
+    QCOMPARE(price->text(), QStringLiteral("本单锁定单价：¥1.62/度"));
+    now = now.addSecs(120);
+    window.findChild<ChargingController *>()->refresh();
+    QTRY_VERIFY(page->findChild<QLabel *>("chargingDuration")->text() != "00:00");
+    QCOMPARE(price->text(), QStringLiteral("本单锁定单价：¥1.62/度"));
 }
 
 void MainWindowTests::constructsCodeOnlyLoginPage()
@@ -800,7 +847,8 @@ void MainWindowTests::chargingStartLeavesNavigationForHomeOverview()
     auto *navigation=window.findChild<QTabWidget *>("mainNavigation");
     window.findChild<ScanPage *>()->submitPileCode("PILE-A-01");
     QTRY_COMPARE(navigation->currentIndex(),1);
-    QTRY_VERIFY(window.findChild<QPushButton *>("chargingStartButton")->isVisible());
+    QTRY_VERIFY(window.findChild<QPushButton *>("chargingStartButton")->isVisible()
+                && window.findChild<QPushButton *>("chargingStartButton")->isEnabled());
     QSignalSpy started(&api,&IChargingApi::chargingStartCompleted);
     window.findChild<QPushButton *>("chargingStartButton")->click();
     QTRY_COMPARE(started.count(),1);
@@ -1206,7 +1254,8 @@ void MainWindowTests::leavingOrderDetailRefreshesChangedOrderState()
     QCOMPARE(navigation->currentIndex(),4);
     window.findChild<ScanPage *>()->submitPileCode("PILE-A-01");
     QTRY_COMPARE(navigation->currentIndex(),1);
-    QTRY_VERIFY(window.findChild<QPushButton *>("chargingStartButton")->isVisible());
+    QTRY_VERIFY(window.findChild<QPushButton *>("chargingStartButton")->isVisible()
+                && window.findChild<QPushButton *>("chargingStartButton")->isEnabled());
     QSignalSpy started(&api,&IChargingApi::chargingStartCompleted);
     window.findChild<QPushButton *>("chargingStartButton")->click();
     QTRY_COMPARE(started.count(),1);
@@ -1226,7 +1275,8 @@ void MainWindowTests::simulatedScanStartsChargingAndRefreshesHome()
     auto *navigation=window.findChild<QTabWidget *>("mainNavigation");
     window.findChild<ScanPage *>()->submitPileCode("PILE-A-01");
     QTRY_COMPARE(navigation->currentIndex(),1);
-    QTRY_VERIFY(window.findChild<QPushButton *>("chargingStartButton")->isVisible());
+    QTRY_VERIFY(window.findChild<QPushButton *>("chargingStartButton")->isVisible()
+                && window.findChild<QPushButton *>("chargingStartButton")->isEnabled());
     QSignalSpy requests(&api,&IChargingApi::chargingStartCompleted);
     QTest::qWait(20); QCOMPARE(requests.count(),0);
     QSignalSpy started(&api,&IChargingApi::chargingStartCompleted);
@@ -1250,6 +1300,7 @@ void MainWindowTests::reservationStartsSameOrderOnChargingPage()
     window.findChild<StationBrowserPage *>()->reservationScanRequested("PILE-A-01");
     QCOMPARE(window.findChild<QTabWidget *>("mainNavigation")->currentIndex(),1);
     QCOMPARE(started.count(),0);
+    QTRY_VERIFY(window.findChild<QPushButton *>("chargingStartButton")->isEnabled());
     window.findChild<QPushButton *>("chargingStartButton")->click();
     QTRY_COMPARE(started.count(),1);
     const auto result=qvariant_cast<OrderResult>(started.first().first());
@@ -1278,7 +1329,8 @@ void MainWindowTests::chargingProgressCanRefreshAndStopWithConfirmation()
     auto *navigation=window.findChild<QTabWidget *>("mainNavigation");
     window.findChild<ScanPage *>()->submitPileCode("PILE-A-01");
     QTRY_COMPARE(navigation->currentIndex(),1);
-    QTRY_VERIFY(window.findChild<QPushButton *>("chargingStartButton")->isVisible());
+    QTRY_VERIFY(window.findChild<QPushButton *>("chargingStartButton")->isVisible()
+                && window.findChild<QPushButton *>("chargingStartButton")->isEnabled());
     QSignalSpy started(&api,&IChargingApi::chargingStartCompleted);
     window.findChild<QPushButton *>("chargingStartButton")->click();
     QTRY_COMPARE(started.count(),1);
@@ -1306,7 +1358,8 @@ void MainWindowTests::stoppingFromOrderDetailRefreshesOpenStationDetail()
     auto *navigation=window.findChild<QTabWidget *>("mainNavigation");
     window.findChild<ScanPage *>()->submitPileCode("PILE-A-01");
     QTRY_COMPARE(navigation->currentIndex(),1);
-    QTRY_VERIFY(window.findChild<QPushButton *>("chargingStartButton")->isVisible());
+    QTRY_VERIFY(window.findChild<QPushButton *>("chargingStartButton")->isVisible()
+                && window.findChild<QPushButton *>("chargingStartButton")->isEnabled());
     QSignalSpy started(&api,&IChargingApi::chargingStartCompleted);
     window.findChild<QPushButton *>("chargingStartButton")->click();
     QTRY_COMPARE(started.count(),1);
@@ -1337,7 +1390,8 @@ void MainWindowTests::pendingOrderLinksRechargeAndCanBeSettled()
     QTRY_VERIFY(navigation->isVisible());
     window.findChild<ScanPage *>()->submitPileCode("PILE-A-01");
     QTRY_COMPARE(navigation->currentIndex(),1);
-    QTRY_VERIFY(window.findChild<QPushButton *>("chargingStartButton")->isVisible());
+    QTRY_VERIFY(window.findChild<QPushButton *>("chargingStartButton")->isVisible()
+                && window.findChild<QPushButton *>("chargingStartButton")->isEnabled());
     QSignalSpy started(&api,&IChargingApi::chargingStartCompleted);
     window.findChild<QPushButton *>("chargingStartButton")->click();
     QTRY_COMPARE(started.count(),1);

@@ -4,6 +4,7 @@
 #include "ui/station_map_view.h"
 #include "ui/station_preview_card.h"
 #include "ui/client_theme.h"
+#include "ui/pricing_hint.h"
 #include "ui/route_map_view.h"
 #include <QPlainTextEdit>
 
@@ -155,6 +156,8 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     detailMetaLabel_->setWordWrap(true);
     detailPriceLabel_ = new QLabel(detailContent_);
     detailPriceLabel_->setObjectName(QStringLiteral("stationDetailPrice"));
+    detailPriceLabel_->setWordWrap(true);
+    detailPriceLabel_->setTextFormat(Qt::PlainText);
     detailPriceLabel_->setStyleSheet(QStringLiteral("color: #386a3c; font-weight: 600;"));
     detailNavigationButton_ = new QPushButton(QStringLiteral("导航"), detailContent_);
     detailNavigationButton_->setObjectName(QStringLiteral("stationDetailNavigationButton"));
@@ -633,7 +636,8 @@ void StationBrowserPage::showStationDetail(const StationDetailPayload &detail)
             .arg(detail.station.totalPileCount)
             .arg(detail.station.onlineRatePercent, 0, 'f', 0));
     detailPriceLabel_->setText(
-        QStringLiteral("当前站点价格：%1").arg(formatPrice(detail.station.priceCentsPerKwh)));
+        QStringLiteral("当前参考价：%1\n%2")
+            .arg(formatPrice(detail.station.priceCentsPerKwh), pricingHint(detail.station)));
 
     for (const auto &pile : detail.piles) {
         auto *card = createCard(detailContent_);

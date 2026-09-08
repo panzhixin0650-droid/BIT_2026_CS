@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "type": "order.start",
+  "requestId": "fixture-order-start-peak",
+  "code": 0,
+  "message": "OK",
+  "data": {
+    "order": {
+      "orderId": 1002,
+      "orderNo": "ORD-20260908-1002",
+      "createdAt": "2026-09-08T02:59:00Z",
+      "userId": 1,
+      "stationId": 1,
+      "stationName": "浑南演示充电站",
+      "pileId": 1,
+      "pileCode": "PILE-A-01",
+      "mode": "DIRECT",
+      "status": "CHARGING",
+      "reservedAt": null,
+      "startedAt": "2026-09-08T02:59:00Z",
+      "endedAt": null,
+      "paidAt": null,
+      "durationSeconds": 0,
+      "energyWh": 0,
+      "unitPriceCentsPerKwh": 162,
+      "amountCents": 0
+    }
+  }
+}

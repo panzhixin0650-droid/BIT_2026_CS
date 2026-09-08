@@ -563,7 +563,7 @@ void OrderPage::showOrderDetail(qint64 orderId)
                          order.energyWh / 1000.0, 0, 'f', 2));
     }
     if (order.unitPriceCentsPerKwh.has_value()) {
-        appendDetail(QStringLiteral("订单单价"),
+        appendDetail(QStringLiteral("锁定单价"),
                      QStringLiteral("%1/度").arg(
                          formatMoney(*order.unitPriceCentsPerKwh)));
     }

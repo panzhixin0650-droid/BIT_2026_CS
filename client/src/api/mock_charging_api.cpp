@@ -9,12 +9,28 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <utility>
 
 namespace charging::client {
 
 namespace {
 
 const QRegularExpression kPhonePattern(QStringLiteral("^\\d{11}$"));
+
+// The Mock adapter implements the same bounded Demo policy as the server.
+// UI and shared/protocol contain no billing algorithm. Contract fixtures test parity.
+std::optional<qint64> chargingUnitPriceCents(qint64 basePrice, const QDateTime &now)
+{
+    if (basePrice <= 0 || !now.isValid()) return std::nullopt;
+    const int hour = now.toOffsetFromUtc(8 * 3600).time().hour();
+    if (!((hour >= 8 && hour < 11) || (hour >= 18 && hour < 21))) return basePrice;
+    constexpr qint64 permille = 1200;
+    if (basePrice > (std::numeric_limits<qint64>::max() - 500) / permille) {
+        return std::nullopt;
+    }
+    return (basePrice * permille + 500) / 1000;
+}
 
 bool isCurrentOrderStatus(protocol::OrderStatus status)
 {
@@ -43,8 +59,9 @@ double distanceKm(double longitudeA,
 
 }  // namespace
 
-MockChargingApi::MockChargingApi(QObject *parent)
+MockChargingApi::MockChargingApi(QObject *parent, Clock clock)
     : IChargingApi(parent)
+    , clock_(clock ? std::move(clock) : Clock{QDateTime::currentDateTimeUtc})
 {
     protocol::UserDto fixtureUser;
     fixtureUser.userId = 1;
@@ -84,7 +101,7 @@ MockChargingApi::MockChargingApi(QObject *parent)
                                           protocol::OrderMode mode) {
         const protocol::PileDto pile = pilesByCode_.value(pileCode);
         const protocol::StationDto selectedStation = station(pile.stationId);
-        QDateTime created = QDateTime::currentDateTimeUtc().addDays(-daysAgo);
+        QDateTime created = nowUtc().addDays(-daysAgo);
         if (daysAgo == 0) {
             created = created.addSecs(-2100);
         }
@@ -126,7 +143,7 @@ MockChargingApi::MockChargingApi(QObject *parent)
                       protocol::OrderMode::Direct);
     auto *timer = new QTimer(this);
     connect(timer, &QTimer::timeout, this, [this] {
-        const auto now = QDateTime::currentDateTimeUtc();
+        const auto now = nowUtc();
         const auto ids = ordersById_.keys();
         for (auto id : ids) {
             const auto order = ordersById_.value(id);
@@ -162,7 +179,7 @@ QString MockChargingApi::loginUser(const QString &phone)
             user.nickname = QStringLiteral("用户%1").arg(phone.right(4));
             user.balanceCents = 0;
             user.status = protocol::UserStatus::Active;
-            user.createdAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+            user.createdAt = nowUtc().toString(Qt::ISODate);
             usersByPhone_.insert(phone, user);
         }
 
@@ -349,6 +366,7 @@ QString MockChargingApi::listStations(const StationQuery &query)
             return;
         }
 
+        const QDateTime quotedAt = nowUtc();
         QList<protocol::StationDto> items;
         for (qint64 stationId : {qint64{1}, qint64{2}}) {
             protocol::StationDto item = station(stationId);
@@ -362,6 +380,15 @@ QString MockChargingApi::listStations(const StationQuery &query)
                 && !item.address.contains(keyword, Qt::CaseInsensitive)) {
                 continue;
             }
+            const auto price = chargingUnitPriceCents(item.priceCentsPerKwh, quotedAt);
+            if (!price.has_value()) {
+                result.response = response(requestId, protocol::MessageType::StationList,
+                    protocol::ErrorCode::InternalError, QStringLiteral("无法取得站点价格"));
+                emit stationListCompleted(result);
+                return;
+            }
+            item.priceCentsPerKwh = *price;
+            item.pricingRule = QString::fromLatin1(protocol::DemoPeakPricingRule);
             if (hasLongitude) {
                 item.distanceKm = distanceKm(*query.longitude,
                                              *query.latitude,
@@ -424,6 +451,15 @@ QString MockChargingApi::getStation(qint64 stationId)
         }
 
         protocol::StationDto item = station(stationId);
+        const auto price = chargingUnitPriceCents(item.priceCentsPerKwh, nowUtc());
+        if (!price.has_value()) {
+            result.response = response(requestId, protocol::MessageType::StationDetail,
+                protocol::ErrorCode::InternalError, QStringLiteral("无法取得站点价格"));
+            emit stationDetailCompleted(result);
+            return;
+        }
+        item.priceCentsPerKwh = *price;
+        item.pricingRule = QString::fromLatin1(protocol::DemoPeakPricingRule);
         item.distanceKm.reset();
         item.recommended = false;
         result.response = response(requestId,
@@ -561,7 +597,7 @@ QString MockChargingApi::reserve(const QString &pileCode)
         }
 
         const protocol::StationDto selectedStation = station(pile.stationId);
-        const QString now = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+        const QString now = nowUtc().toString(Qt::ISODate);
         protocol::OrderDto order;
         order.orderId = nextOrderId_++;
         order.orderNo = QStringLiteral("MOCK-RES-%1").arg(order.orderId);
@@ -692,7 +728,16 @@ QString MockChargingApi::startCharging(
 
             protocol::PileDto pile = pilesByCode_.value(normalizedPileCode);
             protocol::OrderDto order;
-            const QString now = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+            const QDateTime startedAt = nowUtc();
+            const QString now = startedAt.toString(Qt::ISODate);
+            const auto price = chargingUnitPriceCents(station(pile.stationId).priceCentsPerKwh,
+                                                     startedAt);
+            if (!price.has_value()) {
+                result.response = response(requestId, protocol::MessageType::OrderStart,
+                    protocol::ErrorCode::InternalError, QStringLiteral("无法取得充电价格"));
+                emit chargingStartCompleted(result);
+                return;
+            }
             if (reservationOrderId.has_value()) {
                 if (!ordersById_.contains(*reservationOrderId)) {
                     result.response = response(requestId,
@@ -754,10 +799,9 @@ QString MockChargingApi::startCharging(
                 order.amountCents = 0;
             }
 
-            const protocol::StationDto selectedStation = station(pile.stationId);
             order.status = protocol::OrderStatus::Charging;
             order.startedAt = now;
-            order.unitPriceCentsPerKwh = selectedStation.priceCentsPerKwh;
+            order.unitPriceCentsPerKwh = *price;
             pile.status = protocol::PileStatus::Charging;
             pilesByCode_.insert(pile.pileCode, pile);
             ordersById_.insert(order.orderId, order);
@@ -824,7 +868,7 @@ QString MockChargingApi::getChargingProgress(qint64 orderId)
                                    QStringLiteral("OK"));
         result.payload = ChargingProgressPayload{
             order,
-            QDateTime::currentDateTimeUtc().toString(Qt::ISODate),
+            nowUtc().toString(Qt::ISODate),
         };
         emit chargingProgressCompleted(result);
     });
@@ -874,7 +918,7 @@ QString MockChargingApi::stopCharging(qint64 orderId)
         }
 
         result.response = response(requestId, protocol::MessageType::OrderStop, protocol::ErrorCode::Ok, QStringLiteral("OK"));
-        result.payload = finishCharge(orderId, QDateTime::currentDateTimeUtc());
+        result.payload = finishCharge(orderId, nowUtc());
         emit chargingStopCompleted(result);
     });
 
@@ -953,7 +997,7 @@ QString MockChargingApi::payOrder(qint64 orderId)
         protocol::UserDto updatedUser = *user;
         updatedUser.balanceCents -= order.amountCents;
         order.status = protocol::OrderStatus::Completed;
-        order.paidAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+        order.paidAt = nowUtc().toString(Qt::ISODate);
         usersByPhone_.insert(updatedUser.phone, updatedUser);
         ordersById_.insert(order.orderId, order);
 
@@ -1078,7 +1122,7 @@ protocol::OrderDto MockChargingApi::orderWithProgress(
     const qint64 elapsedSeconds = qMin<qint64>(protocol::DemoChargingDurationSeconds, std::max({
         order.durationSeconds,
         simulatedDurationByOrder_.value(order.orderId),
-        startedAt.secsTo(QDateTime::currentDateTimeUtc()),
+        startedAt.secsTo(nowUtc()),
     }));
     const protocol::PileDto pile = pilesByCode_.value(order.pileCode);
     const qint64 measuredEnergyWh = static_cast<qint64>(
@@ -1116,7 +1160,7 @@ QString MockChargingApi::createSupportTicket(const protocol::SupportTicketDraft 
             static_cast<protocol::SupportTicketDraft &>(ticket) = draft;
             ticket.ticketId = nextTicketId_++;
             ticket.userId = user->userId;
-            ticket.createdAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+            ticket.createdAt = nowUtc().toString(Qt::ISODate);
             ticket.updatedAt = ticket.createdAt;
             tickets_.append(ticket);
             result.payload = TicketPayload{ticket};

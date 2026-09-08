@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "type": "station.detail",
+  "requestId": "fixture-station-detail-peak",
+  "token": "fixture-token",
+  "data": {"stationId": 1}
+}
