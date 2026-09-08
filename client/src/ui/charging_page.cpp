@@ -2,6 +2,7 @@
 #include "ui/client_theme.h"
 #include "ui/pricing_hint.h"
 #include "ui/pricing_info_button.h"
+#include "ui/reservation_hint.h"
 #include "charging/protocol/protocol_constants.h"
 
 #include <QFrame>
@@ -124,6 +125,11 @@ ChargingPage::ChargingPage(QWidget *parent) : QWidget(parent)
     station_->setTextFormat(Qt::PlainText);
     station_->setAlignment(Qt::AlignCenter);
     sessionLayout->addWidget(station_);
+    reservationHint_ = new QLabel(session);
+    reservationHint_->setObjectName("chargingReservationHint");
+    reservationHint_->setWordWrap(true);
+    reservationHint_->setAlignment(Qt::AlignCenter);
+    sessionLayout->addWidget(reservationHint_);
     ring_ = new ChargingRing(session);
     sessionLayout->addWidget(ring_, 1);
     layout->addWidget(session, 1);
@@ -253,11 +259,16 @@ void ChargingPage::render(){
     const bool debt=order_&&order_->status==S::PendingPayment;
     const bool finished=order_&&(order_->status==S::Completed||debt);
     const bool ready=!pileCode_.isEmpty()&&(!order_||reserved);
+    const bool cancelled = order_ && order_->status == S::Cancelled;
+    reservationHint_->setText(order_ ? reservationHint(*order_) : QString());
+    reservationHint_->setVisible(reserved);
     state_->setText(charging?QStringLiteral("● 正在充电"):reserved?QStringLiteral("已预约 · 等待开始"):debt?QStringLiteral("充电已结束 · 待结算"):finished?QStringLiteral("充电已结束"):ready?QStringLiteral("已选定充电桩"):QStringLiteral("准备好，为下一程充电"));
+    if (cancelled) state_->setText(QStringLiteral("预约已取消"));
     station_->setText(pileCode_.isEmpty()?QStringLiteral("在首页选桩，或扫一扫桩身二维码"):(order_?order_->stationName+" · ":quote_?quote_->name+" · ":QString())+pileCode_);
     qint64 secs=order_?order_->durationSeconds:0;
     ring_->percent=qBound(0,int(secs*100/protocol::DemoChargingDurationSeconds),100);
     ring_->caption=charging?QStringLiteral("预计剩余 %1 秒").arg(qMax<qint64>(0,protocol::DemoChargingDurationSeconds-secs)):finished?QStringLiteral("本次充电结束"):QStringLiteral("连接充电枪后开始");ring_->update();
+    if (cancelled) ring_->caption = QStringLiteral("请重新选桩");
     power_->setText(charging?QStringLiteral("7.2 kW"):QStringLiteral("—"));energy_->setText(QStringLiteral("%1 kWh").arg((order_?order_->energyWh:0)/1000.0,0,'f',3));
     duration_->setText(QStringLiteral("%1:%2").arg(secs/60,2,10,QChar('0')).arg(secs%60,2,10,QChar('0')));
     amount_->setText(QStringLiteral("¥ %1").arg((order_?order_->amountCents:0)/100.0,0,'f',2));
@@ -276,6 +287,6 @@ void ChargingPage::render(){
     const bool retry = ready && !quote_ && !quoteLoading_ && !quoteError_.isEmpty();
     start_->setText(retry ? QStringLiteral("重试加载") : QStringLiteral("开始充电"));
     start_->setVisible(ready);start_->setEnabled(!busy_ && (quote_.has_value() || retry));stop_->setVisible(charging);stop_->setEnabled(!busy_);
-    recharge_->setVisible(debt);orders_->setVisible(finished||reserved);home_->setVisible(!charging&&!debt);scan_->setVisible(!charging&&!debt);repair_->setVisible(!pileCode_.isEmpty()&&!charging);
+    recharge_->setVisible(debt);orders_->setVisible(finished||reserved||cancelled);home_->setVisible(!charging&&!debt);scan_->setVisible(!charging&&!debt);repair_->setVisible(!pileCode_.isEmpty()&&!charging);
 }
 }

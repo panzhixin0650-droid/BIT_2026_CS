@@ -77,7 +77,11 @@ SQLite 作为 `server-app` 内的嵌入式数据库直接读写本地文件，�
 
 订单写操作由 `ApplicationService` 在同一事务中编排，SQLite 使用 `BEGIN IMMEDIATE`，任何中途失败均回滚订单、桩状态和余额。进度只在返回时读取 Mock，不逐次写库；开始时冻结站点单价，停止后冻结最终账单。重复停止/补支付返回 `40903`，不会再次扣款。
 
-`prediction.latest` 仍未接入。当前订单使用现有五表和 V1，不启用预约到期、违约、跨时段分段计费、退款或报修状态；未来接入位置见[订单扩展候选说明](../docs/extension/order-evolution.md)。
+`prediction.latest` 仍未接入。当前订单使用现有五表和 V1，预约固定保留 30 分钟，
+到期仍未开始则自动取消并释放电桩，不扣费、不记违约；服务端每秒检查、启动补处理，
+订单/站点查询和预约/开始/取消前也同步检查。复用 `reservedAt` 和 `CANCELLED`，
+无数据库迁移，见 [ADR-0017](../docs/decisions/0017-demo-reservation-timeout.md)。
+不启用违约、跨时段分段计费、退款或报修订单状态；未来接入位置见[订单扩展候选说明](../docs/extension/order-evolution.md)。
 
 按 [ADR-0016](../docs/decisions/0016-demo-peak-pricing.md) 启用固定 Demo 高峰价：
 北京时间每天 `[08:00,11:00)`、`[18:00,21:00)` 基础价 ×1.2，其他时段原价。

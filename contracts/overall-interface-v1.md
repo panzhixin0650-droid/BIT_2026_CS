@@ -295,7 +295,7 @@ DTO 表中列出的字段在成功响应里都必须出现；标为 `/null` 的�
 | `pileId` / `pileCode` | integer/string | 使用的电桩 |
 | `mode` | `OrderMode` | 预约或直接充电 |
 | `status` | `OrderStatus` | 当前状态 |
-| `reservedAt` | datetime/null | 预约时间 |
+| `reservedAt` | datetime/null | 预约时间；RESERVED 的截止时间为此时间 + 1800 秒 |
 | `startedAt` | datetime/null | 开始时间 |
 | `endedAt` | datetime/null | 停止时间 |
 | `paidAt` | datetime/null | 支付时间 |
@@ -404,7 +404,7 @@ DTO 表中列出的字段在成功响应里都必须出现；标为 `/null` 的�
 | type | 请求 data | 成功响应 data | 说明 |
 | --- | --- | --- | --- |
 | `order.current` | `{}` | `{order: OrderDto/null}` | 查询当前唯一的预约、充电中或待支付订单 |
-| `order.reserve` | `{pileCode: string}` | `{order: OrderDto}` | 预约一个 `IDLE` 桩；当前没有自动过期 |
+| `order.reserve` | `{pileCode: string}` | `{order: OrderDto}` | 预约一个 `IDLE` 桩，保留 30 分钟 |
 | `order.cancel` | `{orderId: integer}` | `{order: OrderDto}` | 仅 `RESERVED` 可取消；同时释放电桩 |
 | `order.start` | `{pileCode: string, reservationOrderId?: integer}` | `{order: OrderDto}` | 预约转充电，或不带预约 ID 直接充电 |
 | `order.progress` | `{orderId: integer}` | `{order: OrderDto, measuredAt: datetime}` | 从 Mock 取得当前时长、电量和预估金额 |
@@ -417,7 +417,7 @@ DTO 表中列出的字段在成功响应里都必须出现；标为 `/null` 的�
 1. 服务端从 token 确定 `userId`；请求不允许提交用户 ID。所有带 `orderId` 的接口都要验证订单属于当前用户，不属于时返回 `40301`；`order.list` 只返回当前用户订单。
 2. 用户有 `RESERVED/CHARGING/PENDING_PAYMENT` 订单时，不能再预约或直接开始另一单。
 3. 只有站点 `ACTIVE` 且桩 `IDLE` 才可预约/直接开始。
-4. 预约没有课程说明书规定的有效期，本版不擅自增加 30 分钟超时和违约规则。
+4. 按已批准的 [ADR-0017](../docs/decisions/0017-demo-reservation-timeout.md)，Demo 预约固定保留 1800 秒。服务端时间 `now >= reservedAt + 1800 秒` 且仍为 `RESERVED` 时，自动转为 `CANCELLED`，同事务释放电桩；不扣款、不记录违约、不禁约。`server-app` 每秒检查、启动补处理，订单/站点查询及预约/开始/取消前同步检查；客户端离线不延长预约。开始的判定时间与 `startedAt`、锁价使用同次服务端取时，必须早于截止时间；已经 `CHARGING` 的订单不受影响。过期后 `order.current` 不再返回该单，`order.list` 返回 `CANCELLED`；带旧预约 ID 开始或取消均返回 `40903`。不区分手动/超时取消，不增加时间字段、状态或错误码；取消单时间、电量、金额约束不变。客户端由 `reservedAt` 展示北京时间截止提示，不能自行取消或把已消失的预约自动转成直接充电。
 5. `order.start` 根据服务端开始充电时间计算 §6.2 的高峰/平时单价，并与同次取时的 UTC `startedAt` 一起写入订单 `unitPriceCentsPerKwh`；预约不锁价。之后跨时段、站点调价、重启、自动结束或补付款均不影响该单价。金额继续为 `(energyWh * unitPriceCentsPerKwh + 500) / 1000`，整数分四舍五入，`pay` 使用已冻结最终金额，不再次乘倍率。历史订单不补算。本轮订单 DTO、状态机及数据库结构不变。
 6. `order.progress` 不需要每秒写数据库。Mock 可基于开始时间和额定功率生成单调增长读数。
 7. `server-app` 启用演示会话策略：每次充电目标时长为 180 秒，服务端每秒检查到期订单，复用停止和结算事务；客户端离线或退出不取消此策略，服务重启后补处理到期订单。进度表示本次模拟会话完成比例，不代表车辆真实 SOC。到期读数以开始时间 + 180 秒为上限；轮询最终状态使用 `order.current` / `order.list`，自动结束后 `order.progress` 仍按既有规则返回 `40903`。自动停止结果见 `examples/order-auto-completed.response.json`。

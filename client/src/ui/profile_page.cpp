@@ -1,5 +1,6 @@
 #include "ui/profile_page.h"
 #include "ui/avatar_art.h"
+#include "ui/client_theme.h"
 #include "ui/decorative_heading.h"
 
 #include <QDoubleValidator>
@@ -49,6 +50,33 @@ QFrame *createCard(QWidget *parent)
     return card;
 }
 
+QPushButton *createServiceRow(const QString &name, const QString &text,
+                             NavigationIcon icon, QWidget *parent)
+{
+    auto *button = new QPushButton(parent);
+    button->setObjectName(name);
+    button->setProperty("role", "profileService");
+    button->setAccessibleName(text);
+    button->setCursor(Qt::PointingHandCursor);
+    button->setFixedHeight(52);
+    auto *row = new QHBoxLayout(button);
+    row->setContentsMargins(12, 0, 12, 0);
+    row->setSpacing(12);
+    auto *symbol = new QLabel(button);
+    symbol->setPixmap(clientNavigationIcon(icon).pixmap(QSize(22, 22)));
+    symbol->setFixedSize(22, 22);
+    auto *label = new QLabel(text, button);
+    auto *arrow = new QLabel(button);
+    arrow->setPixmap(clientNavigationIcon(NavigationIcon::ChevronRight).pixmap(QSize(16, 16)));
+    arrow->setFixedSize(16, 16);
+    for (auto *child : {symbol, label, arrow})
+        child->setAttribute(Qt::WA_TransparentForMouseEvents);
+    row->addWidget(symbol);
+    row->addWidget(label, 1);
+    row->addWidget(arrow);
+    return button;
+}
+
 }  // namespace
 
 ProfilePage::ProfilePage(QWidget *parent)
@@ -78,9 +106,6 @@ ProfilePage::ProfilePage(QWidget *parent)
     headingFont.setBold(true);
     heading->setFont(headingFont);
 
-    auto *orders = new QPushButton(QStringLiteral("我的订单  ›"), content);
-    orders->setObjectName(QStringLiteral("profileOrdersButton"));
-    connect(orders, &QPushButton::clicked, this, &ProfilePage::ordersRequested);
     auto *identityCard = new IdentityButton(content);
     identityCard->setObjectName("profileDetailsButton");
     identityCard->setAccessibleName(QStringLiteral("查看个人详细信息"));
@@ -125,31 +150,57 @@ ProfilePage::ProfilePage(QWidget *parent)
     }
     connect(identityCard, &QPushButton::clicked, this, &ProfilePage::openDetails);
 
+    auto *servicesCard = createCard(content);
+    servicesCard->setObjectName(QStringLiteral("profileServicesCard"));
+    servicesCard->setStyleSheet(profileServicesStyleSheet());
+    auto *servicesLayout = new QVBoxLayout(servicesCard);
+    servicesLayout->setContentsMargins(4, 4, 4, 4);
+    servicesLayout->setSpacing(0);
+    auto *ordersButton = createServiceRow(QStringLiteral("profileOrdersButton"),
+        QStringLiteral("我的订单"), NavigationIcon::Orders, servicesCard);
+    auto *repairButton = createServiceRow(QStringLiteral("profileRepairButton"),
+        QStringLiteral("故障报修"), NavigationIcon::Repair, servicesCard);
+    auto *ticketsButton = createServiceRow(QStringLiteral("profileTicketsButton"),
+        QStringLiteral("我的工单"), NavigationIcon::Tickets, servicesCard);
+    for (auto *button : {ordersButton, repairButton, ticketsButton}) {
+        if (servicesLayout->count() > 0) {
+            auto *divider = new QFrame(servicesCard);
+            divider->setProperty("role", "profileDivider");
+            divider->setFixedHeight(1);
+            auto *dividerRow = new QHBoxLayout();
+            dividerRow->setContentsMargins(46, 0, 12, 0);
+            dividerRow->addWidget(divider);
+            servicesLayout->addLayout(dividerRow);
+        }
+        servicesLayout->addWidget(button);
+    }
+    connect(ordersButton, &QPushButton::clicked, this, &ProfilePage::ordersRequested);
+    connect(repairButton, &QPushButton::clicked, this, &ProfilePage::repairRequested);
+    connect(ticketsButton, &QPushButton::clicked, this, &ProfilePage::ticketsRequested);
+
     auto *walletCard = createCard(content);
     walletCard->setObjectName(QStringLiteral("profileWalletCard"));
-    walletCard->setStyleSheet(QStringLiteral(
-        "QFrame#profileWalletCard { background: #183f34; border: none; border-radius: 20px; }"
-        "QFrame#profileWalletCard QLabel { color: #dbe7d2; background: transparent; border: none; }"
-        "QFrame#profileWalletCard QPushButton[rechargeAmount] { background: #2c5041; color: #e8f0de; border-color: #52735b; }"
-        "QFrame#profileWalletCard QPushButton[rechargeAmount]:hover { background: #3c614d; }"
-        "QFrame#profileWalletCard QPushButton[rechargeAmount]:checked { background: #d5eab1; color: #243e2d; border-color: #d5eab1; }"
-        "QFrame#profileWalletCard QPushButton#rechargeButton { background: #d5eab1; color: #243e2d; border: none; }"
-        "QFrame#profileWalletCard QPushButton#rechargeButton:hover { background: #e5f4c7; }"
-        "QFrame#profileWalletCard QPushButton#rechargeButton:disabled { background: #697b60; color: #d0dbca; }"));
+    walletCard->setStyleSheet(profileWalletStyleSheet());
     auto *walletLayout = new QVBoxLayout(walletCard);
     walletLayout->setContentsMargins(18, 18, 18, 18);
     walletLayout->setSpacing(12);
+    auto *walletHeading = new QHBoxLayout();
     auto *walletTitle = new QLabel(QStringLiteral("钱包余额"), walletCard);
+    walletTitle->setProperty("role", "profileSection");
+    auto *walletIcon = new QLabel(walletCard);
+    walletIcon->setFixedSize(24, 24);
+    walletIcon->setPixmap(clientNavigationIcon(NavigationIcon::Wallet).pixmap(QSize(24, 24)));
+    walletHeading->addWidget(walletTitle, 1);
+    walletHeading->addWidget(walletIcon);
     balanceLabel_ = new QLabel(QStringLiteral("¥0.00"), walletCard);
     balanceLabel_->setObjectName(QStringLiteral("profileBalanceLabel"));
     QFont balanceFont = balanceLabel_->font();
     balanceFont.setPointSize(30);
     balanceFont.setBold(true);
     balanceLabel_->setFont(balanceFont);
-    balanceLabel_->setStyleSheet(QStringLiteral("color: #f1f8dd;"));
 
     auto *quickAmounts = new QHBoxLayout();
-    quickAmounts->setSpacing(7);
+    quickAmounts->setSpacing(8);
     auto *amountGroup = new QButtonGroup(walletCard);
     for (const QString &amount : {QStringLiteral("10"),
                                   QStringLiteral("20"),
@@ -157,6 +208,8 @@ ProfilePage::ProfilePage(QWidget *parent)
                                   QStringLiteral("100")}) {
         auto *button = new QPushButton(QStringLiteral("%1元").arg(amount), walletCard);
         button->setProperty("rechargeAmount", amount);
+        button->setFixedHeight(32);
+        button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         button->setCheckable(true);
         amountGroup->addButton(button);
         connect(button, &QPushButton::clicked, this, [this, amount]() {
@@ -166,8 +219,11 @@ ProfilePage::ProfilePage(QWidget *parent)
     }
 
     auto *rechargeLayout = new QHBoxLayout();
+    rechargeLayout->setSpacing(10);
     rechargeInput_ = new QLineEdit(walletCard);
     rechargeInput_->setObjectName(QStringLiteral("rechargeAmountInput"));
+    rechargeInput_->setMinimumWidth(0);
+    rechargeInput_->setFixedHeight(40);
     rechargeInput_->setPlaceholderText(QStringLiteral("输入充值金额（元）"));
     auto *rechargeValidator =
         new QDoubleValidator(0.01, 10000.0, 2, rechargeInput_);
@@ -183,10 +239,11 @@ ProfilePage::ProfilePage(QWidget *parent)
     });
     rechargeButton_ = new QPushButton(QStringLiteral("充值"), walletCard);
     rechargeButton_->setObjectName(QStringLiteral("rechargeButton"));
+    rechargeButton_->setFixedSize(72, 40);
     rechargeLayout->addWidget(rechargeInput_, 1);
     rechargeLayout->addWidget(rechargeButton_);
 
-    walletLayout->addWidget(walletTitle);
+    walletLayout->addLayout(walletHeading);
     walletLayout->addWidget(balanceLabel_);
     walletLayout->addLayout(quickAmounts);
     walletLayout->addLayout(rechargeLayout);
@@ -240,15 +297,7 @@ ProfilePage::ProfilePage(QWidget *parent)
     decoratedHeading->setFixedHeight(66);
     contentLayout->addWidget(decoratedHeading);
     contentLayout->addWidget(identityCard);
-    contentLayout->addWidget(orders);
-    auto *repair = new QPushButton(QStringLiteral("故障报修  ›"), content);
-    repair->setObjectName("profileRepairButton");
-    contentLayout->addWidget(repair);
-    connect(repair, &QPushButton::clicked, this, &ProfilePage::repairRequested);
-    auto *tickets = new QPushButton(QStringLiteral("我的工单  ›"), content);
-    tickets->setObjectName("profileTicketsButton");
-    contentLayout->addWidget(tickets);
-    connect(tickets, &QPushButton::clicked, this, &ProfilePage::ticketsRequested);
+    contentLayout->addWidget(servicesCard);
     contentLayout->addWidget(walletCard);
     detailsLayout->addWidget(profileCard);
     detailMessage_ = new QLabel(detailPage);

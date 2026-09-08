@@ -18,6 +18,7 @@ signals:
     void orderChanged(const charging::protocol::OrderDto &order);
     void sessionStarted();
     void sessionFinished();
+    void reservationReleased();
 private:
     enum class Action {None, Refresh, StartCheck, Start, Stop, History};
     void begin(const QString &pileCode);

@@ -42,6 +42,7 @@
 - [ADR 0012：找桩、扫码与充电会话分离](decisions/0012-client-charging-flow.md)。
 - [ADR 0018：管理端视觉与数据分析](decisions/0018-admin-visual-analytics.md)。
 - [ADR 0016：Demo 高峰加价，开始充电时锁价](decisions/0016-demo-peak-pricing.md)。
+- [ADR 0017：Demo 预约保留 30 分钟，未开始自动取消](decisions/0017-demo-reservation-timeout.md)。
 
 ## 规则
 

@@ -48,17 +48,41 @@ ChargingController::ChargingController(ChargingPage &page,IChargingApi &api,QObj
         if(!accept(r.response,OrderCurrent))return;
         if(!r.payload){finish();page_.showMessage(QStringLiteral("订单响应不完整，请重试"),true);return;}
         if(starting){
+            if (order_ && order_->status == S::Reserved && r.payload->order
+                && r.payload->order->orderId != order_->orderId) {
+                auto current = *r.payload->order;
+                finish();apply(current);
+                page_.showMessage(QStringLiteral("当前订单已变化，请重新确认"), true);
+                return;
+            }
+            if (!r.payload->order && order_ && order_->status == S::Reserved) {
+                // The reservation disappeared during confirmation. Resolve its final
+                // state; never silently fall through into a new DIRECT order.
+                page_.showMessage(QStringLiteral("预约已失效，正在刷新订单，请重新选桩"), true);
+                action_ = Action::History;
+                requestId_ = api_.listOrders();
+                return;
+            }
             if(!r.payload->order){start({});return;}
             auto current=*r.payload->order;
             if(current.status==S::Reserved&&current.pileCode==candidate_){start(current.orderId);return;}
             finish();apply(current);page_.showMessage(QStringLiteral("请先处理当前订单；预约充电请使用对应充电桩"),true);return;
         }
         if(r.payload->order){auto current=*r.payload->order;finish();apply(current);return;}
-        if(order_&&(order_->status==S::Charging||order_->status==S::PendingPayment)){action_=Action::History;requestId_=api_.listOrders();return;}
-        if(order_&&order_->status==S::Reserved){clearQuoteRequest();order_.reset();candidate_.clear();page_.reset();}
+        if(order_&&(order_->status==S::Charging||order_->status==S::PendingPayment||order_->status==S::Reserved)){
+            page_.setBusy(true);action_=Action::History;requestId_=api_.listOrders();return;
+        }
         finish();
     });
     connect(&api_,&IChargingApi::chargingStartCompleted,this,[this](const OrderResult&r){
+        if (r.response.requestId == requestId_ && r.response.type == OrderStart
+            && r.response.code == protocol::ErrorCode::IllegalOrderState) {
+            finish();
+            page_.showMessage(QStringLiteral("预约或电桩状态已变化，正在刷新，请重新确认"), true);
+            refresh();
+            page_.setBusy(true);
+            return;
+        }
         if(!accept(r.response,OrderStart))return;
         if(!r.payload){finish();return;}auto order=r.payload->order;finish();apply(order);page_.showMessage(QStringLiteral("充电已开始，您可以随时提前结束"));
     });
@@ -84,6 +108,9 @@ void ChargingController::activate(){active_=true;timer_->start();refresh();if(qu
 void ChargingController::prepare(const QString &code){
     if(action_!=Action::None&&action_!=Action::Refresh)return;
     if(order_&&(order_->status==S::Charging||order_->status==S::PendingPayment)){page_.showOrder(*order_);return;}
+    if (order_ && order_->status == S::Reserved && order_->pileCode == code.trimmed()) {
+        page_.showOrder(*order_);requestQuote();refresh();return;
+    }
     clearQuoteRequest();candidate_=code.trimmed();order_.reset();page_.prepare(candidate_);requestQuote();refresh();
 }
 void ChargingController::refresh(){if(!active_||action_!=Action::None)return;action_=Action::Refresh;requestId_=api_.getCurrentOrder();}
@@ -108,12 +135,18 @@ void ChargingController::stop(){
 void ChargingController::apply(const protocol::OrderDto &order){
     const bool started=order.status==S::Charging&&(!order_||order_->status!=S::Charging||order_->orderId!=order.orderId);
     const bool ended=order_&&order_->status==S::Charging&&order.status!=S::Charging;
+    const bool released = order_ && order_->status == S::Reserved
+        && order_->orderId == order.orderId && order.status == S::Cancelled;
     const bool newReservation = order.status == S::Reserved
         && (!order_ || order_->orderId != order.orderId || candidate_ != order.pileCode);
     if (order.status != S::Reserved || newReservation) clearQuoteRequest();
     order_=order;candidate_=order.pileCode;page_.showOrder(order);
     if (newReservation) requestQuote();
     emit orderChanged(order);
+    if (released) {
+        page_.showMessage(QStringLiteral("预约已取消，未产生费用，请重新选桩"));
+        emit reservationReleased();
+    }
     if(started)emit sessionStarted();
     if(ended){page_.showMessage(order.status==S::PendingPayment?QStringLiteral("充电已结束，余额不足，请前往充值结算"):QStringLiteral("充电已结束并完成结算"));emit sessionFinished();}
 }

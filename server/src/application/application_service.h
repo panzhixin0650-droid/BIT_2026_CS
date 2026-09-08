@@ -59,6 +59,10 @@ public:
     [[nodiscard]] ServiceResult stopOrder(const QString &token, const QJsonObject &input);
     void enableDemoAutomaticStop();
     int completeDueDemoCharges(const QDateTime &now);
+    void enableReservationExpiry();
+    // Housekeeping can persist cancellations before logically read-only queries.
+    // Returns the number expired, or -1 on a storage/consistency failure.
+    int expireDueReservations(const QDateTime &now) const;
     [[nodiscard]] ServiceResult payOrder(const QString &token, const QJsonObject &input);
 
     [[nodiscard]] ServiceResult createSupportTicket(const QString &token, const QJsonObject &input);
@@ -125,6 +129,8 @@ private:
     [[nodiscard]] QDateTime nowUtc() const { return clock_().toUTC(); }
     ServiceResult settleChargingOrder(qint64 orderId, qint64 userId, const QDateTime &now);
     bool demoAutomaticStop_ = false;
+    bool reservationExpiryEnabled_ = false;
+    int cancelReservation(charging::protocol::OrderDto *order) const;
     [[nodiscard]] std::optional<qint64> authenticatedUserId(
         const QString &token,
         ServiceResult *failure) const;

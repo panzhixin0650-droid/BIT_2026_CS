@@ -39,6 +39,7 @@ private:
     bool busy_ = false;
     ChargingRing *ring_;
     QLabel *state_, *station_, *message_, *power_, *energy_, *duration_, *amount_, *price_;
+    QLabel *reservationHint_;
     PricingInfoButton *pricingInfo_;
     QPushButton *start_, *stop_, *home_, *scan_, *recharge_, *orders_, *repair_;
 };

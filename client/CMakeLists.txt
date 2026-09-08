@@ -94,6 +94,7 @@ add_library(charging_client_ui STATIC
     src/ui/charging_page.cpp
     src/ui/charging_page.h
     src/ui/pricing_hint.h
+    src/ui/reservation_hint.h
     src/ui/pricing_info_button.cpp
     src/ui/pricing_info_button.h
     src/ui/charging_controller.cpp
@@ -279,6 +280,7 @@ if(BUILD_TESTING)
 
     add_test(NAME charging_client_mock_api_tests COMMAND charging_client_mock_api_tests)
     target_compile_definitions(charging_client_mock_api_tests PRIVATE
+        CHARGING_RESERVATION_FIXTURE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../contracts/examples/reservation-timeout.local.json"
         CHARGING_PEAK_FIXTURE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../contracts/examples/demo-peak-pricing.local.json")
 
     add_executable(charging_client_tcp_api_tests

@@ -107,7 +107,7 @@
 | 头像 | 客户端 `QSettings` 或应用数据目录 | 需要跨设备同步头像时 |
 | 最近位置 | 客户端内存或 `QSettings` | 产品明确要求服务端同步时 |
 | 充值/支付流水 | 当前只保留用户余额与订单支付结果 | 增加账单流水、退款或对账时 |
-| 预约超时/违约 | 当前不实现自动超时 | 需求明确预约时限后 |
+| 预约超时/违约 | ADR-0017 启用固定 30 分钟未开始自动取消，无违约 | 可配置时限、取消原因、违约策略需另行批准 |
 | 客服工单 | 已按 ADR 0008 单独启用，schema 2 增量迁移 | 用户确认的摘要与管理员处理结果 |
 | 设备报修 | 已按 ADR 0010 合入工单，schema 4 增量字段；维修派单仍未启用 | 扫一扫提交和管理员工单处理 |
 | 只读 AI 助理 | 客户端随包知识与内存会话，见 [ADR 0005](../decisions/0005-client-rag-assistant.md) | 明确要求持久会话或客服工单时另行决策 |
@@ -231,7 +231,7 @@ erDiagram
 
 - 手机号登录属于课程演示身份识别，不宣称是真实安全认证。
 - 本地头像不写此表；换头像不需要服务端接口。
-- 不保存月违约次数，因为本期没有预约超时/违约需求。
+- 不保存月违约次数，30 分钟预约超时仅自动取消，不引入违约处罚。
 
 ### 4.2 `admins`：管理员
 
@@ -307,7 +307,7 @@ erDiagram
 | `pile_id` | INTEGER FK | 是 | 使用的电桩 |
 | `mode` | TEXT | 是 | `RESERVATION` 预约开始，`DIRECT` 直接开始 |
 | `status` | TEXT | 是 | `RESERVED`、`CHARGING`、`PENDING_PAYMENT`、`COMPLETED`、`CANCELLED` |
-| `reserved_at` | TEXT/null | 条件 | 预约时间；预约模式必有 |
+| `reserved_at` | TEXT/null | 条件 | 预约时间；预约模式必有；仍为 RESERVED 的截止时间为此时间 + 1800 秒 |
 | `started_at` | TEXT/null | 条件 | 实际开始充电时间 |
 | `ended_at` | TEXT/null | 条件 | 停止充电时间 |
 | `paid_at` | TEXT/null | 条件 | 支付完成时间 |
@@ -328,7 +328,10 @@ erDiagram
 补支付：                                  PENDING_PAYMENT -> COMPLETED
 ```
 
-本期没有自动预约过期、违约和退款状态。不要为了“以后可能需要”先添加状态。
+按 [ADR-0017](../decisions/0017-demo-reservation-timeout.md)，预约 30 分钟未开始时复用
+`CANCELLED`，同事务释放桩；`started_at/ended_at/paid_at` 仍为空，金额、电量、时长为零。
+不增加 EXPIRED、违约或退款状态，不区分手动与超时取消。已有 `reserved_at` 足以恢复
+截止时间，重启不重置预约时限，无需迁移或重写旧订单。
 
 首个迁移 SQL 应拒绝最明显的矛盾组合，例如没有开始时间/价格的 `CHARGING`、已经结束或支付的 `RESERVED`。合法的状态转换顺序仍由 `ApplicationService` 控制；不要给 UI 提供任意修改 `status` 的通用 SQL 接口。
 
@@ -405,11 +408,12 @@ PRAGMA foreign_keys = ON;
 
 ## 7. 最小事务约定
 
-只规定容易产生半成品数据的四个边界，不规定线程池、锁、重试或幂等系统。
+只规定容易产生半成品数据的业务边界，不规定线程池、锁、重试或幂等系统。
 
 | 操作 | 同一事务内完成 |
 | --- | --- |
 | 预约 | 确认用户没有未结束订单、桩为 `IDLE`；插入 `RESERVED` 订单；桩改 `RESERVED` |
+| 取消 / 预约超时 | 重读仍为 `RESERVED` 的订单；订单改 `CANCELLED`，其占用的桩改 `IDLE`；不扣款 |
 | 开始 | 预约单转 `CHARGING` 或创建直接充电单；按开始时刻计算高峰/平时单价并写入快照；桩改 `CHARGING` |
 | 停止 | 从 `MockPile` 取得最终时长/电量；算金额；释放桩为 `IDLE`；余额足够则扣款并完成，否则订单置 `PENDING_PAYMENT` |
 | 补支付/充值 | 充值只增加余额；补支付检查余额、扣款并把订单转为 `COMPLETED` |
@@ -473,7 +477,7 @@ PRAGMA foreign_keys = ON;
 
 | 未来需求 | 建议新增对象 |
 | --- | --- |
-| 预约自动过期/违约 | 给订单增加 `expires_at` 和 `EXPIRED` 状态即可 |
+| 可配置预约时限/违约 | ADR-0017 固定超时已复用现有字段；若需可配置时限、区分取消原因或违约处罚，应另行设计协议与迁移 |
 | 充值明细、退款、对账 | `wallet_transactions` |
 | 报修闭环 | `fault_reports` |
 | AI 转人工 | `support_tickets` |
