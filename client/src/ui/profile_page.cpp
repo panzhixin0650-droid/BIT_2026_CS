@@ -1,4 +1,5 @@
 #include "ui/profile_page.h"
+#include "ui/avatar_art.h"
 #include "ui/decorative_heading.h"
 
 #include <QDoubleValidator>
@@ -9,9 +10,6 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
-#include <QPainter>
-#include <QPainterPath>
-#include <QPixmap>
 #include <QScrollArea>
 #include <QVBoxLayout>
 
@@ -56,8 +54,9 @@ ProfilePage::ProfilePage(QWidget *parent)
     heading->setFont(headingFont);
 
     auto *orders = new QPushButton(QStringLiteral("我的订单  ›"), content);
-    orders->setObjectName("profileOrdersButton");
+    orders->setObjectName(QStringLiteral("profileOrdersButton"));
     connect(orders, &QPushButton::clicked, this, &ProfilePage::ordersRequested);
+
     auto *identityCard = createCard(content);
     auto *identityLayout = new QHBoxLayout(identityCard);
     identityLayout->setContentsMargins(18, 18, 18, 18);
@@ -70,6 +69,7 @@ ProfilePage::ProfilePage(QWidget *parent)
     avatarLabel_->setAlignment(Qt::AlignCenter);
     avatarLabel_->setStyleSheet(QStringLiteral(
         "background: #acb8a6; color: white; border-radius: 32px; font-weight: 600;"));
+    setAvatarPath({});
     auto *changeAvatarButton = new QPushButton(QStringLiteral("更换头像"), identityCard);
     changeAvatarButton->setObjectName(QStringLiteral("changeAvatarButton"));
     changeAvatarButton->setFlat(true);
@@ -189,7 +189,7 @@ ProfilePage::ProfilePage(QWidget *parent)
     logoutButton_->setObjectName(QStringLiteral("logoutButton"));
 
     contentLayout->addWidget(new DecorativeHeading(heading, QStringLiteral("plant"),
-                                                  66, 4, content));
+                                                   66, 4, content));
     contentLayout->addWidget(identityCard);
     contentLayout->addWidget(orders);
     contentLayout->addWidget(walletCard);
@@ -202,7 +202,9 @@ ProfilePage::ProfilePage(QWidget *parent)
     pageLayout->addWidget(scrollArea);
 
     connect(refreshButton_, &QPushButton::clicked, this, &ProfilePage::refreshRequested);
-    connect(changeAvatarButton, &QPushButton::clicked, this, &ProfilePage::avatarSelectionRequested);
+    connect(changeAvatarButton, &QPushButton::clicked, this, [this]() {
+        emit avatarSelectionRequested();
+    });
     connect(saveNicknameButton_, &QPushButton::clicked, this, [this]() {
         emit nicknameUpdateRequested(nicknameInput_->text());
     });
@@ -214,6 +216,8 @@ ProfilePage::ProfilePage(QWidget *parent)
 
 void ProfilePage::setUser(const protocol::UserDto &user)
 {
+    const QString key = QStringLiteral("%1:%2").arg(user.userId).arg(user.phone);
+    avatarUserKey_ = key;
     nicknameLabel_->setText(user.nickname);
     phoneLabel_->setText(QStringLiteral("手机号：%1").arg(user.phone));
     nicknameInput_->setText(user.nickname);
@@ -227,29 +231,13 @@ void ProfilePage::setBalance(qint64 balanceCents)
 
 void ProfilePage::setAvatarPath(const QString &path)
 {
-    QPixmap source(path);
-    if (source.isNull()) {
-        avatarLabel_->setPixmap({});
-        avatarLabel_->setText(QStringLiteral("用户"));
-        return;
+    // Read the file afresh: each user replaces the same PNG on subsequent saves.
+    avatarImage_ = path.isEmpty() ? QImage() : QImage(path);
+    if (avatarImage_.isNull()) {
+        avatarImage_ = defaultAvatar();
     }
-
-    const QSize targetSize = avatarLabel_->size();
-    const QPixmap scaled = source.scaled(targetSize,
-                                         Qt::KeepAspectRatioByExpanding,
-                                         Qt::SmoothTransformation);
-    QPixmap circular(targetSize);
-    circular.fill(Qt::transparent);
-    QPainter painter(&circular);
-    painter.setRenderHint(QPainter::Antialiasing);
-    QPainterPath clipPath;
-    clipPath.addEllipse(circular.rect());
-    painter.setClipPath(clipPath);
-    const QPoint offset((scaled.width() - targetSize.width()) / 2,
-                        (scaled.height() - targetSize.height()) / 2);
-    painter.drawPixmap(-offset, scaled);
     avatarLabel_->setText({});
-    avatarLabel_->setPixmap(circular);
+    avatarLabel_->setPixmap(circularAvatar(avatarImage_, avatarLabel_->width(), devicePixelRatioF()));
 }
 
 void ProfilePage::setBusy(bool busy)

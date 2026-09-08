@@ -5,6 +5,8 @@
 #include <QObject>
 #include <QString>
 
+class QImage;
+
 namespace charging::client {
 
 class IChargingApi;
@@ -49,6 +51,7 @@ private:
 
     void updateNickname(const QString &nickname);
     void recharge(const QString &amountYuan);
+    void saveAvatar(const QImage &image);
     void saveAvatar(const QString &sourcePath);
     void logout();
     void handleProfileCompleted(const UserResult &result);

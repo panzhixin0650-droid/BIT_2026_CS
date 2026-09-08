@@ -1,4 +1,5 @@
 #include "ui/photo_album_page.h"
+#include "ui/avatar_art.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -23,6 +24,7 @@ static void initializeAlbumResources()
 namespace charging::client {
 namespace {
 constexpr int pathRole = Qt::UserRole;
+constexpr int imageRole = Qt::UserRole + 1;
 
 QImage readAlbumImage(const QString &path, int maximumSide)
 {
@@ -120,6 +122,23 @@ PhotoAlbumPage::PhotoAlbumPage(QWidget *parent, const QString &directory, Purpos
     caption->setContentsMargins(16, 0, 16, 0);
     caption->setStyleSheet("color:#71806e;font-size:11px;");
     root->addWidget(caption);
+    if (purpose_ == Purpose::Avatar) {
+        auto *basicRow = new QHBoxLayout();
+        basicRow->setContentsMargins(16, 0, 16, 0);
+        basicRow->setSpacing(6);
+        for (const auto &avatar : basicAvatars()) {
+            auto *button = new QPushButton(avatar.name, this);
+            button->setIcon(QIcon(QPixmap::fromImage(avatar.image.scaled(
+                30, 30, Qt::KeepAspectRatio, Qt::SmoothTransformation))));
+            button->setIconSize(QSize(30, 30));
+            button->setToolTip(QStringLiteral("使用基础头像：%1").arg(avatar.name));
+            connect(button, &QPushButton::clicked, this, [this, image = avatar.image]() {
+                emit imageSelectedImage(image);
+            });
+            basicRow->addWidget(button, 1);
+        }
+        root->addLayout(basicRow);
+    }
 
     pages_ = new QStackedWidget(this);
     auto *gridPage = new QWidget(pages_);
@@ -173,7 +192,10 @@ PhotoAlbumPage::PhotoAlbumPage(QWidget *parent, const QString &directory, Purpos
     });
     connect(confirm_, &QPushButton::clicked, this, [this] {
         const auto items = photos_->selectedItems();
-        if (!items.isEmpty()) emit imageSelected(items.first()->data(pathRole).toString());
+        if (items.isEmpty()) return;
+        const auto image = items.first()->data(imageRole);
+        if (image.isValid()) emit imageSelectedImage(qvariant_cast<QImage>(image));
+        else emit imageSelected(items.first()->data(pathRole).toString());
     });
 }
 
