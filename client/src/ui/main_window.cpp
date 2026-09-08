@@ -673,6 +673,8 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
         else homePage_->showCurrentOrder(order);
     });
     connect(chargingController_, &ChargingController::sessionStarted, stationBrowserController_, &StationBrowserController::refreshStations);
+    connect(chargingController_, &ChargingController::reservationReleased, stationBrowserController_, &StationBrowserController::refreshStations);
+    connect(chargingController_, &ChargingController::reservationReleased, orderController_, &OrderController::refreshOrders);
     connect(chargingController_, &ChargingController::sessionFinished, this, [this] {
         profileController_->refreshProfile();
         stationBrowserController_->refreshStations();

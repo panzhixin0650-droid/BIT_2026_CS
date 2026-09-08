@@ -1,5 +1,7 @@
 #include "api/i_charging_api.h"
 #include "ui/main_window.h"
+#include "ui/charging_controller.h"
+#include "ui/charging_page.h"
 #include "ui/login_page.h"
 #include "ui/order_page.h"
 #include "ui/order_controller.h"
@@ -9,10 +11,13 @@
 #include "ui/station_browser_controller.h"
 
 #include <QLabel>
+#include <QDialog>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QStackedWidget>
 #include <QTabWidget>
+#include <QToolButton>
+#include <QSignalSpy>
 #include <QtTest>
 
 using namespace charging::client;
@@ -61,6 +66,22 @@ public:
 class UiRecoveryTests : public QObject {
     Q_OBJECT
 private:
+    void verifyPricingRules(ChargingPage &page, bool hasPeak) {
+        auto *help = page.findChild<QToolButton *>("chargingPricingInfoButton");
+        QVERIFY(help && help->isVisible());
+        QVERIFY(!page.findChild<QLabel *>("chargingPricingRule"));
+        QVERIFY(!page.findChild<QPushButton *>("chargingRefreshPriceButton"));
+        QVERIFY(!page.findChild<QDialog *>("pricingRulesDialog"));
+        help->click();
+        auto *dialog = page.findChild<QDialog *>("pricingRulesDialog");
+        QVERIFY(dialog && dialog->isVisible());
+        auto *text = dialog->findChild<QLabel *>("pricingRulesText");
+        QVERIFY(text && text->wordWrap());
+        QCOMPARE(text->text().contains(QStringLiteral("高峰 +20%")), hasPeak);
+        dialog->findChild<QPushButton *>("pricingRulesCloseButton")->click();
+        QTRY_VERIFY(!page.findChild<QDialog *>("pricingRulesDialog"));
+    }
+
     void login(MainWindow &window, DeferredApi &api, qint64 userId = 1) {
         window.findChild<LoginPage *>()->loginRequested(QStringLiteral("13800000001"),
                                                        QStringLiteral("123456"));
@@ -71,6 +92,242 @@ private:
         emit api.loginCompleted(result);
     }
 private slots:
+    void expiredReservationNeverFallsBackToDirectStart_data() {
+        QTest::addColumn<bool>("expiresDuringStart");
+        QTest::newRow("gone-at-current-check") << false;
+        QTest::newRow("expires-after-check-before-start") << true;
+    }
+
+    void expiredReservationNeverFallsBackToDirectStart() {
+        QFETCH(bool, expiresDuringStart);
+        DeferredApi api;
+        ChargingPage page;
+        page.show();
+        ChargingController controller(page, api);
+        QSignalSpy released(&controller, &ChargingController::reservationReleased);
+        controller.activate();
+        auto current = api.reply<CurrentOrderResult>("order.current");
+        protocol::OrderDto reservation;
+        reservation.orderId = 18; reservation.stationId = 1;
+        reservation.pileCode = "PILE-A-01";
+        reservation.stationName = QStringLiteral("浑南演示充电站");
+        reservation.mode = protocol::OrderMode::Reservation;
+        reservation.status = protocol::OrderStatus::Reserved;
+        reservation.reservedAt = "2026-09-08T15:45:00Z";
+        current.payload->order = reservation;
+        emit api.currentOrderCompleted(current);
+        auto quote = api.reply<StationDetailResult>("station.detail");
+        quote.payload->station.stationId = 1;
+        quote.payload->station.priceCentsPerKwh = 135;
+        protocol::PileDto pile; pile.stationId = 1; pile.pileCode = "PILE-A-01";
+        quote.payload->piles = {pile};
+        emit api.stationDetailCompleted(quote);
+        auto *hint = page.findChild<QLabel *>("chargingReservationHint");
+        QVERIFY(hint && hint->isVisible());
+        QVERIFY(hint->text().contains(QStringLiteral("09-09 00:15:00")));
+        QVERIFY(hint->text().contains(QStringLiteral("不扣费")));
+        auto *start = page.findChild<QPushButton *>("chargingStartButton");
+        QVERIFY(start->isEnabled()); start->click();
+        auto checked = api.reply<CurrentOrderResult>("order.current");
+        if (expiresDuringStart) checked.payload->order = reservation;
+        emit api.currentOrderCompleted(checked);
+        if (expiresDuringStart) {
+            QCOMPARE(api.calls["order.start"], 1);
+            emit api.chargingStartCompleted(api.reply<OrderResult>(
+                "order.start", protocol::ErrorCode::IllegalOrderState));
+            emit api.currentOrderCompleted(api.reply<CurrentOrderResult>("order.current"));
+        }
+        QCOMPARE(api.calls["order.start"], expiresDuringStart ? 1 : 0);
+        QVERIFY(!start->isEnabled());
+        QCOMPARE(api.calls["order.list"], 1);
+        auto history = api.reply<OrderListResult>("order.list");
+        reservation.status = protocol::OrderStatus::Cancelled;
+        history.payload->items = {reservation};
+        emit api.orderListCompleted(history);
+        QCOMPARE(released.count(), 1);
+        QVERIFY(!start->isVisible());
+        QVERIFY(!hint->isVisible());
+        QCOMPARE(page.findChild<QLabel *>("chargingState")->text(), QStringLiteral("预约已取消"));
+        controller.refresh();
+        emit api.currentOrderCompleted(api.reply<CurrentOrderResult>("order.current"));
+        QCOMPARE(released.count(), 1);
+        QCOMPARE(api.calls["order.start"], expiresDuringStart ? 1 : 0);
+        controller.reset();
+        emit api.orderListCompleted(history);
+        QVERIFY(page.pileCode().isEmpty());
+    }
+
+    void chargingQuoteRejectsStaleResponsesAndUsesLockedApiPrice() {
+        DeferredApi api;
+        ChargingPage page;
+        page.show();
+        ChargingController controller(page, api);
+        controller.activate();
+        controller.prepare("PILE-A-01");
+        const auto stale = api.reply<StationListResult>("station.list");
+        controller.prepare("PILE-B-02");
+        emit api.stationListCompleted(stale);
+        QCOMPARE(api.calls["station.detail"], 0);
+        auto stations = api.reply<StationListResult>("station.list");
+        protocol::StationDto a, b;
+        a.stationId = 1; a.priceCentsPerKwh = 162;
+        b.stationId = 2; b.priceCentsPerKwh = 144; b.name = QStringLiteral("和平演示站");
+        b.pricingRule = QString::fromLatin1(protocol::DemoPeakPricingRule);
+        stations.payload->items = {a, b};
+        emit api.stationListCompleted(stations);
+        auto wrongStation = api.reply<StationDetailResult>("station.detail");
+        wrongStation.payload->station = a;
+        protocol::PileDto pileA, pileB;
+        pileA.stationId = 1; pileA.pileCode = "PILE-A-01";
+        pileB.stationId = 2; pileB.pileCode = "PILE-B-02";
+        wrongStation.payload->piles = {pileA};
+        emit api.stationDetailCompleted(wrongStation);
+        QCOMPARE(api.calls["station.detail"], 2);
+        auto quote = api.reply<StationDetailResult>("station.detail");
+        quote.payload->station = b; quote.payload->piles = {pileB};
+        emit api.stationDetailCompleted(quote);
+        auto *start = page.findChild<QPushButton *>("chargingStartButton");
+        auto *price = page.findChild<QLabel *>("chargingPrice");
+        QVERIFY(start->isEnabled());
+        QCOMPARE(price->text(), QStringLiteral("当前参考单价：¥1.44/度"));
+        QVERIFY(!price->text().contains(QStringLiteral("高峰")));
+        verifyPricingRules(page, true);
+        QCOMPARE(api.calls["order.start"], 0);
+        emit api.currentOrderCompleted(api.reply<CurrentOrderResult>("order.current"));
+        start->click();
+        emit api.currentOrderCompleted(api.reply<CurrentOrderResult>("order.current"));
+        QCOMPARE(api.calls["order.start"], 1);
+        auto started = api.reply<OrderResult>("order.start");
+        started.payload->order.orderId = 7;
+        started.payload->order.stationId = 2;
+        started.payload->order.pileCode = "PILE-B-02";
+        started.payload->order.status = protocol::OrderStatus::Charging;
+        // Deliberately not the quote: the UI must display the start response verbatim.
+        started.payload->order.unitPriceCentsPerKwh = 149;
+        emit api.chargingStartCompleted(started);
+        QCOMPARE(price->text(), QStringLiteral("本单锁定单价：¥1.49/度"));
+        verifyPricingRules(page, false);
+        emit api.stationDetailCompleted(quote);
+        QCOMPARE(price->text(), QStringLiteral("本单锁定单价：¥1.49/度"));
+        controller.reset();
+        emit api.stationDetailCompleted(quote);
+        QVERIFY(page.pileCode().isEmpty());
+        QVERIFY(!start->isEnabled());
+    }
+
+    void chargingQuoteFailureCanRetryAndSessionFailureResets() {
+        DeferredApi api;
+        ChargingPage page;
+        ChargingController controller(page, api);
+        QSignalSpy auth(&controller, &ChargingController::authenticationRequired);
+        controller.activate();
+        controller.prepare("PILE-A-01");
+        auto *start = page.findChild<QPushButton *>("chargingStartButton");
+        QVERIFY(!page.findChild<QPushButton *>("chargingRefreshPriceButton"));
+        QVERIFY(!start->isEnabled());
+        emit api.stationListCompleted(api.reply<StationListResult>(
+            "station.list", protocol::ErrorCode::ServiceUnavailable));
+        QVERIFY(start->isEnabled());
+        QCOMPARE(start->text(), QStringLiteral("重试加载"));
+        QVERIFY(!page.findChild<QLabel *>("chargingPrice")->text().isEmpty());
+        QCOMPARE(api.calls["order.start"], 0);
+        start->click();
+        QVERIFY(!start->isEnabled());
+        QCOMPARE(api.calls["station.list"], 2);
+        emit api.stationListCompleted(api.reply<StationListResult>("station.list")); // no matching station
+        QVERIFY(start->isEnabled());
+        QCOMPARE(start->text(), QStringLiteral("重试加载"));
+        start->click();
+        auto incomplete = api.reply<StationListResult>("station.list");
+        incomplete.payload.reset();
+        emit api.stationListCompleted(incomplete);
+        QVERIFY(start->isEnabled());
+        QCOMPARE(start->text(), QStringLiteral("重试加载"));
+        start->click();
+        emit api.stationListCompleted(api.reply<StationListResult>(
+            "station.list", protocol::ErrorCode::InvalidSession));
+        QCOMPARE(auth.count(), 1);
+        QVERIFY(page.pileCode().isEmpty());
+        QCOMPARE(api.calls["order.start"], 0);
+    }
+
+    void quoteRetryOnlyLoadsPriceUntilUserStartsAgain() {
+        DeferredApi api;
+        ChargingPage page;
+        ChargingController controller(page, api);
+        controller.activate();
+        controller.prepare("PILE-A-01");
+        emit api.currentOrderCompleted(api.reply<CurrentOrderResult>("order.current"));
+        emit api.stationListCompleted(api.reply<StationListResult>(
+            "station.list", protocol::ErrorCode::ServiceUnavailable));
+        auto *start = page.findChild<QPushButton *>("chargingStartButton");
+        QCOMPARE(start->text(), QStringLiteral("重试加载"));
+        start->click();
+        start->click(); // Disabled while loading; no duplicate requests or starts.
+        QCOMPARE(api.calls["station.list"], 2);
+        auto stations = api.reply<StationListResult>("station.list");
+        protocol::StationDto station;
+        station.stationId = 1;
+        station.priceCentsPerKwh = 162;
+        stations.payload->items = {station};
+        emit api.stationListCompleted(stations);
+        auto quote = api.reply<StationDetailResult>("station.detail");
+        quote.payload->station = station;
+        protocol::PileDto pile;
+        pile.stationId = 1;
+        pile.pileCode = "PILE-A-01";
+        quote.payload->piles = {pile};
+        emit api.stationDetailCompleted(quote);
+        QVERIFY(start->isEnabled());
+        QCOMPARE(start->text(), QStringLiteral("开始充电"));
+        QCOMPARE(api.calls["order.start"], 0);
+        start->click();
+        emit api.currentOrderCompleted(api.reply<CurrentOrderResult>("order.current"));
+        QCOMPARE(api.calls["order.start"], 1);
+    }
+
+    void oldOrUnknownPricingRuleDoesNotInventPeakPrice() {
+        ChargingPage page;
+        page.show();
+        page.prepare("PILE-A-01");
+        protocol::StationDto quote;
+        quote.stationId = 1; quote.priceCentsPerKwh = 137;
+        for (const auto &rule : {QString(), QStringLiteral("FUTURE_RULE")}) {
+            quote.pricingRule = rule;
+            page.showQuote(quote);
+            QCOMPARE(page.findChild<QLabel *>("chargingPrice")->text(),
+                     QStringLiteral("当前参考单价：¥1.37/度"));
+            verifyPricingRules(page, false);
+        }
+    }
+
+    void pricingRulesCloseWhenQuoteOrSessionChanges() {
+        ChargingPage page;
+        page.show();
+        page.prepare("PILE-A-01");
+        protocol::StationDto quote;
+        quote.priceCentsPerKwh = 162;
+        quote.pricingRule = QString::fromLatin1(protocol::DemoPeakPricingRule);
+        page.showQuote(quote);
+        auto *help = page.findChild<QToolButton *>("chargingPricingInfoButton");
+        help->click();
+        QVERIFY(page.findChild<QDialog *>("pricingRulesDialog")->isVisible());
+        page.prepare("PILE-B-02");
+        QTRY_VERIFY(!page.findChild<QDialog *>("pricingRulesDialog"));
+        QVERIFY(!help->isVisible());
+        page.showQuote(quote);
+        help->click();
+        QVERIFY(page.findChild<QDialog *>("pricingRulesDialog")->isVisible());
+        page.hide();
+        QTRY_VERIFY(!page.findChild<QDialog *>("pricingRulesDialog"));
+        page.show();
+        help->click();
+        QVERIFY(page.findChild<QDialog *>("pricingRulesDialog")->isVisible());
+        page.reset();
+        QTRY_VERIFY(!page.findChild<QDialog *>("pricingRulesDialog"));
+        QVERIFY(!help->isVisible());
+    }
+
     void invalidVerificationCodeDoesNotCallApi_data() {
         QTest::addColumn<QString>("code");
         QTest::addColumn<QString>("message");

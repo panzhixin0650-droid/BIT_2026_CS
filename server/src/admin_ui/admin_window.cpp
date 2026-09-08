@@ -923,7 +923,7 @@ QWidget *AdminWindow::buildStationsPage()
     });
     stationsTable_->setColumnCount(7);
     stationsTable_->setHeaderLabels({QStringLiteral("ID"), QStringLiteral("站点"), QStringLiteral("区域"),
-                                     QStringLiteral("可用 / 总数"), QStringLiteral("在线率"), QStringLiteral("电价"), QStringLiteral("状态")});
+                                     QStringLiteral("可用 / 总数"), QStringLiteral("在线率"), QStringLiteral("基础电价"), QStringLiteral("状态")});
     stationsTable_->setRootIsDecorated(true);
     // 展开/收起只允许通过左侧树形小三角，双击行仅用于打开详情。
     stationsTable_->setExpandsOnDoubleClick(false);
@@ -2277,7 +2277,7 @@ void AdminWindow::showCreateStationDialog()
     layout->addRow(QStringLiteral("详细地址"), address);
     layout->addRow(QStringLiteral("经度"), longitude);
     layout->addRow(QStringLiteral("纬度"), latitude);
-    layout->addRow(QStringLiteral("单价（分/kWh）"), price);
+    layout->addRow(QStringLiteral("基础单价（分/kWh）"), price);
     layout->addRow(QStringLiteral("初始电桩数"), pileCount);
     dialogLayout->addLayout(layout);
 
@@ -2421,7 +2421,7 @@ void AdminWindow::showEditStationDialog(qint64 stationId)
     layout->addRow(QStringLiteral("详细地址"), address);
     layout->addRow(QStringLiteral("经度"), longitude);
     layout->addRow(QStringLiteral("纬度"), latitude);
-    layout->addRow(QStringLiteral("单价（分/kWh）"), price);
+    layout->addRow(QStringLiteral("基础单价（分/kWh）"), price);
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog);
     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
@@ -2826,7 +2826,7 @@ void AdminWindow::showStationDetails(qint64 stationId)
         if (value.toObject().value(QStringLiteral("stationId")).toInteger() == stationId) station = value.toObject();
     }
     if (station.isEmpty()) return;
-    QString text = QStringLiteral("站点：%1\nID：%2\n区域：%3\n地址：%4\n坐标：%5, %6\n电价：¥%7/度\n状态：%8\n可用/总数：%9/%10\n在线率：%11%\n\n所属电桩：")
+    QString text = QStringLiteral("站点：%1\nID：%2\n区域：%3\n地址：%4\n坐标：%5, %6\n基础电价：¥%7/度\n状态：%8\n可用/总数：%9/%10\n在线率：%11%\n\n所属电桩：")
         .arg(station.value(QStringLiteral("name")).toString()).arg(stationId)
         .arg(station.value(QStringLiteral("region")).toString()).arg(station.value(QStringLiteral("address")).toString())
         .arg(station.value(QStringLiteral("longitude")).toDouble(), 0, 'f', 6)

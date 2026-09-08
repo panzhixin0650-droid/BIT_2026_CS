@@ -37,7 +37,21 @@ Responses 请求及成功/失败事件，**不是 TCP 请求/响应**，不包�
 
 两次进度响应的时长、电量和金额单调增长。最终电量为 `5000 Wh`，冻结单价为 `135 分/kWh`，按 V1 契约公式得到 `675 分`，从初始余额 `20000 分` 扣除后剩余 `19325 分`。
 
+## 高峰计价增量
+
+- [`demo-peak-pricing.local.json`](demo-peak-pricing.local.json)：北京时间边界与 UTC
+  换日固定时钟用例，由服务端与客户端 Mock 测试共同读取，不是 TCP 消息。
+- `station-detail-peak.*.json`：高峰请求时，基础价 135 分显示为参考价 162 分。
+- `order-start-peak.*.json`：10:59 北京时间开始，锁定 162 分；即使 11:00 后结束也不变。
+- 原主链路及历史 fixture 保持不变，表示原价/旧规则订单，不补算高峰价。
+
 ## 独立失败场景
+
+预约超时增量：[reservation-timeout.local.json](reservation-timeout.local.json) 为服务端
+与客户端 Mock 共用的固定时钟测试（不是 TCP 消息）。到期后 `order.current` 使用
+现有 empty 响应，`order.list` 中该单为 CANCELLED（DTO 与 `order-cancel.response.json`
+一致，不能据此区分手动或自动取消）。`order-start.expired.*.json` 表示预约已过截止时间
+后继续带原 ID 启动，被按既有状态规则拒绝，不新建直接订单。
 
 以下 fixture 各自依赖独立前置状态，不应插入上面的成功链路：
 

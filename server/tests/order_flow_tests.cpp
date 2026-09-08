@@ -83,6 +83,8 @@ struct Fixture {
     QString error;
     QString token;
     int sequence = 0;
+    // Existing settlement examples are off-peak regardless of the test runner clock.
+    QDateTime now{QDateTime::currentDateTimeUtc().date(), QTime(4, 0), Qt::UTC};
 
     QString databasePath() const { return temporary.filePath(QStringLiteral("orders.db")); }
 
@@ -122,7 +124,8 @@ struct Fixture {
         } else {
             repository = std::make_unique<InMemoryRepository>();
         }
-        service = std::make_unique<ApplicationService>(repository.get(), &sessions, &pile, &prediction);
+        service = std::make_unique<ApplicationService>(repository.get(), &sessions, &pile,
+                                                       &prediction, nullptr, [this] { return now; });
         router = std::make_unique<RequestRouter>(service.get());
         token = login(QStringLiteral("13900000901"));
         return !token.isEmpty();
@@ -178,6 +181,15 @@ class OrderFlowTests final : public QObject {
 private slots:
     void reservationAndCancellation_data() { backends(); }
     void reservationAndCancellation();
+    void reservationDeadline_data();
+    void reservationDeadline();
+    void reservationExpiryBeforeRequests_data();
+    void reservationExpiryBeforeRequests();
+    void reservationTimerAndRestart();
+    void reservationExpiryRollback_data();
+    void reservationExpiryRollback();
+    void startedReservationNeverExpires_data() { backends(); }
+    void startedReservationNeverExpires();
     void chargingAndAutomaticSettlement_data() { backends(); }
     void chargingAndAutomaticSettlement();
     void pendingPaymentReleasesPile_data() { backends(); }
@@ -192,12 +204,214 @@ private slots:
     void sqliteAdminAccountsAndPasswordUpgrade();
     void mockReadingsNeverRetreat();
     void integerBilling();
+    void peakQuotesAndStart_data();
+    void peakQuotesAndStart();
+    void peakSnapshotSurvivesSettlement_data();
+    void peakSnapshotSurvivesSettlement();
     void demoDeadlineStopsOnce_data() { backends(); }
     void demoDeadlineStopsOnce();
     void demoDeadlineHandlesDebtAfterRestart_data() { backends(); }
     void demoDeadlineHandlesDebtAfterRestart();
     void realClientTcpOrderFlow();
+    void realClientTcpReservationExpiry();
 };
+
+void OrderFlowTests::reservationDeadline_data()
+{
+    QTest::addColumn<bool>("sqlite");
+    QTest::addColumn<QDateTime>("reservedAt");
+    QTest::addColumn<QDateTime>("now");
+    QTest::addColumn<bool>("expired");
+    QFile file(QString::fromUtf8(CHARGING_RESERVATION_FIXTURE_PATH));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const auto fixture = QJsonDocument::fromJson(file.readAll()).object();
+    QCOMPARE(fixture.value("durationSeconds").toInt(), DemoReservationDurationSeconds);
+    const auto cases = fixture.value("cases").toArray();
+    QVERIFY(!cases.isEmpty());
+    for (bool sqlite : {false, true}) for (const auto &value : cases) {
+        const auto row = value.toObject();
+        QTest::newRow(qPrintable(row.value("name").toString() + (sqlite ? "-sqlite" : "-memory")))
+            << sqlite << QDateTime::fromString(row.value("reservedAt").toString(), Qt::ISODate)
+            << QDateTime::fromString(row.value("now").toString(), Qt::ISODate)
+            << row.value("expired").toBool();
+    }
+}
+
+void OrderFlowTests::reservationDeadline()
+{
+    QFETCH(bool, sqlite);
+    QFETCH(QDateTime, reservedAt);
+    QFETCH(QDateTime, now);
+    QFETCH(bool, expired);
+    Fixture f;
+    f.now = reservedAt;
+    QVERIFY2(f.initialize(sqlite), qPrintable(f.error));
+    const auto reserved = f.call(MessageType::OrderReserve, pileInput());
+    QCOMPARE(reserved.code, ErrorCode::Ok);
+    const auto id = orderId(reserved);
+    const auto userId = orderJson(reserved).value("userId").toInteger();
+    const auto balance = f.repository->findUserById(userId)->balanceCents;
+    f.now = now;
+    auto input = pileInput();
+    input.insert("reservationOrderId", id);
+    // Do not run the timer: order.start must enforce the boundary on its own.
+    const auto started = f.call(MessageType::OrderStart, input);
+    QCOMPARE(started.code, expired ? ErrorCode::IllegalOrderState : ErrorCode::Ok);
+    const auto stored = f.repository->findOrderById(id);
+    QVERIFY(stored);
+    QVERIFY(stored->status == (expired ? OrderStatus::Cancelled : OrderStatus::Charging));
+    QVERIFY(f.getPile().status == (expired ? PileStatus::Idle : PileStatus::Charging));
+    QCOMPARE(f.repository->findUserById(userId)->balanceCents, balance);
+    if (!expired) {
+        QCOMPARE(stored->startedAt.value(), now.toString(Qt::ISODate));
+        QCOMPARE(stored->orderId, id);
+        return;
+    }
+    QVERIFY(!stored->startedAt && !stored->endedAt && !stored->paidAt);
+    QVERIFY(!stored->unitPriceCentsPerKwh);
+    QCOMPARE(stored->energyWh, qint64{0});
+    QCOMPARE(stored->durationSeconds, qint64{0});
+    QCOMPARE(stored->amountCents, qint64{0});
+    QCOMPARE(f.call(MessageType::OrderCancel, orderInput(id)).code, ErrorCode::IllegalOrderState);
+    const auto current = f.call(MessageType::OrderCurrent);
+    QCOMPARE(current.code, ErrorCode::Ok);
+    QVERIFY(current.data.value("order").isNull());
+    const auto history = f.call(MessageType::OrderList);
+    QCOMPARE(history.code, ErrorCode::Ok);
+    QCOMPARE(history.data.value("items").toArray().size(), 1);
+    QCOMPARE(history.data.value("items").toArray().first().toObject().value("status").toString(), "CANCELLED");
+    QCOMPARE(f.service->expireDueReservations(now), 0);
+    // Another user can immediately take the pile; repeating the stale start cannot release it.
+    const auto other = f.login("13900000902");
+    QCOMPARE(f.call(MessageType::OrderReserve, pileInput(), other).code, ErrorCode::Ok);
+    QCOMPARE(f.call(MessageType::OrderStart, input).code, ErrorCode::IllegalOrderState);
+    QCOMPARE(f.call(MessageType::OrderStart, input, other).code, ErrorCode::Forbidden);
+    QVERIFY(f.getPile().status == PileStatus::Reserved);
+}
+
+void OrderFlowTests::reservationExpiryBeforeRequests_data()
+{
+    QTest::addColumn<bool>("sqlite");
+    QTest::addColumn<QString>("type");
+    for (bool sqlite : {false, true})
+        for (const char *type : {MessageType::OrderCurrent, MessageType::OrderList,
+             MessageType::StationList, MessageType::StationDetail, MessageType::OrderReserve,
+             MessageType::OrderStart, MessageType::OrderCancel})
+            QTest::newRow(qPrintable(QString::fromLatin1(type) + (sqlite ? "-sqlite" : "-memory")))
+                << sqlite << QString::fromLatin1(type);
+}
+
+void OrderFlowTests::reservationExpiryBeforeRequests()
+{
+    QFETCH(bool, sqlite);
+    QFETCH(QString, type);
+    Fixture f;
+    QVERIFY2(f.initialize(sqlite), qPrintable(f.error));
+    const auto reserved = f.call(MessageType::OrderReserve, pileInput());
+    QCOMPARE(reserved.code, ErrorCode::Ok);
+    const auto id = orderId(reserved);
+    f.now = f.now.addSecs(DemoReservationDurationSeconds);
+    auto input = pileInput(); input.insert("orderId", id); input.insert("stationId", 1);
+    // Use only the fields belonging to each existing message.
+    if (type.startsWith("order.")) input = type == MessageType::OrderCancel ? orderInput(id)
+        : type == MessageType::OrderReserve || type == MessageType::OrderStart ? pileInput() : QJsonObject{};
+    else input = type == MessageType::StationDetail ? QJsonObject{{"stationId", 1}} : QJsonObject{};
+    const auto result = f.call(qPrintable(type), input);
+    QCOMPARE(result.code, type == MessageType::OrderCancel ? ErrorCode::IllegalOrderState : ErrorCode::Ok);
+    QVERIFY(f.repository->findOrderById(id)->status == OrderStatus::Cancelled);
+    if (type == MessageType::OrderReserve) QVERIFY(f.getPile().status == PileStatus::Reserved);
+    else if (type == MessageType::OrderStart) QVERIFY(f.getPile().status == PileStatus::Charging);
+    else QVERIFY(f.getPile().status == PileStatus::Idle);
+    if (type == MessageType::StationList)
+        QCOMPARE(result.data.value("items").toArray().first().toObject().value("availablePileCount").toInt(), 1);
+    if (type == MessageType::StationDetail)
+        QCOMPARE(result.data.value("piles").toArray().first().toObject().value("status").toString(), "IDLE");
+}
+
+void OrderFlowTests::reservationTimerAndRestart()
+{
+    Fixture f;
+    QVERIFY2(f.initialize(true), qPrintable(f.error));
+    const auto reserved = f.call(MessageType::OrderReserve, pileInput());
+    QCOMPARE(reserved.code, ErrorCode::Ok);
+    const auto id = orderId(reserved);
+    f.service->enableReservationExpiry();
+    f.service->enableReservationExpiry(); // idempotent
+    QCOMPARE(f.call(MessageType::AuthLogout).code, ErrorCode::Ok);
+    f.now = f.now.addSecs(DemoReservationDurationSeconds);
+    // Only repository reads while logged out: no user request triggers this expiry.
+    QTRY_VERIFY(f.repository->findOrderById(id)->status == OrderStatus::Cancelled);
+    QVERIFY(f.getPile().status == PileStatus::Idle);
+    f.token = f.login("13900000901");
+    const auto next = f.call(MessageType::OrderReserve, pileInput());
+    QCOMPARE(next.code, ErrorCode::Ok);
+    const auto nextId = orderId(next);
+    f.router.reset(); f.service.reset(); f.repository.reset();
+    f.now = f.now.addSecs(DemoReservationDurationSeconds + 5);
+    auto storage = std::make_unique<Repository>(QUuid::createUuid().toString());
+    QVERIFY2(storage->open(f.databasePath(), &f.error), qPrintable(f.error));
+    f.repository = std::move(storage);
+    SessionStore noSessions;
+    ApplicationService restarted(f.repository.get(), &noSessions, &f.pile, &f.prediction,
+                                 nullptr, [&f] { return f.now; });
+    QVERIFY(f.repository->findOrderById(nextId)->status == OrderStatus::Reserved);
+    restarted.enableReservationExpiry();
+    QVERIFY(f.repository->findOrderById(nextId)->status == OrderStatus::Cancelled);
+    QVERIFY(f.getPile().status == PileStatus::Idle);
+    QCOMPARE(restarted.expireDueReservations(f.now), 0);
+}
+
+void OrderFlowTests::reservationExpiryRollback_data()
+{
+    QTest::addColumn<bool>("commitFailure");
+    QTest::newRow("order-update") << false;
+    QTest::newRow("commit") << true;
+}
+
+void OrderFlowTests::reservationExpiryRollback()
+{
+    QFETCH(bool, commitFailure);
+    Fixture f;
+    QVERIFY2(f.initialize(true), qPrintable(f.error));
+    const auto reserved = f.call(MessageType::OrderReserve, pileInput());
+    QCOMPARE(reserved.code, ErrorCode::Ok);
+    const QByteArray trigger = commitFailure
+        ? "PRAGMA foreign_keys=ON; CREATE TABLE deferred_failure (user_id INTEGER "
+          "REFERENCES users(user_id) DEFERRABLE INITIALLY DEFERRED); "
+          "CREATE TRIGGER reject_expiry AFTER UPDATE ON charging_orders "
+          "BEGIN INSERT INTO deferred_failure VALUES (999999); END;"
+        : "CREATE TRIGGER reject_expiry BEFORE UPDATE ON charging_orders "
+          "BEGIN SELECT RAISE(ABORT, 'injected expiry failure'); END;";
+    QVERIFY2(f.sql(trigger), qPrintable(f.error));
+    f.now = f.now.addSecs(DemoReservationDurationSeconds);
+    const auto before = f.snapshot();
+    QCOMPARE(f.service->expireDueReservations(f.now), -1);
+    QCOMPARE(f.snapshot(), before); // pile release rolled back along with the order
+    auto input = pileInput(); input.insert("reservationOrderId", orderId(reserved));
+    QCOMPARE(f.call(MessageType::OrderStart, input).code, ErrorCode::InternalError);
+    QCOMPARE(f.snapshot(), before);
+    QVERIFY2(f.sql("DROP TRIGGER reject_expiry;"), qPrintable(f.error));
+    QVERIFY(f.service->expireDueReservations(f.now) >= 1);
+    QVERIFY(f.repository->findOrderById(orderId(reserved))->status == OrderStatus::Cancelled);
+    QVERIFY(f.getPile().status == PileStatus::Idle);
+}
+
+void OrderFlowTests::startedReservationNeverExpires()
+{
+    QFETCH(bool, sqlite);
+    Fixture f;
+    QVERIFY2(f.initialize(sqlite), qPrintable(f.error));
+    const auto reserved = f.call(MessageType::OrderReserve, pileInput());
+    QCOMPARE(reserved.code, ErrorCode::Ok);
+    f.now = f.now.addSecs(DemoReservationDurationSeconds - 1);
+    auto input = pileInput(); input.insert("reservationOrderId", orderId(reserved));
+    QCOMPARE(f.call(MessageType::OrderStart, input).code, ErrorCode::Ok);
+    const auto started = f.repository->findOrderById(orderId(reserved));
+    f.now = f.now.addSecs(60);
+    QVERIFY(f.service->expireDueReservations(f.now) >= 0);
+    QCOMPARE(toJson(*f.repository->findOrderById(orderId(reserved))), toJson(*started));
+    QVERIFY(f.getPile().status == PileStatus::Charging);
+}
 
 void OrderFlowTests::sqliteAdminAccountsAndPasswordUpgrade()
 {
@@ -547,7 +761,8 @@ void OrderFlowTests::sqliteRestartPreservesOrders()
     QVERIFY2(reopened.open(f.databasePath(), &f.error), qPrintable(f.error));
     SessionStore newSessions;
     MockPile realMock;
-    ApplicationService service(&reopened, &newSessions, &realMock, &f.prediction);
+    ApplicationService service(&reopened, &newSessions, &realMock, &f.prediction,
+                                nullptr, [&f] { return f.now; });
     QCOMPARE(service.getCurrentOrder(oldToken).code, ErrorCode::InvalidSession);
     const auto login = service.loginUser({{QStringLiteral("phone"), QStringLiteral("13900000901")}});
     QCOMPARE(login.code, ErrorCode::Ok);
@@ -577,6 +792,14 @@ void OrderFlowTests::mockReadingsNeverRetreat()
 
 void OrderFlowTests::integerBilling()
 {
+    const auto peak = QDateTime::fromString(QStringLiteral("2026-09-08T00:00:00Z"), Qt::ISODate);
+    QCOMPARE(chargingUnitPriceCents(133, peak).value(), qint64{160});
+    QCOMPARE(chargingUnitPriceCents(132, peak).value(), qint64{158});
+    QCOMPARE(chargingUnitPriceCents(1, peak).value(), qint64{1});
+    QVERIFY(!chargingUnitPriceCents(0, peak));
+    QVERIFY(!chargingUnitPriceCents(-1, peak));
+    QVERIFY(!chargingUnitPriceCents(135, QDateTime()));
+    QVERIFY(!chargingUnitPriceCents(std::numeric_limits<qint64>::max(), peak));
     QCOMPARE(orderAmountCents(2500, 135).value(), qint64{338});
     QCOMPARE(orderAmountCents(5000, 135).value(), qint64{675});
     QCOMPARE(orderAmountCents(0, 135).value(), qint64{0});
@@ -585,7 +808,7 @@ void OrderFlowTests::integerBilling()
     QVERIFY(!orderAmountCents(std::numeric_limits<qint64>::max(), 135).has_value());
 }
 
-void OrderFlowTests::realClientTcpOrderFlow()
+void OrderFlowTests::realClientTcpReservationExpiry()
 {
     Fixture f;
     QVERIFY2(f.initialize(true), qPrintable(f.error));
@@ -593,6 +816,49 @@ void OrderFlowTests::realClientTcpOrderFlow()
     QVERIFY2(gateway.start(0, QHostAddress::LocalHost, &f.error), qPrintable(f.error));
     client::TcpChargingApi api(QStringLiteral("127.0.0.1"), gateway.serverPort());
     QSignalSpy login(&api, &client::IChargingApi::loginCompleted);
+    QSignalSpy reserve(&api, &client::IChargingApi::reservationCompleted);
+    QSignalSpy start(&api, &client::IChargingApi::chargingStartCompleted);
+    QSignalSpy current(&api, &client::IChargingApi::currentOrderCompleted);
+    QSignalSpy history(&api, &client::IChargingApi::orderListCompleted);
+    (void)api.loginUser("13900000907"); QTRY_COMPARE(login.count(), 1);
+    QVERIFY(qvariant_cast<client::LoginResult>(login.first().first()).ok());
+    (void)api.reserve("PILE-A-01"); QTRY_COMPARE(reserve.count(), 1);
+    const auto reserved = qvariant_cast<client::OrderResult>(reserve.first().first());
+    QVERIFY(reserved.ok() && reserved.payload);
+    const auto id = reserved.payload->order.orderId;
+    const auto count = f.repository->listOrders().size();
+    f.now = f.now.addSecs(DemoReservationDurationSeconds);
+    (void)api.startCharging("PILE-A-01", id); QTRY_COMPARE(start.count(), 1);
+    const auto refused = qvariant_cast<client::OrderResult>(start.first().first());
+    QCOMPARE(refused.response.code, ErrorCode::IllegalOrderState);
+    QVERIFY(!refused.payload);
+    QCOMPARE(f.repository->listOrders().size(), count);
+    QVERIFY(f.getPile().status == PileStatus::Idle);
+    (void)api.getCurrentOrder(); QTRY_COMPARE(current.count(), 1);
+    const auto empty = qvariant_cast<client::CurrentOrderResult>(current.first().first());
+    QVERIFY(empty.ok() && empty.payload && !empty.payload->order);
+    (void)api.listOrders(); QTRY_COMPARE(history.count(), 1);
+    const auto listed = qvariant_cast<client::OrderListResult>(history.first().first());
+    QVERIFY(listed.ok() && listed.payload);
+    QCOMPARE(listed.payload->items.size(), 1);
+    const auto order = listed.payload->items.first();
+    QCOMPARE(order.orderId, id);
+    QVERIFY(order.status == OrderStatus::Cancelled);
+    QCOMPARE(order.reservedAt, reserved.payload->order.reservedAt);
+    QVERIFY(!order.startedAt && !order.endedAt && !order.paidAt);
+    QCOMPARE(order.amountCents, qint64{0});
+}
+
+void OrderFlowTests::realClientTcpOrderFlow()
+{
+    Fixture f;
+    QVERIFY2(f.initialize(true), qPrintable(f.error));
+    f.now = QDateTime::fromString(QStringLiteral("2026-09-08T02:59:00Z"), Qt::ISODate);
+    TcpGateway gateway(f.router.get());
+    QVERIFY2(gateway.start(0, QHostAddress::LocalHost, &f.error), qPrintable(f.error));
+    client::TcpChargingApi api(QStringLiteral("127.0.0.1"), gateway.serverPort());
+    QSignalSpy login(&api, &client::IChargingApi::loginCompleted);
+    QSignalSpy quote(&api, &client::IChargingApi::stationDetailCompleted);
     QSignalSpy current(&api, &client::IChargingApi::currentOrderCompleted);
     QSignalSpy reserve(&api, &client::IChargingApi::reservationCompleted);
     QSignalSpy cancel(&api, &client::IChargingApi::cancellationCompleted);
@@ -608,6 +874,12 @@ void OrderFlowTests::realClientTcpOrderFlow()
     const auto loggedIn = qvariant_cast<client::LoginResult>(login.takeFirst().at(0));
     QVERIFY(loggedIn.ok() && loggedIn.payload.has_value());
     QCOMPARE(loggedIn.response.requestId, loginRequest);
+    QVERIFY(!api.getStation(1).isEmpty());
+    QTRY_COMPARE(quote.size(), 1);
+    const auto quoted = qvariant_cast<client::StationDetailResult>(quote.first().first());
+    QVERIFY(quoted.ok() && quoted.payload);
+    QCOMPARE(quoted.payload->station.priceCentsPerKwh, qint64{162});
+    QCOMPARE(quoted.payload->station.pricingRule, QString::fromLatin1(DemoPeakPricingRule));
     QVERIFY(!api.getCurrentOrder().isEmpty());
     QTRY_COMPARE(current.size(), 1);
     const auto empty = qvariant_cast<client::CurrentOrderResult>(current.takeFirst().at(0));
@@ -627,18 +899,20 @@ void OrderFlowTests::realClientTcpOrderFlow()
     QVERIFY(!api.startCharging(QStringLiteral("PILE-A-01"), id).isEmpty());
     QTRY_COMPARE(start.size(), 1);
     QVERIFY(qvariant_cast<client::OrderResult>(start.takeFirst().at(0)).ok());
+    f.now = f.now.addSecs(1800); // settle after the morning peak ends
     f.pile.reading = {1800, 5000};
     QVERIFY(!api.getChargingProgress(id).isEmpty());
     QTRY_COMPARE(progress.size(), 1);
     const auto measured = qvariant_cast<client::ChargingProgressResult>(progress.takeFirst().at(0));
     QVERIFY(measured.ok() && measured.payload.has_value());
-    QCOMPARE(measured.payload->order.amountCents, qint64{675});
+    QCOMPARE(measured.payload->order.unitPriceCentsPerKwh.value(), qint64{162});
+    QCOMPARE(measured.payload->order.amountCents, qint64{810});
     QVERIFY(!api.stopCharging(id).isEmpty());
     QTRY_COMPARE(stop.size(), 1);
     const auto stopped = qvariant_cast<client::ChargingStopResult>(stop.takeFirst().at(0));
     QVERIFY(stopped.ok() && stopped.payload.has_value());
     QVERIFY(!stopped.payload->paid);
-    QCOMPARE(stopped.payload->shortfallCents.value(), qint64{675});
+    QCOMPARE(stopped.payload->shortfallCents.value(), qint64{810});
     QVERIFY(!api.payOrder(id).isEmpty());
     QTRY_COMPARE(pay.size(), 1);
     QCOMPARE(qvariant_cast<client::PaymentResult>(pay.takeFirst().at(0)).response.code,
@@ -650,7 +924,7 @@ void OrderFlowTests::realClientTcpOrderFlow()
     QTRY_COMPARE(pay.size(), 1);
     const auto paid = qvariant_cast<client::PaymentResult>(pay.takeFirst().at(0));
     QVERIFY(paid.ok() && paid.payload.has_value());
-    QCOMPARE(paid.payload->balanceCents, qint64{325});
+    QCOMPARE(paid.payload->balanceCents, qint64{190});
     QVERIFY(!api.listOrders().isEmpty());
     QTRY_COMPARE(list.size(), 1);
     const auto history = qvariant_cast<client::OrderListResult>(list.takeFirst().at(0));
@@ -664,8 +938,10 @@ void OrderFlowTests::demoDeadlineStopsOnce()
 {
     QFETCH(bool, sqlite);
     Fixture f; QVERIFY2(f.initialize(sqlite), qPrintable(f.error));
+    f.now = QDateTime::fromString(QStringLiteral("2026-09-08T02:59:00Z"), Qt::ISODate);
     MockPile physical;
-    ApplicationService service(f.repository.get(), &f.sessions, &physical, &f.prediction);
+    ApplicationService service(f.repository.get(), &f.sessions, &physical, &f.prediction,
+                                nullptr, [&f] { return f.now; });
     service.enableDemoAutomaticStop();
     service.completeDueDemoCharges(QDateTime::currentDateTimeUtc()); // finish seed sessions
     QCOMPARE(f.call(MessageType::WalletRecharge, {{QStringLiteral("amountCents"), 1000}}).code, ErrorCode::Ok);
@@ -678,6 +954,8 @@ void OrderFlowTests::demoDeadlineStopsOnce()
     const auto stopped=f.repository->findOrderById(order.orderId);
     QVERIFY(stopped); QCOMPARE(stopped->durationSeconds,qint64(DemoChargingDurationSeconds));
     QCOMPARE(stopped->energyWh,qint64(DemoChargingDurationSeconds*2));
+    QCOMPARE(stopped->unitPriceCentsPerKwh.value(), qint64{162});
+    QCOMPARE(stopped->amountCents, qint64{58});
     QVERIFY(stopped->status == OrderStatus::Completed);
     QVERIFY(f.getPile().status == PileStatus::Idle);
     const auto balance=f.repository->findUserById(order.userId)->balanceCents;
@@ -689,6 +967,7 @@ void OrderFlowTests::demoDeadlineHandlesDebtAfterRestart()
 {
     QFETCH(bool, sqlite);
     Fixture f; QVERIFY2(f.initialize(sqlite), qPrintable(f.error));
+    f.now = QDateTime::fromString(QStringLiteral("2026-09-08T12:59:00Z"), Qt::ISODate);
     f.service->enableDemoAutomaticStop();
     f.service->completeDueDemoCharges(QDateTime::currentDateTimeUtc());
     const QString token=f.login(QStringLiteral("13912345678"));
@@ -703,10 +982,166 @@ void OrderFlowTests::demoDeadlineHandlesDebtAfterRestart()
     const auto now=QDateTime::fromString(*order.startedAt,Qt::ISODate).addSecs(DemoChargingDurationSeconds+10);
     QCOMPARE(restarted.completeDueDemoCharges(now),1);
     const auto ended=f.repository->findOrderById(order.orderId);QVERIFY(ended);
+    QCOMPARE(ended->unitPriceCentsPerKwh.value(), qint64{162});
+    QCOMPARE(ended->amountCents, qint64{58});
     QVERIFY(ended->status == OrderStatus::PendingPayment);
     QVERIFY(f.getPile().status == PileStatus::Idle);
     QCOMPARE(f.repository->findUserById(order.userId)->balanceCents,qint64(0));
     QCOMPARE(restarted.completeDueDemoCharges(now),0);
+}
+
+void OrderFlowTests::peakQuotesAndStart_data()
+{
+    QTest::addColumn<bool>("sqlite");
+    QTest::addColumn<QDateTime>("now");
+    QTest::addColumn<qint64>("price135");
+    QTest::addColumn<qint64>("price120");
+    QFile file(QString::fromUtf8(CHARGING_PEAK_FIXTURE_PATH));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const auto cases = QJsonDocument::fromJson(file.readAll()).object().value("cases").toArray();
+    QVERIFY(!cases.isEmpty());
+    for (bool sqlite : {false, true}) {
+        for (const auto &value : cases) {
+            const auto row = value.toObject();
+            const auto name = row.value("name").toString() + (sqlite ? "-sqlite" : "-memory");
+            QTest::newRow(qPrintable(name)) << sqlite
+                << QDateTime::fromString(row.value("now").toString(), Qt::ISODate)
+                << row.value("price135").toInteger() << row.value("price120").toInteger();
+        }
+    }
+}
+
+void OrderFlowTests::peakQuotesAndStart()
+{
+    QFETCH(bool, sqlite);
+    QFETCH(QDateTime, now);
+    QFETCH(qint64, price135);
+    QFETCH(qint64, price120);
+    Fixture f;
+    f.now = now;
+    QVERIFY2(f.initialize(sqlite), qPrintable(f.error));
+    const auto listed = f.call(MessageType::StationList);
+    QCOMPARE(listed.code, ErrorCode::Ok);
+    const auto items = listed.data.value("items").toArray();
+    QCOMPARE(items.size(), sqlite ? 2 : 3);
+    for (const auto &item : items) {
+        const auto station = item.toObject();
+        const qint64 id = station.value("stationId").toInteger();
+        // The admin in-memory substitute has a third station and a different
+        // station 2 base price (128); don't rewrite those fixtures for pricing.
+        const auto stored = f.repository->findStationById(id);
+        QVERIFY(stored);
+        const qint64 basePrice = stored->priceCentsPerKwh;
+        const qint64 expected = basePrice == 135 ? price135 : basePrice == 120 ? price120
+            : (price135 == 162 ? qint64{154} : qint64{128});
+        QCOMPARE(station.value("priceCentsPerKwh").toInteger(), expected);
+        QCOMPARE(station.value("pricingRule").toString(), QString::fromLatin1(DemoPeakPricingRule));
+        const auto detail = f.call(MessageType::StationDetail, {{"stationId", id}});
+        QCOMPARE(detail.code, ErrorCode::Ok);
+        QCOMPARE(detail.data.value("station").toObject().value("priceCentsPerKwh").toInteger(), expected);
+        QCOMPARE(f.repository->findStationById(id)->priceCentsPerKwh, basePrice);
+        QVERIFY(stored->pricingRule.isEmpty());
+        const auto admin = f.service->listAdminStations(1, {}, {});
+        QCOMPARE(admin.code, ErrorCode::Ok);
+        for (const auto &adminItem : admin.data.value("items").toArray()) {
+            const auto adminStation = adminItem.toObject();
+            if (adminStation.value("stationId").toInteger() != id) continue;
+            QCOMPARE(adminStation.value("priceCentsPerKwh").toInteger(), stored->priceCentsPerKwh);
+            QVERIFY(!adminStation.contains("pricingRule"));
+        }
+        // FAST and SLOW piles use the same multiplier, never a pile-type tariff.
+        const auto code = id == 1 ? "PILE-A-01" : id == 3 ? "PILE-C-01" : "PILE-B-02";
+        if (!sqlite && id == 2) {
+            // Enable the initially faulted slow pile in this isolated test only.
+            auto pile = f.getPile(code);
+            pile.status = PileStatus::Idle;
+            QVERIFY(f.repository->updatePile(pile));
+        }
+        const auto started = f.call(MessageType::OrderStart, pileInput(code));
+        QCOMPARE(started.code, ErrorCode::Ok);
+        QCOMPARE(orderJson(started).value("unitPriceCentsPerKwh").toInteger(), expected);
+        QCOMPARE(orderJson(started).value("startedAt").toString(), now.toUTC().toString(Qt::ISODate));
+        QCOMPARE(f.call(MessageType::OrderStop, orderInput(orderId(started))).code, ErrorCode::Ok);
+    }
+}
+
+void OrderFlowTests::peakSnapshotSurvivesSettlement_data()
+{
+    QTest::addColumn<bool>("sqlite");
+    QTest::addColumn<QString>("startTime");
+    QTest::addColumn<qint64>("expectedPrice");
+    for (bool sqlite : {false, true}) {
+        const QString suffix = sqlite ? "-sqlite" : "-memory";
+        QTest::newRow(qPrintable("normal-to-peak" + suffix))
+            << sqlite << QStringLiteral("2026-09-07T23:59:00Z") << qint64{135};
+        QTest::newRow(qPrintable("peak-to-normal" + suffix))
+            << sqlite << QStringLiteral("2026-09-08T02:59:00Z") << qint64{162};
+        QTest::newRow(qPrintable("reserve-normal-start-peak" + suffix))
+            << sqlite << QStringLiteral("2026-09-08T00:00:00Z") << qint64{162};
+        QTest::newRow(qPrintable("reserve-peak-start-normal" + suffix))
+            << sqlite << QStringLiteral("2026-09-08T03:00:00Z") << qint64{135};
+    }
+}
+
+void OrderFlowTests::peakSnapshotSurvivesSettlement()
+{
+    QFETCH(bool, sqlite);
+    QFETCH(QString, startTime);
+    QFETCH(qint64, expectedPrice);
+    Fixture f;
+    QVERIFY2(f.initialize(sqlite), qPrintable(f.error));
+    const auto startedAt = QDateTime::fromString(startTime, Qt::ISODate);
+    f.now = startedAt.addSecs(-60);
+    const auto reserved = f.call(MessageType::OrderReserve, pileInput());
+    QCOMPARE(reserved.code, ErrorCode::Ok);
+    QVERIFY(orderJson(reserved).value("unitPriceCentsPerKwh").isNull());
+    auto input = pileInput();
+    input.insert("reservationOrderId", orderId(reserved));
+    f.now = startedAt;
+    const auto started = f.call(MessageType::OrderStart, input);
+    QCOMPARE(started.code, ErrorCode::Ok);
+    const auto id = orderId(started);
+    QCOMPARE(orderJson(started).value("unitPriceCentsPerKwh").toInteger(), expectedPrice);
+    f.now = startedAt.addSecs(120);
+    f.pile.reading = {120, 1000};
+    auto station = f.repository->findStationById(1);
+    station->priceCentsPerKwh = 999;
+    QVERIFY(f.repository->updateStation(*station));
+    const auto progress = f.call(MessageType::OrderProgress, orderInput(id));
+    QCOMPARE(progress.code, ErrorCode::Ok);
+    QCOMPARE(orderJson(progress).value("amountCents").toInteger(), expectedPrice);
+    const auto stopped = f.call(MessageType::OrderStop, orderInput(id));
+    QCOMPARE(stopped.code, ErrorCode::Ok);
+    QCOMPARE(orderJson(stopped).value("status").toString(), QStringLiteral("PENDING_PAYMENT"));
+    QCOMPARE(orderJson(stopped).value("unitPriceCentsPerKwh").toInteger(), expectedPrice);
+    QCOMPARE(orderJson(stopped).value("amountCents").toInteger(), expectedPrice);
+    QVERIFY(f.getPile().status == PileStatus::Idle);
+    QCOMPARE(f.call(MessageType::OrderPay, orderInput(id)).code, ErrorCode::InsufficientBalance);
+
+    // Reopen SQLite before paying on another day; only the persisted snapshot matters.
+    f.router.reset();
+    f.service.reset();
+    if (sqlite) {
+        f.repository.reset();
+        auto reopened = std::make_unique<Repository>(QUuid::createUuid().toString());
+        QVERIFY2(reopened->open(f.databasePath(), &f.error), qPrintable(f.error));
+        f.repository = std::move(reopened);
+    }
+    SessionStore restartedSessions;
+    f.service = std::make_unique<ApplicationService>(f.repository.get(), &restartedSessions,
+        &f.pile, &f.prediction, nullptr, [&f] { return f.now; });
+    f.router = std::make_unique<RequestRouter>(f.service.get());
+    f.now = startedAt.addDays(1).addSecs(3600);
+    f.token = f.login(QStringLiteral("13900000901"));
+    QCOMPARE(f.call(MessageType::WalletRecharge, {{"amountCents", 1000}}).code, ErrorCode::Ok);
+    const auto paid = f.call(MessageType::OrderPay, orderInput(id));
+    QCOMPARE(paid.code, ErrorCode::Ok);
+    QCOMPARE(orderJson(paid).value("unitPriceCentsPerKwh").toInteger(), expectedPrice);
+    QCOMPARE(orderJson(paid).value("amountCents").toInteger(), expectedPrice);
+    QCOMPARE(paid.data.value("balanceCents").toInteger(), 1000 - expectedPrice);
+    const auto snapshot = f.snapshot();
+    QCOMPARE(f.call(MessageType::OrderPay, orderInput(id)).code, ErrorCode::IllegalOrderState);
+    QCOMPARE(f.snapshot(), snapshot);
 }
 
 QTEST_GUILESS_MAIN(OrderFlowTests)

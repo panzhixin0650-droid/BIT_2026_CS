@@ -7,7 +7,7 @@
 | 操作 | 订单变化 | 桩变化 | 余额 |
 | --- | --- | --- | --- |
 | 预约 | 新建 `RESERVED` | `IDLE → RESERVED` | 不变 |
-| 取消 | `RESERVED → CANCELLED` | `RESERVED → IDLE` | 不变 |
+| 手动取消 / 30 分钟未开始自动取消 | `RESERVED → CANCELLED` | `RESERVED → IDLE` | 不变 |
 | 预约开始 | 原单 `RESERVED → CHARGING` | `RESERVED → CHARGING` | 不变 |
 | 直接开始 | 新建 `CHARGING` | `IDLE → CHARGING` | 不变 |
 | 停止，余额够 | `CHARGING → COMPLETED` | `CHARGING → IDLE` | 扣完整金额 |
@@ -18,9 +18,17 @@
 
 ## 计费和事务
 
+- 预约保留 `reservedAt + 1800 秒`，含截止点即失效；启动和每秒独立回收，客户端关闭
+  不影响。订单/站点读取与预约/开始/取消前同步检查，到期取消事务独立提交，避免随后
+  拒绝启动时把取消回滚。到期旧 ID 返回 `40903`，不改成直接充电；已开始订单不受影响。
+  继续使用 `CANCELLED`，不填写结束/支付时间、不产生费用或违约，不区分取消原因。
+
 - `ApplicationService` 的订单逻辑集中在 `src/application/order_service.cpp`。`RepositoryTransaction` 负责在提前返回或提交失败时回滚；SQL 只出现在 Repository 中。
 - 所有订单写路径使用同一 SQLite `BEGIN IMMEDIATE` 事务，涵盖检查、订单写入、占用/释放桩和余额更新。`updateOrder` 还检查预期旧状态；现有唯一索引保留最后一道一致性检查。
-- `order.start` 冻结站点单价；预约阶段没有价格快照。开始后的站点调价不影响本单。
+- `order.start` 按北京时间开始时刻冻结单价；预约阶段没有价格快照。
+  每天 `[08:00,11:00)`、`[18:00,21:00)` 为 Demo 高峰，基础价 ×1.2，其他时段原价。
+  单价先按整数分四舍五入；开始后的跨时段、站点调价、重启和补付均不影响本单。
+  规则见 [ADR-0016](../docs/decisions/0016-demo-peak-pricing.md)，无数据库迁移。
 - `order_billing.h` 使用整数公式 `(energyWh * unitPriceCentsPerKwh + 500) / 1000`，并检查乘法溢出。`stop` 保存最终金额，`pay` 使用该金额，不重新计价。
 - `IPileGateway` 只定义开始、读取、停止和重启；当前唯一运行实现是 `MockPile`。沿用 7.2 kW 固定演示曲线，每真实经过 1 秒增加 2 Wh，不按请求次数加电量。Mock 在同一充电过程中保持读数不倒退。
 - 充电中的 DTO 在当前订单、历史列表、进度和管理员列表返回前读取 Mock；轮询不逐次写库。停止后将读数保存到订单，桩累计充电次数/时长随订单聚合更新。
@@ -60,4 +68,7 @@ ctest --test-dir build/server --output-on-failure
 
 `charging_order_flow_tests` 覆盖两个 Repository 的正常/待支付闭环、归属、冻结、状态保护、价格快照、整数舍入、只读进度、账单不重复扣款，以及 SQLite 的插入/更新/提交失败回滚、重新打开数据库和真实客户端 TCP 适配器对接。
 
-未来的预约到期与违约、复杂计价、故障报修、钱包流水/退款候选见 [订单扩展说明](../docs/extension/order-evolution.md)。这些不是本次 Demo 的前置条件。
+预约边界、离线定时回收、SQLite 重启补处理、重复回收、更新/提交失败回滚，以及
+已经开始不受影响，均通过注入时钟验证，不等待 30 分钟。
+
+未来的可配置预约策略与违约、复杂计价、故障报修、钱包流水/退款候选见 [订单扩展说明](../docs/extension/order-evolution.md)。这些不是本次 Demo 的前置条件。

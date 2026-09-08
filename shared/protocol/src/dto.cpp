@@ -378,7 +378,7 @@ QJsonObject toJson(const UserDto &dto)
 
 QJsonObject toJson(const StationDto &dto)
 {
-    return {
+    QJsonObject json{
         {QStringLiteral("stationId"), jsonInteger(dto.stationId)},
         {QStringLiteral("name"), dto.name},
         {QStringLiteral("region"), dto.region},
@@ -396,6 +396,10 @@ QJsonObject toJson(const StationDto &dto)
              ? QJsonValue(toString(*dto.predictedCongestion)) : QJsonValue(QJsonValue::Null)},
         {QStringLiteral("recommended"), dto.recommended},
     };
+    if (!dto.pricingRule.isEmpty()) {
+        json.insert(QStringLiteral("pricingRule"), dto.pricingRule);
+    }
+    return json;
 }
 
 QJsonObject toJson(const PileDto &dto)
@@ -474,7 +478,9 @@ bool fromJson(const QJsonObject &json, StationDto *dto, QString *error)
         || !readDouble(json, "onlineRatePercent", &parsed.onlineRatePercent, error)
         || !readNullableDouble(json, "distanceKm", &parsed.distanceKm, error)
         || !readNullableCongestion(json, "predictedCongestion", &parsed.predictedCongestion, error)
-        || !readBool(json, "recommended", &parsed.recommended, error)) {
+        || !readBool(json, "recommended", &parsed.recommended, error)
+        || (json.contains(QStringLiteral("pricingRule"))
+            && !readString(json, "pricingRule", &parsed.pricingRule, error))) {
         return false;
     }
     *dto = parsed;

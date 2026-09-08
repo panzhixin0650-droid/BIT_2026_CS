@@ -4,6 +4,7 @@
 #include "charging/protocol/protocol_constants.h"
 #include "ui/api_error_message.h"
 #include "ui/station_browser_page.h"
+#include "ui/reservation_hint.h"
 
 #include <QAbstractButton>
 #include <QMessageBox>
@@ -292,8 +293,9 @@ void StationBrowserController::handleReservation(const OrderResult &result)
 
     QMessageBox confirmation(QMessageBox::Information,
                              QStringLiteral("预约成功"),
-                             QStringLiteral("已成功预约充电桩 %1。")
-                                 .arg(result.payload->order.pileCode),
+                             QStringLiteral("已成功预约充电桩 %1。\n%2")
+                                 .arg(result.payload->order.pileCode,
+                                      reservationHint(result.payload->order)),
                              QMessageBox::Ok,
                              &page_);
     confirmation.setObjectName(QStringLiteral("reservationSuccessDialog"));

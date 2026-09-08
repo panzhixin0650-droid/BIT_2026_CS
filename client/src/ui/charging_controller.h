@@ -18,6 +18,7 @@ signals:
     void orderChanged(const charging::protocol::OrderDto &order);
     void sessionStarted();
     void sessionFinished();
+    void reservationReleased();
 private:
     enum class Action {None, Refresh, StartCheck, Start, Stop, History};
     void begin(const QString &pileCode);
@@ -26,11 +27,18 @@ private:
     void apply(const protocol::OrderDto &order);
     bool accept(const ApiResponse &response,const char *type);
     void finish();
+    void requestQuote();
+    void requestNextStation();
+    void clearQuoteRequest();
+    bool acceptQuote(const ApiResponse &response);
     ChargingPage &page_;
     IChargingApi &api_;
     QTimer *timer_;
     Action action_=Action::None;
     QString requestId_,candidate_;
+    QString quoteRequestId_;
+    QList<qint64> quoteStations_;
+    std::optional<protocol::StationDto> quote_;
     std::optional<protocol::OrderDto> order_;
     bool active_=false;
 };

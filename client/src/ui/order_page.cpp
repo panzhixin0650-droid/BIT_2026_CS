@@ -1,4 +1,5 @@
 #include "ui/order_page.h"
+#include "ui/reservation_hint.h"
 
 #include "ui/charging_stop_dialog.h"
 
@@ -543,6 +544,9 @@ void OrderPage::showOrderDetail(qint64 orderId)
         appendDetail(QStringLiteral("预约时间"),
                      formatDateTime(*order.reservedAt));
     }
+    if (order.status == protocol::OrderStatus::Reserved) {
+        appendDetail(QStringLiteral("赴约提示"), reservationHint(order));
+    }
     if (order.startedAt.has_value()) {
         appendDetail(QStringLiteral("开始时间"),
                      formatDateTime(*order.startedAt));
@@ -563,7 +567,7 @@ void OrderPage::showOrderDetail(qint64 orderId)
                          order.energyWh / 1000.0, 0, 'f', 2));
     }
     if (order.unitPriceCentsPerKwh.has_value()) {
-        appendDetail(QStringLiteral("订单单价"),
+        appendDetail(QStringLiteral("锁定单价"),
                      QStringLiteral("%1/度").arg(
                          formatMoney(*order.unitPriceCentsPerKwh)));
     }
