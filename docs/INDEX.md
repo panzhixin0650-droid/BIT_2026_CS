@@ -53,3 +53,9 @@
 - 基线发生兼容性增加时，在现有契约中更新并补 fixture。
 - 破坏性网络变更新建 V2 契约；数据库结构变化增加编号迁移文件。
 - 数据库开始实现后，编号迁移 SQL 是结构事实源；网络语义始终以当前接口契约为准。文档与实现冲突时应在同一变更中修正。
+
+地图首页、可拖动信息面板、独立搜索和用户历史：[ADR-0013](decisions/0013-client-map-discovery.md)。
+
+悦充顶栏、个人资料、客服/报修/工单入口拆分：[ADR-0014](decisions/0014-client-shell-profile-support.md)。
+
+当前位置、可用电站范围和单站推荐算法：[ADR-0015](decisions/0015-client-location-recommendation.md)。

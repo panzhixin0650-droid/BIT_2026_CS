@@ -98,8 +98,9 @@ QrScanDialog::QrScanDialog(Source source, QWidget *parent, bool immersive)
     cancel->setObjectName(QStringLiteral("qrCancelButton"));
     layout->addWidget(cancel);
     if (immersive_) {
-        setWindowFlags(Qt::Dialog | Qt::FramelessWindowHint);
-        if (parent) setGeometry(QRect(parent->window()->mapToGlobal(QPoint(0,0)), parent->window()->size()));
+        setWindowFlags(parent ? Qt::Widget : Qt::Dialog | Qt::FramelessWindowHint);
+        setModal(false);
+        if (parent) setGeometry(parent->rect());
         setStyleSheet(QStringLiteral(R"QSS(
             #qrScanDialog { background:#183f34; }
             #qrScanDialog QLabel { background:transparent; border:none; }

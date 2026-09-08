@@ -53,6 +53,7 @@ private:
     StationBrowserPage &page_;
     IChargingApi &api_;
     QString pendingListRequestId_;
+    QString pendingHistoryRequestId_;
     QString pendingDetailRequestId_;
     QString pendingNavigationRequestId_;
     QString pendingCurrentOrderRequestId_;

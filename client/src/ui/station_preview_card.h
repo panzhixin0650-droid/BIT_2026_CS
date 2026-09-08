@@ -22,6 +22,7 @@ signals:
 private:
     protocol::StationDto station_;
     QLabel *name_;
+    QLabel *address_;
     QLabel *metrics_;
     QLabel *prediction_;
 };

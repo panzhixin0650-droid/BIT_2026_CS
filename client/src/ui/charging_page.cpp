@@ -100,9 +100,6 @@ ChargingPage::ChargingPage(QWidget *parent) : QWidget(parent)
     layout->setContentsMargins(20, 24, 20, 24);
     layout->setSpacing(14);
 
-    auto *eyebrow = new QLabel(QStringLiteral("YOUR EVERYDAY ENERGY"), body);
-    eyebrow->setProperty("role", "eyebrow");
-    layout->addWidget(eyebrow);
     auto *title = new QLabel(QStringLiteral("充电"), body);
     auto titleFont = title->font();
     titleFont.setPointSize(24);

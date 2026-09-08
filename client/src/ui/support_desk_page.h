@@ -25,10 +25,14 @@ public:
                       QWidget *parent = nullptr);
     void openDesk(const QList<AssistantTurn> &history = {});
     void openRepair(const QString &pileCode);
+    void openTickets();
+    void refreshCurrentPage();
+    void confirmSubmission(const protocol::SupportTicketDto &ticket);
     void resetSession();
 signals:
     void backRequested();
     void invalidSession(const QString &message);
+    void ticketObserved(const protocol::SupportTicketDto &ticket);
 protected:
     void hideEvent(QHideEvent *event) override;
 private:
@@ -62,6 +66,8 @@ private:
     QLineEdit *repairPile_;
     QComboBox *faultType_;
     bool repairDraft_ = false;
+    enum class Section { Conversation, Repair, Tickets };
+    Section section_ = Section::Conversation;
     QPlainTextEdit *summary_;
     QLabel *draftNotice_;
     QPushButton *submit_;

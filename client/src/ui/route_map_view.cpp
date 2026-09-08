@@ -203,6 +203,9 @@ void RouteMapView::initialize(const QUrl &scriptUrl, bool reportFailure)
         tileTimeout_.stop();
         emit baseMapReadyChanged(true);
     });
+    connect(bridge, &MapEventBridge::interacted, this, [this, source] {
+        if (source && source == view_ && stationMode_ && initialized_) emit interactionStarted();
+    });
     connect(bridge, &MapEventBridge::stationClicked, this, [this, source](const QString &id) {
         if (source && source == view_ && stationMode_ && initialized_) emit stationSelected(id);
     });

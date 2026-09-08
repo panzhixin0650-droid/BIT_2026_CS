@@ -32,6 +32,15 @@ QPixmap navigationPixmap(NavigationIcon icon,
     painter.setBrush(Qt::NoBrush);
 
     switch (icon) {
+    case NavigationIcon::Location:
+        painter.drawEllipse(QRectF(16, 16, 32, 32));
+        painter.drawLine(QPointF(32, 7), QPointF(32, 18));
+        painter.drawLine(QPointF(32, 46), QPointF(32, 57));
+        painter.drawLine(QPointF(7, 32), QPointF(18, 32));
+        painter.drawLine(QPointF(46, 32), QPointF(57, 32));
+        painter.setBrush(strokeColor);
+        painter.drawEllipse(QRectF(26, 26, 12, 12));
+        break;
     case NavigationIcon::Charging: {
         QPainterPath bolt;
         bolt.moveTo(35, 5);
@@ -149,6 +158,19 @@ QFrame[role="mapCard"] {
     border-radius: 18px;
 }
 QFrame[role="mapCard"] QLabel { background: transparent; border: none; }
+QFrame#stationHomeOverlay { background: #fffefa; border: 1px solid #dce5d7; border-radius: 24px; }
+QPushButton#stationSheetHandle { background: transparent; border: none; color: #a5b5a8; min-height: 0; padding: 0; }
+QPushButton#stationSearchEntry { background: #edf2e9; border: none; border-radius: 16px; text-align: left; padding: 0 14px; font-size: 14px; color: #506a58; }
+QWidget#stationSheetPages, QScrollArea#stationDiscoveryScroll { background: transparent; border: none; }
+QPushButton[role="discoveryStation"] { background: #f3f6ef; border: 1px solid #e3e9dc; border-radius: 16px; padding: 0; }
+QPushButton[role="discoveryStation"]:hover { background: #e8f0e1; border-color: #a2b79b; }
+QPushButton[role="discoveryStation"] QLabel { background: transparent; border: none; }
+QLabel[role="discoveryHeading"] { font-size: 15px; font-weight: 700; color: #244d3b; padding-top: 10px; }
+QLabel[role="stationTitle"] { font-size: 14px; font-weight: 600; color: #244d3b; }
+QLabel#stationDetailName { font-size: 18px; font-weight: 700; }
+QLabel#stationDetailMeta { font-size: 13px; }
+QLabel#stationDetailPrice { font-size: 14px; }
+QLabel[role="discoveryHint"] { font-size: 12px; color: #65796c; }
 QLabel#stationHomeBrand { font-size: 12px; font-weight: 700; color: #245c45; }
 QLabel#stationSearchIcon { font-size: 23px; color: #65796c; }
 QLabel#welcomeLabel, QLabel#stationLocationCaption, QLabel#stationResultCount {
@@ -158,24 +180,35 @@ QLabel#stationMapMode { font-size: 10px; color: #65796c; }
 QLabel#stationMapStatus { background: #fffefa; border-radius: 16px; padding: 12px; }
 QLineEdit#stationKeywordInput { min-height: 34px; padding: 0 6px; border: none; background: transparent; font-size: 12px; }
 QLineEdit#stationKeywordInput:focus { border: 1px solid #91ab92; border-radius: 10px; }
-QPushButton#stationRefreshButton, QPushButton#stationFilterToggle {
+QPushButton#stationRefreshButton, QPushButton#stationLocationEntry {
     min-height: 34px; padding: 0; font-size: 11px; border-radius: 10px;
 }
-QPushButton#stationFilterToggle:checked { background: #e3eedb; border-color: #91ab92; }
-QScrollArea#stationFilterScrollArea, QWidget#stationAdvancedFilters {
+QPushButton#stationLocationEntry, QPushButton#stationHomeLocationButton {
+    min-width: 44px; max-width: 44px; min-height: 44px; max-height: 44px; padding: 0;
+}
+QScrollArea#stationLocationScrollArea, QWidget#stationLocationContent {
     background: #fffefa; border-radius: 16px;
 }
-QWidget#stationAdvancedFilters QLabel { font-size: 11px; }
+QWidget#stationLocationContent QLabel { font-size: 11px; }
 QFrame#currentOrderCard { background: #edf4e5; border: 1px solid #c8d8bd; border-radius: 16px; }
 QPushButton#currentOrderToggle { text-align: left; min-height: 32px; padding: 0 4px; font-size: 12px; }
 QWidget#currentOrderDetails QPushButton { padding: 0 7px; min-height: 34px; font-size: 11px; }
 QLabel#currentOrderSummary, QLabel#currentOrderProgress { font-size: 12px; color: #36583c; }
 QLabel#stationPreviewName { font-size: 17px; font-weight: 700; color: #203d33; }
+QFrame#applicationHeader { background: #fffefa; border-bottom: 1px solid #e3e9df; }
+QLabel#brandIcon { background: #245c45; color: #eef5dc; border-radius: 12px; font-size: 30px; }
+QLabel#brandName { color: #245c45; font-size: 14px; font-weight: 700; }
+QPushButton#headerRefreshButton { padding: 0; border: none; background: transparent; font-size: 29px; }
+QPushButton#headerAccountButton { padding: 0 4px; background: #eaf1e5; border: none; font-size: 11px; }
+QPushButton#profileDetailsButton { background: #fffefa; border: 1px solid #dce3d5; border-radius: 18px; }
+QPushButton#profileDetailsButton:hover { background: #edf4e5; }
+QPushButton#profileAvatarButton { min-height: 88px; }
+QLabel#stationPreviewAddress { font-size: 12px; color: #65796c; }
 QLabel#stationPreviewMetrics { font-size: 12px; color: #245c45; font-weight: 600; }
 QLabel#stationPreviewPrediction { font-size: 11px; color: #65796c; }
 QPushButton[role="mapControl"] {
     min-height: 0; padding: 0; background: #fffefa;
-    border: 1px solid #d7e1d1; border-radius: 20px; font-size: 21px;
+    border: 1px solid #d7e1d1; border-radius: 22px; font-size: 21px;
 }
 QPushButton[role="mapControl"]:hover { background: #e3eedb; }
 QPushButton[role="mapControl"]:focus { padding: 0; border: 2px solid #567b52; }

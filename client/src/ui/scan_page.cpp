@@ -5,6 +5,7 @@
 #include <QDialog>
 #include <QHideEvent>
 #include <QShowEvent>
+#include <QResizeEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
@@ -48,7 +49,7 @@ void ScanPage::openScanner(bool camera){
      QTimer::singleShot(0,this,[this,code]{if(isVisible())submitPileCode(code);});
  });
  connect(dialog,&QDialog::finished,this,[this,camera](int result){scannerDialog_.clear();if(camera&&result==QDialog::Rejected&&!closingScanner_&&isVisible())emit cancelled();});
- dialog->open();if(!camera)QTimer::singleShot(0,dialog,&QrScanDialog::chooseImage);
+ dialog->show();dialog->raise();if(!camera)QTimer::singleShot(0,dialog,&QrScanDialog::chooseImage);
 #else
  Q_UNUSED(camera);
 #endif
@@ -56,4 +57,5 @@ void ScanPage::openScanner(bool camera){
 void ScanPage::closeScanner(){closingScanner_=true;if(scannerDialog_)scannerDialog_->reject();scannerDialog_.clear();closingScanner_=false;}
 void ScanPage::showEvent(QShowEvent *event){QWidget::showEvent(event);QTimer::singleShot(0,this,[this]{if(isVisible())openScanner(true);});}
 void ScanPage::hideEvent(QHideEvent *event){closeScanner();QWidget::hideEvent(event);}
+void ScanPage::resizeEvent(QResizeEvent *event){QWidget::resizeEvent(event);if(scannerDialog_)scannerDialog_->setGeometry(rect());}
 }

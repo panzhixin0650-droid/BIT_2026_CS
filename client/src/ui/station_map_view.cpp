@@ -10,6 +10,7 @@
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QVBoxLayout>
+#include <QGridLayout>
 #include <QWheelEvent>
 #include <QThread>
 
@@ -96,25 +97,31 @@ StationMapView::StationMapView(QWidget *parent) : QWidget(parent)
     loadingPreview_->hide();
     controls_ = new QWidget(this);
     controls_->setObjectName(QStringLiteral("stationMapControls"));
-    auto *tools = new QVBoxLayout(controls_);
+    auto *tools = new QGridLayout(controls_);
     tools->setContentsMargins(0, 0, 0, 0);
     tools->setSpacing(7);
     const auto button = [this, tools](const QString &text, const QString &name, const QString &label) {
         auto *result = new QPushButton(text, controls_);
         result->setObjectName(name);
         result->setProperty("role", "mapControl");
-        result->setFixedSize(40, 40);
+        result->setFixedSize(44, 44);
         result->setAccessibleName(label);
         result->setToolTip(label);
-        tools->addWidget(result);
+        const int index = tools->count();
+        tools->addWidget(result, index / 2, index % 2);
         return result;
     };
     auto *plus = button(QStringLiteral("＋"), QStringLiteral("stationMapZoomIn"), QStringLiteral("放大地图"));
     auto *minus = button(QStringLiteral("−"), QStringLiteral("stationMapZoomOut"), QStringLiteral("缩小地图"));
-    locate_ = button(QStringLiteral("◎"), QStringLiteral("stationMapLocate"), QStringLiteral("回到当前选定位置"));
     connect(plus, &QPushButton::clicked, this, &StationMapView::zoomIn);
     connect(minus, &QPushButton::clicked, this, &StationMapView::zoomOut);
-    connect(locate_, &QPushButton::clicked, this, [this] { if (location_) setCenter(*location_); });
+    auto *overview = button(QStringLiteral("全景"), QStringLiteral("stationMapOverview"), QStringLiteral("查看全部电站"));
+    locate_ = button(QStringLiteral("附近"), QStringLiteral("stationMapLocate"), QStringLiteral("回到自己的选定位置附近"));
+    for (auto *control : {overview, locate_}) control->setStyleSheet(QStringLiteral("font-size: 12px; font-weight: 600;"));
+    connect(overview, &QPushButton::clicked, this, [this] { beginInteraction(); fitStations(); });
+    connect(locate_, &QPushButton::clicked, this, [this] {
+        if (location_) { beginInteraction(); scale_ = 8388608.0; setCenter(*location_); }
+    });
     modeLabel_ = new QLabel(QStringLiteral("沈阳离线地图 · <a href=\"https://www.openstreetmap.org/copyright\">© OpenStreetMap</a>"), this);
     modeLabel_->setObjectName(QStringLiteral("stationMapMode"));
     modeLabel_->setToolTip(QStringLiteral("通过 Overpass API 预先获取的真实地图数据，ODbL 1.0；非实时路况或真实导航。"));
@@ -147,6 +154,7 @@ void StationMapView::setMapScriptUrl(const QUrl &url)
         webMap_->setObjectName(QStringLiteral("stationWebMapCanvas"));
         webMap_->setGeometry(rect());
         webMap_->lower();
+        connect(webMap_, &RouteMapView::interactionStarted, this, &StationMapView::beginInteraction);
         connect(webMap_, &RouteMapView::stationSelected, this, [this](const QString &id) {
             bool ok = false;
             const qint64 stationId = id.toLongLong(&ok);
@@ -250,7 +258,7 @@ void StationMapView::setStations(const QList<protocol::StationDto> &stations)
     }
     webSceneDirty_ = true;
     applyWebScene();
-    fitStations();
+    if (autoFit_ && !webMap_) fitStations(); else updateMarkers();
 }
 
 void StationMapView::selectStation(qint64 stationId)
@@ -264,6 +272,7 @@ void StationMapView::selectStation(qint64 stationId)
 
 void StationMapView::activateStation(qint64 stationId)
 {
+    if (stationId <= 0) { autoFit_ = false; emit backgroundClicked(); return; }
     selectStation(stationId);
     emit stationSelected(stationId);
 }
@@ -308,12 +317,26 @@ void StationMapView::fitStations()
     update();
 }
 
+void StationMapView::focusStation(qint64 stationId)
+{
+    for (const auto &station : stations_) {
+        if (station.stationId != stationId) continue;
+        scale_ = 8388608.0;
+        setCenter({station.address, station.longitude, station.latitude});
+        return;
+    }
+}
+
 void StationMapView::setCenter(const MapLocation &location)
 {
     if (!valid(location)) return;
     autoFit_ = false;
     center_ = project(location) - (usableViewport().center() - QRectF(rect()).center()) / scale_;
-    if (webMap_) webMap_->setStationCenter(coordinate(location));
+    if (webMap_) {
+        auto point = coordinate(location);
+        point.insert(QStringLiteral("zoom"), 15);
+        webMap_->setStationCenter(point);
+    }
     updateMarkers();
     update();
 }
@@ -324,7 +347,7 @@ void StationMapView::setViewportMargins(const QMargins &margins)
     margins_ = margins;
     if (webMap_ && isVisible()) webMap_->setStationViewport(margins);
     else webSceneDirty_ = true;
-    if (autoFit_) fitStations();
+    if (autoFit_ && !webMap_) fitStations();
     updateControls();
 }
 
@@ -386,8 +409,8 @@ void StationMapView::updatePreview()
 
 void StationMapView::updateControls()
 {
-    controls_->resize(40, 134);
-    controls_->move(width() - 54, std::max(110, height() - margins_.bottom() - 134));
+    controls_->resize(95, 95);
+    controls_->move(qMax(8, width() - 107), 12);
     modeLabel_->adjustSize();
     modeLabel_->move(16, height() - 25);
     statusLabel_->setGeometry(24, height() / 2 - 55, std::max(0, width() - 48), 110);
@@ -401,7 +424,7 @@ void StationMapView::resizeEvent(QResizeEvent *event)
     QWidget::resizeEvent(event);
     if (webMap_) webMap_->setGeometry(rect());
     loadingPreview_->setGeometry(rect());
-    if (autoFit_) fitStations(); else updateMarkers();
+    if (autoFit_ && !webMap_) fitStations(); else updateMarkers();
     updateControls();
 }
 
@@ -426,8 +449,13 @@ void StationMapView::changeZoom(int delta)
     center_ = anchor - (usableViewport().center() - QRectF(rect()).center()) / scale_;
     updateMarkers(); update();
 }
-void StationMapView::zoomIn() { if (webMap_) webMap_->zoomIn(); else changeZoom(1); }
-void StationMapView::zoomOut() { if (webMap_) webMap_->zoomOut(); else changeZoom(-1); }
+void StationMapView::beginInteraction()
+{
+    autoFit_ = false;
+    emit interactionStarted();
+}
+void StationMapView::zoomIn() { beginInteraction(); if (webMap_) webMap_->zoomIn(); else changeZoom(1); }
+void StationMapView::zoomOut() { beginInteraction(); if (webMap_) webMap_->zoomOut(); else changeZoom(-1); }
 void StationMapView::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() != Qt::LeftButton) return;
@@ -438,7 +466,9 @@ void StationMapView::mousePressEvent(QMouseEvent *event)
 void StationMapView::mouseMoveEvent(QMouseEvent *event)
 {
     if (!(event->buttons() & Qt::LeftButton)) return;
-    if ((event->position() - pressPosition_).manhattanLength() > 4) dragging_ = true;
+    if (!dragging_ && (event->position() - pressPosition_).manhattanLength() > 4) {
+        dragging_ = true; beginInteraction();
+    }
     if (!dragging_) return;
     autoFit_ = false;
     center_ -= (event->position() - lastPosition_) / scale_;
@@ -453,12 +483,14 @@ void StationMapView::mouseReleaseEvent(QMouseEvent *event)
 }
 void StationMapView::wheelEvent(QWheelEvent *event)
 {
-    if (event->angleDelta().y() != 0) changeZoom(event->angleDelta().y() > 0 ? 1 : -1);
+    if (event->angleDelta().y() != 0) {
+        beginInteraction(); changeZoom(event->angleDelta().y() > 0 ? 1 : -1);
+    }
     event->accept();
 }
 void StationMapView::mouseDoubleClickEvent(QMouseEvent *event)
 {
-    if (event->button() == Qt::LeftButton) zoomIn();
+    if (event->button() == Qt::LeftButton) { dragging_ = true; zoomIn(); }
 }
 
 void StationMapView::paintEvent(QPaintEvent *)

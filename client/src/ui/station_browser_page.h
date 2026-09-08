@@ -4,6 +4,7 @@
 #include "local/map_types.h"
 
 #include <QList>
+#include <QStringList>
 #include <QWidget>
 
 class QCheckBox;
@@ -30,6 +31,12 @@ public:
 
     [[nodiscard]] StationQuery stationQuery() const;
     [[nodiscard]] MapLocation currentLocation() const;
+    void setUserId(qint64 userId);
+    void showVisitHistory(const QList<protocol::OrderDto> &orders);
+    void showVisitHistoryError();
+    void setSheetPosition(int position);
+    bool isMapFullscreen() const { return sheetHidden_; }
+    void setBottomNavigationInset(int inset);
     void setGreeting(const QString &nickname, bool isNewUser);
     void setGreetingNickname(const QString &nickname);
     void setListLoading(bool loading);
@@ -58,6 +65,7 @@ public:
     void reset();
 
 signals:
+    void mapFullscreenChanged(bool fullscreen);
     void refreshRequested();
     void locationResolutionRequested(const QString &address);
     void stationSelected(qint64 stationId);
@@ -78,7 +86,38 @@ protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
+    void openSearch();
+    void openLocationSettings();
+    void submitSearch();
+    void applyDiscovery();
+    void renderDiscovery();
+    void renderSearch();
+    void renderStationSections(QWidget *container, const QList<protocol::StationDto> &items, bool search);
     void setupMapHome();
+    qint64 userId_ = 0;
+    QStringList searchHistory_;
+    QList<qint64> visitedStationIds_;
+    bool visitHistoryFailed_ = false;
+    QList<protocol::StationDto> catalog_;
+    QString appliedKeyword_;
+    QWidget *searchPage_ = nullptr;
+    QWidget *searchContent_ = nullptr;
+    QLabel *searchMessage_ = nullptr;
+    QWidget *locationPage_ = nullptr;
+    QWidget *locationReturnPage_ = nullptr;
+    QWidget *overviewContent_ = nullptr;
+    QWidget *discoveryList_ = nullptr;
+    QScrollArea *overviewScroll_ = nullptr;
+    QStackedWidget *sheetPages_ = nullptr;
+    QPushButton *sheetHandle_ = nullptr;
+    QPushButton *homeSearchButton_ = nullptr;
+    int sheetPosition_ = 1;
+    bool sheetHidden_ = false;
+    int bottomNavigationInset_ = 0;
+    bool sheetDragging_ = false;
+    int dragStartY_ = 0;
+    int dragStartHeight_ = 0;
+    int dragHeight_ = 0;
     void layoutHomeOverlays();
     void previewStation(qint64 stationId);
     void clearPileCards();
@@ -91,7 +130,7 @@ private:
     StationMapView *stationMap_ = nullptr;
     StationPreviewCard *stationPreview_ = nullptr;
     QWidget *homeOverlay_ = nullptr;
-    QScrollArea *filterScroll_ = nullptr;
+    QScrollArea *locationScroll_ = nullptr;
     QList<protocol::StationDto> stations_;
     QWidget *detailPage_ = nullptr;
     QWidget *navigationPage_ = nullptr;
@@ -109,17 +148,15 @@ private:
     QPushButton *reservationScanButton_ = nullptr;
     QPushButton *progressButton_ = nullptr;
     QPushButton *stopButton_ = nullptr;
-    QCheckBox *demoLocationCheck_ = nullptr;
     QComboBox *locationPresetCombo_ = nullptr;
     QLineEdit *locationAddressInput_ = nullptr;
     QPushButton *resolveLocationButton_ = nullptr;
     QLabel *locationSummaryLabel_ = nullptr;
     QLabel *locationCaption_ = nullptr;
     QLabel *stationCountLabel_ = nullptr;
-    QWidget *advancedFilters_ = nullptr;
-    QPushButton *filterToggle_ = nullptr;
+    QWidget *locationContent_ = nullptr;
+    QPushButton *locationEntry_ = nullptr;
     QLabel *locationMessageLabel_ = nullptr;
-    QLineEdit *regionInput_ = nullptr;
     QLineEdit *keywordInput_ = nullptr;
     QPushButton *refreshButton_ = nullptr;
     QLabel *listMessageLabel_ = nullptr;

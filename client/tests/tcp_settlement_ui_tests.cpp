@@ -214,7 +214,9 @@ void TcpSettlementUiTests::settlementNoticePreservesSession()
     navigation->setCurrentIndex(0);
     QTRY_VERIFY(refresh->isEnabled());
     const auto beforeRefresh = stationSpy.count();
-    QTest::mouseClick(refresh, Qt::LeftButton);
+    auto *reload = window.findChild<QPushButton *>(QStringLiteral("stationHomeReload"));
+    QVERIFY(reload);
+    reload->click();
     QTRY_VERIFY(stationSpy.count() > beforeRefresh);
     QVERIFY(qvariant_cast<client::StationListResult>(stationSpy.last().at(0)).ok());
     const auto beforeProfile = profileSpy.count();
