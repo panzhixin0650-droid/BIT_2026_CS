@@ -13,11 +13,14 @@ class QLineEdit;
 class QPushButton;
 class QPlainTextEdit;
 class QStackedWidget;
+class QScrollArea;
 class QVBoxLayout;
 
 namespace charging::client {
 
 class RouteMapView;
+class StationMapView;
+class StationPreviewCard;
 
 class StationBrowserPage final : public QWidget {
     Q_OBJECT
@@ -47,6 +50,8 @@ public:
     void showNavigation(const protocol::StationDto &station,
                         const MapLocation &start);
     void preloadMap(const QUrl &scriptUrl);
+    void configureHomeMap(const QUrl &scriptUrl);
+    void prepareHomeMap(const QSize &availableSize);
     void setRouteBusy(bool busy);
     void showRouteMessage(const QString &message, bool error = false);
     void showRouteResult(const RouteResult &result);
@@ -69,8 +74,13 @@ signals:
     void detailBackRequested();
     void navigationClosed();
 
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 private:
-    void clearStationCards();
+    void setupMapHome();
+    void layoutHomeOverlays();
+    void previewStation(qint64 stationId);
     void clearPileCards();
     void updateDirectChargingButtons();
     void updateLocationSummary();
@@ -78,6 +88,11 @@ private:
 
     QStackedWidget *pages_ = nullptr;
     QWidget *listPage_ = nullptr;
+    StationMapView *stationMap_ = nullptr;
+    StationPreviewCard *stationPreview_ = nullptr;
+    QWidget *homeOverlay_ = nullptr;
+    QScrollArea *filterScroll_ = nullptr;
+    QList<protocol::StationDto> stations_;
     QWidget *detailPage_ = nullptr;
     QWidget *navigationPage_ = nullptr;
     QWidget *navigationReturnPage_ = nullptr;
@@ -85,6 +100,8 @@ private:
     QLabel *loginNoticeLabel_ = nullptr;
     QLabel *actionMessageLabel_ = nullptr;
     QWidget *currentOrderCard_ = nullptr;
+    QPushButton *currentOrderToggle_ = nullptr;
+    QWidget *currentOrderDetails_ = nullptr;
     QLabel *currentOrderSummaryLabel_ = nullptr;
     QLabel *currentOrderProgressLabel_ = nullptr;
     QPushButton *cancelOrderButton_ = nullptr;
@@ -106,8 +123,6 @@ private:
     QLineEdit *keywordInput_ = nullptr;
     QPushButton *refreshButton_ = nullptr;
     QLabel *listMessageLabel_ = nullptr;
-    QWidget *stationListContent_ = nullptr;
-    QVBoxLayout *stationListLayout_ = nullptr;
     QPushButton *backButton_ = nullptr;
     QLabel *detailMessageLabel_ = nullptr;
     QWidget *detailContent_ = nullptr;

@@ -177,6 +177,7 @@ void TcpSettlementUiTests::settlementNoticePreservesSession()
     }
     auto *stopButton = window.findChild<QPushButton *>(fromOrders
         ? QStringLiteral("orderDetailStopButton") : QStringLiteral("chargingStopButton"));
+    if (!fromOrders) window.findChild<QPushButton *>(QStringLiteral("currentOrderToggle"))->click();
     QVERIFY(stopButton != nullptr);
     QTRY_VERIFY(stopButton->isVisible() && stopButton->isEnabled());
 

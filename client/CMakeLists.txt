@@ -104,7 +104,14 @@ add_library(charging_client_ui STATIC
     src/ui/station_browser_controller.cpp
     src/ui/station_browser_controller.h
     src/ui/station_browser_page.cpp
+    src/ui/station_browser_home.cpp
     src/ui/station_browser_page.h
+    src/ui/station_map_view.cpp
+    src/ui/station_map_view.h
+    src/ui/demo_map_backdrop.cpp
+    src/ui/demo_map_backdrop.h
+    src/ui/station_preview_card.cpp
+    src/ui/station_preview_card.h
 )
 
 target_include_directories(charging_client_ui
@@ -120,8 +127,8 @@ target_link_libraries(charging_client_ui
 )
 
 if(CHARGING_CLIENT_ENABLE_WEBENGINE)
-    find_package(Qt6 6.2 REQUIRED COMPONENTS WebEngineWidgets)
-    target_link_libraries(charging_client_ui PUBLIC Qt6::WebEngineWidgets)
+    find_package(Qt6 6.2 REQUIRED COMPONENTS WebEngineWidgets WebChannel)
+    target_link_libraries(charging_client_ui PUBLIC Qt6::WebEngineWidgets Qt6::WebChannel)
     target_compile_definitions(
         charging_client_ui
         PUBLIC CHARGING_CLIENT_HAS_WEBENGINE=1
@@ -139,6 +146,11 @@ target_link_libraries(user-client
 
 if(BUILD_TESTING)
     find_package(Qt6 6.2 REQUIRED COMPONENTS Test)
+
+    add_executable(charging_client_station_map_tests tests/station_map_tests.cpp)
+    target_link_libraries(charging_client_station_map_tests PRIVATE charging_client_ui Qt6::Test)
+    add_test(NAME charging_client_station_map_tests COMMAND charging_client_station_map_tests)
+    set_tests_properties(charging_client_station_map_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     add_executable(charging_client_assistant_responsiveness_tests tests/assistant_responsiveness_tests.cpp)
     target_link_libraries(charging_client_assistant_responsiveness_tests PRIVATE charging_client_ui Qt6::Test)
