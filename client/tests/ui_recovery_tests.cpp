@@ -160,7 +160,8 @@ private slots:
         MainWindow window(api);
         login(window, api);
         auto *tabs = window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
-        tabs->setCurrentIndex(1);
+        tabs->setCurrentIndex(4);
+        window.findChild<QPushButton *>("profileOrdersButton")->click();
         const auto staleOrders = api.reply<OrderListResult>("order.list");
         tabs->setCurrentIndex(4);
         auto staleProfile = api.reply<UserResult>("user.profile.get");
@@ -176,7 +177,8 @@ private slots:
         emit api.currentOrderCompleted(staleScan);
         QCOMPARE(api.calls[QStringLiteral("order.start")], 0);
         QCOMPARE(window.findChild<QLabel *>(QStringLiteral("profileNicknameLabel"))->text(), QStringLiteral("用户2"));
-        tabs->setCurrentIndex(1);
+        tabs->setCurrentIndex(4);
+        window.findChild<QPushButton *>("profileOrdersButton")->click();
         QCOMPARE(api.calls[QStringLiteral("order.list")], 2);
         tabs->setCurrentIndex(4);
         QCOMPARE(api.calls[QStringLiteral("user.profile.get")], 2);
@@ -216,7 +218,8 @@ private slots:
         QVERIFY(window.findChild<QPushButton *>(QStringLiteral("rechargeButton"))->isEnabled());
         QVERIFY(window.findChild<QLabel *>(QStringLiteral("profileMessageLabel"))->text().contains(QStringLiteral("核对")));
         QCOMPARE(api.calls[QStringLiteral("wallet.recharge")], 1);
-        tabs->setCurrentIndex(1);
+        tabs->setCurrentIndex(4);
+        window.findChild<QPushButton *>("profileOrdersButton")->click();
         emit api.orderListCompleted(api.reply<OrderListResult>("order.list", protocol::ErrorCode::ServiceUnavailable));
         QVERIFY(window.findChild<QPushButton *>(QStringLiteral("orderRefreshButton"))->isEnabled());
         window.findChild<OrderPage *>()->refreshRequested();
@@ -280,11 +283,12 @@ private slots:
         MainWindow window(api);
         login(window, api);
         auto *tabs = window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
-        tabs->setCurrentIndex(1);
+        tabs->setCurrentIndex(4);
+        window.findChild<QPushButton *>("profileOrdersButton")->click();
         emit api.orderListCompleted(api.reply<OrderListResult>("order.list"));
         window.findChild<OrderPage *>()->navigationRequested(1);
         auto result = api.reply<StationDetailResult>("station.detail");
-        tabs->setCurrentIndex(4);
+        window.findChild<QPushButton *>("ordersBackButton")->click();
         emit api.stationDetailCompleted(result);
         QCOMPARE(tabs->currentIndex(), 4);
     }

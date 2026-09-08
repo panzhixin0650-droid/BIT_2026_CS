@@ -109,6 +109,11 @@ int main(int argc, char *argv[])
         }
         mapService = std::make_unique<charging::client::TencentMapService>(
             apiKey, timeoutMs);
+        if (mapService->mapScriptUrl().isEmpty()) {
+            qCritical().noquote() << QStringLiteral(
+                "TENCENT_MAP_KEY 格式无效：只填写 Key 本身，不包含引号、空白或变量名。");
+            return 2;
+        }
         qInfo().noquote() << QStringLiteral("Map mode: Tencent");
 #endif
     } else {

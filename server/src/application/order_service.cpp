@@ -8,6 +8,7 @@
 
 #include <QJsonArray>
 #include <QUuid>
+#include <QTimer>
 
 #include <algorithm>
 #include <cmath>
@@ -141,9 +142,10 @@ bool ApplicationService::refreshOrderReading(OrderDto *order, const QDateTime &n
         || !order->unitPriceCentsPerKwh.has_value()) return false;
     const QDateTime startedAt = QDateTime::fromString(*order->startedAt, Qt::ISODate);
     if (!startedAt.isValid()) return false;
+    const QDateTime measuredAt = demoAutomaticStop_ ? std::min(now, startedAt.addSecs(DemoChargingDurationSeconds)) : now;
     const PileReading reading = stop
-        ? pileGateway_->stop(order->pileId, startedAt, now)
-        : pileGateway_->read(order->pileId, startedAt, now);
+        ? pileGateway_->stop(order->pileId, startedAt, measuredAt)
+        : pileGateway_->read(order->pileId, startedAt, measuredAt);
     if (reading.durationSeconds < 0 || reading.energyWh < 0) return false;
     order->durationSeconds = std::max(order->durationSeconds, reading.durationSeconds);
     order->energyWh = std::max(order->energyWh, reading.energyWh);
@@ -340,18 +342,48 @@ ServiceResult ApplicationService::getOrderProgress(const QString &token,
     });
 }
 
+void ApplicationService::enableDemoAutomaticStop()
+{
+    if (demoAutomaticStop_) return;
+    demoAutomaticStop_ = true;
+    auto *timer = new QTimer(this);
+    connect(timer, &QTimer::timeout, this, [this] { completeDueDemoCharges(QDateTime::currentDateTimeUtc()); });
+    timer->start(1000);
+}
+
+int ApplicationService::completeDueDemoCharges(const QDateTime &now)
+{
+    if (!demoAutomaticStop_ || !now.isValid()) return 0;
+    const auto orders = repository_->listOrders();
+    if (!repository_->lastOperationSucceeded()) return 0;
+    int completed = 0;
+    for (const auto &order : orders) {
+        if (order.status != OrderStatus::Charging || !order.startedAt) continue;
+        const auto started = QDateTime::fromString(*order.startedAt, Qt::ISODate);
+        const auto deadline = started.addSecs(DemoChargingDurationSeconds);
+        if (started.isValid() && deadline <= now
+            && settleChargingOrder(order.orderId, order.userId, deadline).ok()) ++completed;
+    }
+    return completed;
+}
+
 ServiceResult ApplicationService::stopOrder(const QString &token, const QJsonObject &input)
+{
+    ServiceResult failure;
+    const auto userId = authenticatedUserId(token, &failure);
+    if (!userId) return failure;
+    qint64 orderId = 0;
+    if (hasAuthoritativeFields(input) || !readId(input, QStringLiteral("orderId"), &orderId))
+        return orderError(ErrorCode::InvalidRequest);
+    return settleChargingOrder(orderId, *userId, QDateTime::currentDateTimeUtc());
+}
+
+ServiceResult ApplicationService::settleChargingOrder(qint64 orderId, qint64 userId, const QDateTime &now)
 {
     RepositoryTransaction transaction(repository_);
     if (!transaction.active()) return orderError(ErrorCode::InternalError);
     ServiceResult failure;
-    const auto userId = authenticatedUserId(token, &failure);
-    if (!userId.has_value()) return failure;
-    qint64 orderId = 0;
-    if (hasAuthoritativeFields(input) || !readId(input, QStringLiteral("orderId"), &orderId)) {
-        return orderError(ErrorCode::InvalidRequest);
-    }
-    auto order = ownedOrder(repository_, orderId, *userId, &failure);
+    auto order = ownedOrder(repository_, orderId, userId, &failure);
     if (!order.has_value()) return failure;
     if (order->status != OrderStatus::Charging) return orderError(ErrorCode::IllegalOrderState);
     auto pile = findPile(repository_, order->pileCode);
@@ -359,11 +391,10 @@ ServiceResult ApplicationService::stopOrder(const QString &token, const QJsonObj
         return orderError(ErrorCode::InternalError);
     }
     if (pile->status != PileStatus::Charging) return orderError(ErrorCode::IllegalOrderState);
-    auto user = repository_->findUserById(*userId);
+    auto user = repository_->findUserById(userId);
     if (!repository_->lastOperationSucceeded() || !user.has_value()) {
         return orderError(ErrorCode::InternalError);
     }
-    const QDateTime now = QDateTime::currentDateTimeUtc();
     if (!refreshOrderReading(&*order, now, true)) return orderError(ErrorCode::InternalError);
     order->endedAt = now.toString(Qt::ISODate);
     const bool paid = user->balanceCents >= order->amountCents;

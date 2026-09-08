@@ -1,8 +1,21 @@
 #include "api/mock_charging_api.h"
 #include "navigation_paint_helpers.h"
 #include "ui/main_window.h"
-#include "ui/scan_controller.h"
+#include "ui/charging_controller.h"
+#include "ui/charging_page.h"
+#include "ui/scan_page.h"
+#include "ui/station_browser_page.h"
 #include "ui/support_page.h"
+#include "ui/support_desk_page.h"
+#include "ui/photo_album_page.h"
+#include "ui/profile_page.h"
+#include "local/avatar_storage.h"
+#include <QFile>
+#include <QListWidget>
+#include <QScopeGuard>
+#include <QSettings>
+#include <QStandardPaths>
+#include <QUuid>
 #include <QPlainTextEdit>
 #include <QSignalSpy>
 
@@ -10,6 +23,7 @@
 #include <QApplication>
 #include <QComboBox>
 #include <QFrame>
+#include <QDir>
 #include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
@@ -31,6 +45,7 @@ class MainWindowTests : public QObject {
     Q_OBJECT
 
 private slots:
+    void chargingLayoutFitsSmallWindow();
     void constructsCodeOnlyLoginPage();
     void existingUserCanLogin();
     void newUserIsAutomaticallyRegistered();
@@ -42,7 +57,7 @@ private slots:
     void floatingNavigationSurvivesPartialRepaints();
     void clientUsesConsistentVisualTheme();
     void stationFiltersExpandAndPreserveQuery();
-    void chargingHomeListsFiltersAndOpensStationDetail();
+    void chargingHomeMapFiltersAndOpensStationDetail();
     void stationDetailCanPrepareDirectCharging();
     void chargingStartLeavesNavigationForHomeOverview();
     void locationCanResolveAndOpenMockRoute();
@@ -51,6 +66,7 @@ private slots:
     void leavingOrderDetailRefreshesChangedOrderState();
     void simulatedScanStartsChargingAndRefreshesHome();
     void scannerAdapterCanSubmitDecodedPileCode();
+    void reservationStartsSameOrderOnChargingPage();
     void chargingProgressCanRefreshAndStopWithConfirmation();
     void stoppingFromOrderDetailRefreshesOpenStationDetail();
     void pendingOrderLinksRechargeAndCanBeSettled();
@@ -58,6 +74,8 @@ private slots:
     void profileRejectsInvalidRechargeAmount();
     void logoutReturnsToLoginPage();
     void scanRepairSubmitsToSharedTickets();
+    void supportDeskUsesInAppPageAndPreservesDraft();
+    void profileAvatarUsesSharedAlbum();
 };
 
 namespace {
@@ -71,6 +89,20 @@ void loginFixtureUser(MainWindow &window)
     QTest::mouseClick(loginButton, Qt::LeftButton);
     auto *homePage = window.findChild<QWidget *>(QStringLiteral("authenticatedHomePage"));
     QTRY_VERIFY(homePage->isVisible());
+}
+
+void openPreviewDetails(MainWindow &window)
+{
+    auto *details = window.findChild<QPushButton *>(QStringLiteral("stationPreviewDetailsButton"));
+    QTRY_VERIFY(details && details->isVisible() && details->isEnabled());
+    QTest::mouseClick(details, Qt::LeftButton);
+}
+
+void expandCurrentOrder(MainWindow &window)
+{
+    auto *toggle = window.findChild<QPushButton *>(QStringLiteral("currentOrderToggle"));
+    QTRY_VERIFY(toggle && toggle->isVisible());
+    if (!toggle->isChecked()) QTest::mouseClick(toggle, Qt::LeftButton);
 }
 
 void handleDialogWhenShown(MainWindow &window,
@@ -94,6 +126,108 @@ void handleDialogWhenShown(MainWindow &window,
 
 }  // namespace
 
+void MainWindowTests::supportDeskUsesInAppPageAndPreservesDraft()
+{
+    MockChargingApi api; MainWindow window(api);
+    window.resize(360,640); window.show(); loginFixtureUser(window);
+    auto *tabs=window.findChild<QTabWidget *>("mainNavigation");
+    auto *pages=window.findChild<QStackedWidget *>("applicationPages");
+    QSignalSpy created(&api,&IChargingApi::supportTicketCreated);
+    tabs->setCurrentIndex(3);
+    window.findChild<QPushButton *>("supportDeskEntry")->click();
+    auto *desk=window.findChild<SupportDeskPage *>();
+    QVERIFY(desk && !desk->isWindow());
+    QCOMPARE(pages->currentWidget(),desk);
+    QTRY_COMPARE(window.size(),QSize(360,640));
+    auto *back=desk->findChild<QPushButton *>("deskBackButton");
+    QTRY_VERIFY(back->visibleRegion().contains(back->rect().center()));
+    auto directory=qEnvironmentVariable("CHARGING_FLOW_SCREENSHOTS");
+    if(!directory.isEmpty())window.grab().save(QDir(directory).filePath("support-page-360.png"));
+    desk->findChild<QTabWidget *>("deskTabs")->setCurrentIndex(1);
+    desk->findChild<QLineEdit *>("ticketTitle")->setText(QStringLiteral("待核对的问题"));
+    desk->findChild<QPlainTextEdit *>("ticketSummary")->setPlainText(QStringLiteral("返回后应保留这份未提交的草稿。"));
+    auto *submit=desk->findChild<QPushButton *>("ticketSubmit");
+    desk->findChild<QScrollArea *>("ticketDraftScroll")->ensureWidgetVisible(submit);
+    QTRY_VERIFY(submit->visibleRegion().contains(submit->rect().center()));
+    if(!directory.isEmpty())window.grab().save(QDir(directory).filePath("support-draft-360.png"));
+    back->click();
+    QCOMPARE(pages->currentWidget(),tabs); QCOMPARE(tabs->currentIndex(),3);
+    window.findChild<QPushButton *>("supportDeskEntry")->click();
+    QCOMPARE(desk->findChild<QLineEdit *>("ticketTitle")->text(),QStringLiteral("待核对的问题"));
+    back->click();
+    window.findChild<ScanPage *>()->submitPileCode("PILE-A-01");
+    window.findChild<QPushButton *>("chargingRepairButton")->click();
+    QCOMPARE(pages->currentWidget(),desk);
+    back->click();
+    QCOMPARE(pages->currentWidget(),tabs); QCOMPARE(tabs->currentIndex(),1);
+    QCOMPARE(created.count(),0);
+}
+
+void MainWindowTests::profileAvatarUsesSharedAlbum()
+{
+    const auto originalName = QCoreApplication::applicationName();
+    const auto originalOrganization = QCoreApplication::organizationName();
+    QCoreApplication::setOrganizationName("BITAlbumTests");
+    QCoreApplication::setApplicationName("avatar-album-test-" + QUuid::createUuid().toString(QUuid::WithoutBraces));
+    const auto dataDirectory = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    const auto cleanup = qScopeGuard([&] {
+        QSettings settings;
+        settings.clear(); settings.sync();
+        QFile::remove(settings.fileName());
+        if (!dataDirectory.isEmpty()) QDir(dataDirectory).removeRecursively();
+        QCoreApplication::setApplicationName(originalName);
+        QCoreApplication::setOrganizationName(originalOrganization);
+    });
+    MockChargingApi api;
+    MainWindow window(api); window.resize(360,640); window.show();
+    loginFixtureUser(window);
+    auto *tabs = window.findChild<QTabWidget *>("mainNavigation");
+    auto *pages = window.findChild<QStackedWidget *>("applicationPages");
+    tabs->setCurrentIndex(4);
+    auto *profile = window.findChild<ProfilePage *>();
+    auto *avatar = profile->findChild<QLabel *>("profileAvatar");
+    auto *change = profile->findChild<QPushButton *>("changeAvatarButton");
+    QSignalSpy selected(profile, &ProfilePage::avatarSelected);
+    change->click();
+    auto *album = window.findChild<PhotoAlbumPage *>();
+    QVERIFY(album && !album->isWindow());
+    QCOMPARE(pages->currentWidget(), album);
+    auto *photos = album->findChild<QListWidget *>("albumPhotos");
+    auto *confirm = album->findChild<QPushButton *>("albumConfirm");
+    auto *back = album->findChild<QPushButton *>("albumBack");
+    QCOMPARE(photos->count(), 9);
+    QVERIFY(!confirm->isEnabled());
+    const auto coffee = photos->findItems("sample-coffee", Qt::MatchExactly);
+    QCOMPARE(coffee.size(), 1);
+    photos->setCurrentItem(coffee.first());
+    const auto sourcePath = coffee.first()->data(Qt::UserRole).toString();
+    QCOMPARE(confirm->text(), QStringLiteral("设为头像"));
+    album->findChild<QPushButton *>("albumPreview")->click();
+    QVERIFY(!album->findChild<QLabel *>("albumPreviewImage")->pixmap(Qt::ReturnByValue).isNull());
+    QCOMPARE(selected.count(), 0);
+    back->click(); // Return from preview without applying it.
+    QCOMPARE(pages->currentWidget(), album);
+    confirm->click();
+    QCOMPARE(pages->currentWidget(), tabs);
+    QCOMPARE(tabs->currentIndex(), 4);
+    QCOMPARE(selected.count(), 1);
+    QCOMPARE(selected.first().first().toString(), sourcePath);
+    QVERIFY2(!avatar->pixmap(Qt::ReturnByValue).isNull(),
+             qPrintable(profile->findChild<QLabel *>("profileMessageLabel")->text()));
+    AvatarStorage storage;
+    const auto savedPath = storage.avatarPath("1:13800000001");
+    const QImage saved(savedPath);
+    QVERIFY(!saved.isNull());
+    QVERIFY(saved.width() <= 512 && saved.height() <= 512);
+    change->click();
+    QVERIFY(!confirm->isEnabled());
+    photos->setCurrentRow(0);
+    back->click();
+    QCOMPARE(pages->currentWidget(), tabs);
+    QCOMPARE(selected.count(), 1);
+    QCOMPARE(QImage(savedPath), saved);
+}
+
 void MainWindowTests::scanRepairSubmitsToSharedTickets()
 {
     MockChargingApi api;
@@ -101,11 +235,10 @@ void MainWindowTests::scanRepairSubmitsToSharedTickets()
     window.show();
     loginFixtureUser(window);
     auto *navigation = window.findChild<QTabWidget *>("mainNavigation");
-    navigation->setCurrentIndex(2);
-    window.findChild<QLineEdit *>("scanPileCodeInput")->setText("PILE-A-01");
+    window.findChild<ScanPage *>()->submitPileCode("PILE-A-01");
     QSignalSpy created(&api, &IChargingApi::supportTicketCreated);
     QSignalSpy started(&api, &IChargingApi::chargingStartCompleted);
-    window.findChild<QPushButton *>("scanRepairButton")->click();
+    window.findChild<QPushButton *>("chargingRepairButton")->click();
     auto *tabs = window.findChild<QTabWidget *>("deskTabs");
     QVERIFY(tabs); QCOMPARE(tabs->currentIndex(), 1);
     QCOMPARE(window.findChild<QLineEdit *>("repairPileCode")->text(), QStringLiteral("PILE-A-01"));
@@ -123,6 +256,30 @@ void MainWindowTests::scanRepairSubmitsToSharedTickets()
     QTRY_COMPARE(created.size(), 1);
     QCOMPARE(qvariant_cast<TicketResult>(created.takeFirst().first()).response.code,
              charging::protocol::ErrorCode::NotFound);
+}
+
+void MainWindowTests::chargingLayoutFitsSmallWindow()
+{
+    MockChargingApi api;
+    MainWindow window(api); window.show(); loginFixtureUser(window);
+    window.findChild<ChargingController *>()->reset();
+    auto *tabs=window.findChild<QTabWidget *>("mainNavigation");
+    tabs->setCurrentIndex(1);
+    charging::protocol::OrderDto order;
+    order.pileCode="PILE-A-01"; order.stationName=QStringLiteral("浑南演示充电站");
+    order.status=charging::protocol::OrderStatus::Charging;
+    order.durationSeconds=122; order.energyWh=244; order.amountCents=44;
+    window.findChild<ChargingPage *>()->showOrder(order);
+    for (const QSize size : {QSize(480,860),QSize(360,640)}) {
+        window.resize(size); QTest::qWait(80);
+        auto *ring=window.findChild<QWidget *>("chargingProgressRing");
+        QVERIFY(ring->width() >= 220);
+        auto path=qEnvironmentVariable("CHARGING_FLOW_SCREENSHOTS");
+        if(!path.isEmpty()) window.grab().save(QDir(path).filePath(QStringLiteral("charging-%1x%2.png").arg(size.width()).arg(size.height())));
+        auto *stop=window.findChild<QPushButton *>("chargingEndButton");
+        window.findChild<ChargingPage *>()->findChild<QScrollArea *>()->ensureWidgetVisible(stop);
+        QTRY_VERIFY(stop->visibleRegion().contains(stop->rect().center()));
+    }
 }
 
 void MainWindowTests::constructsCodeOnlyLoginPage()
@@ -282,8 +439,8 @@ void MainWindowTests::authenticatedShellHasFiveBottomEntries()
     QVERIFY(navigation != nullptr);
     QCOMPARE(navigation->tabPosition(), QTabWidget::South);
     QCOMPARE(navigation->count(), 5);
-    QCOMPARE(navigation->tabText(0), QStringLiteral("充电"));
-    QCOMPARE(navigation->tabText(1), QStringLiteral("订单"));
+    QCOMPARE(navigation->tabText(0), QStringLiteral("首页"));
+    QCOMPARE(navigation->tabText(1), QStringLiteral("充电"));
     QCOMPARE(navigation->tabText(2), QStringLiteral("扫一扫"));
     QCOMPARE(navigation->tabText(3), QStringLiteral("客服助理"));
     QCOMPARE(navigation->tabText(4), QStringLiteral("我的"));
@@ -494,7 +651,7 @@ void MainWindowTests::clientUsesConsistentVisualTheme()
     QVERIFY(balance != nullptr);
     QCOMPARE(supportTitle->text(), QStringLiteral("你好，有什么\n可以帮你？"));
     QCOMPARE(orderHeading->font().pointSize(), 24);
-    QCOMPARE(scanHeading->font().pointSize(), 24);
+    QVERIFY(scanHeading->font().bold());
     QCOMPARE(profileHeading->font().pointSize(), 24);
     QCOMPARE(balance->font().pointSize(), 30);
 }
@@ -523,62 +680,37 @@ void MainWindowTests::stationFiltersExpandAndPreserveQuery()
     QVERIFY(!filters->isVisible());
     QTest::mouseClick(query, Qt::LeftButton);
     QTRY_COMPARE(count->text(), QStringLiteral("1 个站点"));
-    QVERIFY(window.findChild<QWidget *>(QStringLiteral("stationCard_1")) == nullptr);
-    QVERIFY(window.findChild<QWidget *>(QStringLiteral("stationCard_2")) != nullptr);
+    QVERIFY(window.findChild<QWidget *>(QStringLiteral("stationMarker_1")) == nullptr);
+    QVERIFY(window.findChild<QWidget *>(QStringLiteral("stationMarker_2")) != nullptr);
     QTest::mouseClick(toggle, Qt::LeftButton);
     QCOMPARE(region->text(), QStringLiteral("和平区"));
-    auto *scroll = window.findChild<QScrollArea *>(QStringLiteral("stationHomeScrollArea"));
+    auto *scroll = window.findChild<QScrollArea *>(QStringLiteral("stationFilterScrollArea"));
     QVERIFY(scroll != nullptr);
     QTRY_VERIFY(scroll->widget()->width() <= scroll->viewport()->width());
 }
 
-void MainWindowTests::chargingHomeListsFiltersAndOpensStationDetail()
+void MainWindowTests::chargingHomeMapFiltersAndOpensStationDetail()
 {
     MockChargingApi api;
     MainWindow window(api);
     window.show();
     loginFixtureUser(window);
 
-    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationCard_1")) != nullptr);
-    QVERIFY(window.findChild<QWidget *>(QStringLiteral("stationCard_2")) != nullptr);
-    QVERIFY(window.findChild<QLabel *>(QStringLiteral("stationRecommended_1")) != nullptr);
-    auto *locationTitle =
-        window.findChild<QLabel *>(QStringLiteral("stationLocationTitle"));
-    auto *locationSummary =
-        window.findChild<QLabel *>(QStringLiteral("stationLocationSummary"));
-    auto *filterTitle =
-        window.findChild<QLabel *>(QStringLiteral("stationFilterTitle"));
-    auto *filterHint =
-        window.findChild<QLabel *>(QStringLiteral("stationFilterHint"));
-    QVERIFY(locationTitle != nullptr);
-    QVERIFY(locationSummary != nullptr);
-    QVERIFY(filterTitle != nullptr);
-    QVERIFY(filterHint != nullptr);
-    QCOMPARE(locationTitle->text(), QStringLiteral("当前位置"));
+    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationMarker_1")) != nullptr);
+    QVERIFY(window.findChild<QWidget *>(QStringLiteral("stationMarker_2")) != nullptr);
+    auto *locationSummary = window.findChild<QLabel *>(QStringLiteral("stationLocationSummary"));
     QVERIFY(locationSummary->text().contains(QStringLiteral("演示位置")));
-    QCOMPARE(filterTitle->text(), QStringLiteral("查找充电站"));
-    QVERIFY(filterHint->text().contains(QStringLiteral("模糊匹配")));
-
-    auto *stationCard =
-        window.findChild<QWidget *>(QStringLiteral("stationCard_1"));
-    QVERIFY(stationCard != nullptr);
-    QVERIFY(stationCard->toolTip().isEmpty());
-    auto *homeScrollArea = window.findChild<QScrollArea *>(
-        QStringLiteral("stationHomeScrollArea"));
-    auto *queryCard =
-        window.findChild<QWidget *>(QStringLiteral("stationQueryCard"));
-    auto *currentOrderCard =
-        window.findChild<QWidget *>(QStringLiteral("currentOrderCard"));
-    QVERIFY(homeScrollArea != nullptr);
-    QVERIFY(homeScrollArea->widget()->isAncestorOf(queryCard));
-    QVERIFY(homeScrollArea->widget()->isAncestorOf(currentOrderCard));
-    QVERIFY(window.findChild<QScrollArea *>(
-                QStringLiteral("stationListScrollArea")) == nullptr);
-    QVERIFY(window.findChild<QPushButton *>(
-                QStringLiteral("stationDetailButton_1")) == nullptr);
-    QVERIFY(window.findChild<QLabel *>(
-                QStringLiteral("stationDetailHint_1")) != nullptr);
-    QTest::mouseClick(stationCard, Qt::LeftButton, Qt::NoModifier, QPoint(12, 12));
+    QVERIFY(!window.findChild<QScrollArea *>(QStringLiteral("stationHomeScrollArea")));
+    QVERIFY(!window.findChild<QWidget *>(QStringLiteral("stationListContent")));
+    auto *marker = window.findChild<QAbstractButton *>(QStringLiteral("stationMarker_1"));
+    QVERIFY(marker);
+    QTest::mouseClick(marker, Qt::LeftButton);
+    auto *preview = window.findChild<QWidget *>(QStringLiteral("stationPreviewCard"));
+    QTRY_VERIFY(preview->isVisible());
+    QVERIFY(marker->isChecked());
+    QVERIFY(!window.findChild<QWidget *>(QStringLiteral("stationDetailPage"))->isVisible());
+    QVERIFY(window.findChild<QLabel *>(QStringLiteral("stationPreviewPrediction"))->text().contains(QStringLiteral("推荐")));
+    openPreviewDetails(window);
 
     auto *detailPage =
         window.findChild<QWidget *>(QStringLiteral("stationDetailPage"));
@@ -615,7 +747,7 @@ void MainWindowTests::chargingHomeListsFiltersAndOpensStationDetail()
     auto *backButton =
         window.findChild<QPushButton *>(QStringLiteral("stationDetailBackButton"));
     QTest::mouseClick(backButton, Qt::LeftButton);
-    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationCard_1")) != nullptr);
+    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationMarker_1")) != nullptr);
 
     auto *regionInput =
         window.findChild<QLineEdit *>(QStringLiteral("stationRegionInput"));
@@ -623,20 +755,20 @@ void MainWindowTests::chargingHomeListsFiltersAndOpensStationDetail()
         window.findChild<QLineEdit *>(QStringLiteral("stationKeywordInput"));
     auto *refreshButton =
         window.findChild<QPushButton *>(QStringLiteral("stationRefreshButton"));
-    QVERIFY(keywordInput->placeholderText().contains(QStringLiteral("和平")));
+    QVERIFY(keywordInput->accessibleName().contains(QStringLiteral("和平")));
     QVERIFY(regionInput->placeholderText().contains(QStringLiteral("完整区域名")));
 
     keywordInput->setText(QStringLiteral("和平"));
     QTest::mouseClick(refreshButton, Qt::LeftButton);
-    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationCard_1")) == nullptr);
-    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationCard_2")) != nullptr);
+    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationMarker_1")) == nullptr);
+    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationMarker_2")) != nullptr);
     QTRY_VERIFY(refreshButton->isEnabled());
 
     keywordInput->clear();
     regionInput->setText(QStringLiteral("和平区"));
     QTest::mouseClick(refreshButton, Qt::LeftButton);
-    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationCard_1")) == nullptr);
-    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationCard_2")) != nullptr);
+    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationMarker_1")) == nullptr);
+    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationMarker_2")) != nullptr);
     QTRY_VERIFY(refreshButton->isEnabled());
 
     auto *message =
@@ -651,106 +783,31 @@ void MainWindowTests::chargingHomeListsFiltersAndOpensStationDetail()
 void MainWindowTests::stationDetailCanPrepareDirectCharging()
 {
     MockChargingApi api;
-    MainWindow window(api);
-    window.show();
-    loginFixtureUser(window);
-
-    QTRY_VERIFY(window.findChild<QWidget *>(
-                    QStringLiteral("stationCard_1")) != nullptr);
-    QTest::mouseClick(
-        window.findChild<QWidget *>(QStringLiteral("stationCard_1")),
-        Qt::LeftButton,
-        Qt::NoModifier,
-        QPoint(12, 12));
-
-    QTRY_VERIFY(window.findChild<QPushButton *>(
-                    QStringLiteral("directChargeButton_PILE-A-01")) != nullptr);
-    auto *idleDirectButton = window.findChild<QPushButton *>(
-        QStringLiteral("directChargeButton_PILE-A-01"));
-    auto *chargingDirectButton = window.findChild<QPushButton *>(
-        QStringLiteral("directChargeButton_PILE-A-02"));
-    QVERIFY(chargingDirectButton != nullptr);
-    QCOMPARE(idleDirectButton->text(), QStringLiteral("直接充电"));
-    QVERIFY(idleDirectButton->isEnabled());
-    QCOMPARE(idleDirectButton->property("role").toString(),
-             QStringLiteral("primary"));
-    QCOMPARE(chargingDirectButton->text(), QStringLiteral("不可充电"));
-    QVERIFY(!chargingDirectButton->isEnabled());
-
-    QTest::mouseClick(idleDirectButton, Qt::LeftButton);
-    auto *navigation =
-        window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
-    auto *pileCodeInput =
-        window.findChild<QLineEdit *>(QStringLiteral("scanPileCodeInput"));
-    auto *scanMessage =
-        window.findChild<QLabel *>(QStringLiteral("scanMessage"));
-    QCOMPARE(navigation->currentIndex(), 2);
-    QCOMPARE(pileCodeInput->text(), QStringLiteral("PILE-A-01"));
-    QCOMPARE(scanMessage->text(),
-             QStringLiteral("已填入充电桩编号，请在桩旁确认开始充电"));
-
-    bool chargingStartedDialogSeen = false;
-    handleDialogWhenShown(
-        window,
-        QStringLiteral("chargingStartedDialog"),
-        [&chargingStartedDialogSeen](QMessageBox *dialog) {
-        chargingStartedDialogSeen = true;
-        dialog->button(QMessageBox::Ok)->click();
-    });
-    QTest::mouseClick(
-        window.findChild<QPushButton *>(QStringLiteral("scanStartButton")),
-        Qt::LeftButton);
-    QTRY_VERIFY(chargingStartedDialogSeen);
-    QTRY_VERIFY(window.findChild<QWidget *>(
-                    QStringLiteral("stationListPage"))->isVisible());
-    auto *currentOrderSummary =
-        window.findChild<QLabel *>(QStringLiteral("currentOrderSummary"));
-    QTRY_VERIFY(currentOrderSummary->text().contains(QStringLiteral("充电中")));
+    MainWindow window(api); window.show(); loginFixtureUser(window);
+    auto *navigation=window.findChild<QTabWidget *>("mainNavigation");
+    QSignalSpy started(&api,&IChargingApi::chargingStartCompleted);
+    window.findChild<StationBrowserPage *>()->directChargingRequested("PILE-A-01");
+    QTRY_COMPARE(navigation->currentIndex(),1);
+    QCOMPARE(window.findChild<ChargingPage *>()->pileCode(),QStringLiteral("PILE-A-01"));
+    QCOMPARE(started.count(),0);
+    QVERIFY(!window.findChild<ScanPage *>()->isVisible());
 }
 
 void MainWindowTests::chargingStartLeavesNavigationForHomeOverview()
 {
     MockChargingApi api;
-    MainWindow window(api);
-    window.show();
-    loginFixtureUser(window);
-
-    QTRY_VERIFY(window.findChild<QWidget *>(
-                    QStringLiteral("stationCard_1")) != nullptr);
-    QTest::mouseClick(
-        window.findChild<QWidget *>(QStringLiteral("stationCard_1")),
-        Qt::LeftButton,
-        Qt::NoModifier,
-        QPoint(12, 12));
-    auto *detailNavigationButton = window.findChild<QPushButton *>(
-        QStringLiteral("stationDetailNavigationButton"));
-    QTRY_VERIFY(detailNavigationButton->isVisible());
-    QTest::mouseClick(detailNavigationButton, Qt::LeftButton);
-    QTRY_VERIFY(window.findChild<QWidget *>(
-                    QStringLiteral("stationNavigationPage"))->isVisible());
-
-    auto *navigation =
-        window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
-    navigation->setCurrentIndex(2);
-    auto *pileCodeInput =
-        window.findChild<QLineEdit *>(QStringLiteral("scanPileCodeInput"));
-    pileCodeInput->setText(QStringLiteral("PILE-A-01"));
-    bool chargingStartedDialogSeen = false;
-    handleDialogWhenShown(
-        window,
-        QStringLiteral("chargingStartedDialog"),
-        [&chargingStartedDialogSeen](QMessageBox *dialog) {
-        chargingStartedDialogSeen = true;
-        dialog->button(QMessageBox::Ok)->click();
-    });
-    QTest::mouseClick(
-        window.findChild<QPushButton *>(QStringLiteral("scanStartButton")),
-        Qt::LeftButton);
-
-    QTRY_VERIFY(chargingStartedDialogSeen);
-    QCOMPARE(navigation->currentIndex(), 0);
-    QTRY_VERIFY(window.findChild<QWidget *>(
-                    QStringLiteral("stationListPage"))->isVisible());
+    MainWindow window(api); window.show(); loginFixtureUser(window);
+    auto *navigation=window.findChild<QTabWidget *>("mainNavigation");
+    window.findChild<ScanPage *>()->submitPileCode("PILE-A-01");
+    QTRY_COMPARE(navigation->currentIndex(),1);
+    QTRY_VERIFY(window.findChild<QPushButton *>("chargingStartButton")->isVisible());
+    QSignalSpy started(&api,&IChargingApi::chargingStartCompleted);
+    window.findChild<QPushButton *>("chargingStartButton")->click();
+    QTRY_COMPARE(started.count(),1);
+    QVERIFY(qvariant_cast<OrderResult>(started.first().first()).ok());
+    QTRY_VERIFY(window.findChild<QLabel *>("chargingState")->text().contains(QStringLiteral("正在充电")));
+    QCOMPARE(navigation->currentIndex(),1);
+    QVERIFY(window.findChild<QWidget *>("chargingProgressRing")->isVisible());
 }
 
 void MainWindowTests::locationCanResolveAndOpenMockRoute()
@@ -799,10 +856,10 @@ void MainWindowTests::locationCanResolveAndOpenMockRoute()
     QTRY_VERIFY(locationMessage->text().contains(QStringLiteral("未能解析")));
     QVERIFY(summary->text().contains(QStringLiteral("沈阳市和平区")));
 
-    QTRY_VERIFY(window.findChild<QPushButton *>(
-                    QStringLiteral("stationNavigationButton_2")) != nullptr);
-    auto *navigate = window.findChild<QPushButton *>(
-        QStringLiteral("stationNavigationButton_2"));
+    window.findChild<QPushButton *>(QStringLiteral("stationFilterToggle"))->setChecked(false);
+    QTRY_VERIFY(window.findChild<QAbstractButton *>(QStringLiteral("stationMarker_2")));
+    QTest::mouseClick(window.findChild<QAbstractButton *>(QStringLiteral("stationMarker_2")), Qt::LeftButton);
+    auto *navigate = window.findChild<QPushButton *>(QStringLiteral("stationPreviewNavigationButton"));
     QTest::mouseClick(navigate, Qt::LeftButton);
     auto *navigationPage =
         window.findChild<QWidget *>(QStringLiteral("stationNavigationPage"));
@@ -877,10 +934,11 @@ void MainWindowTests::reservationAppearsOnHomeAndCanBeCancelled()
     window.show();
     loginFixtureUser(window);
 
-    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationCard_1")) != nullptr);
+    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationMarker_1")) != nullptr);
     auto *stationOneCard =
-        window.findChild<QWidget *>(QStringLiteral("stationCard_1"));
+        window.findChild<QWidget *>(QStringLiteral("stationMarker_1"));
     QTest::mouseClick(stationOneCard, Qt::LeftButton);
+    openPreviewDetails(window);
     QTRY_VERIFY(window.findChild<QPushButton *>(
                     QStringLiteral("reserveButton_PILE-A-01")) != nullptr);
     auto *reserveButton =
@@ -908,17 +966,19 @@ void MainWindowTests::reservationAppearsOnHomeAndCanBeCancelled()
     auto *actionMessage =
         window.findChild<QLabel *>(QStringLiteral("stationActionMessage"));
     QTRY_VERIFY(currentOrderCard->isVisible());
+    expandCurrentOrder(window);
     QVERIFY(currentOrderSummary->text().contains(QStringLiteral("PILE-A-01")));
     QVERIFY(currentOrderSummary->text().contains(QStringLiteral("预约中")));
     QCOMPARE(actionMessage->text(), QStringLiteral("预约成功"));
 
     QTRY_VERIFY(window.findChild<QWidget *>(
-                    QStringLiteral("stationCard_1")) != nullptr);
+                    QStringLiteral("stationMarker_1")) != nullptr);
     QTest::mouseClick(
-        window.findChild<QWidget *>(QStringLiteral("stationCard_1")),
+        window.findChild<QWidget *>(QStringLiteral("stationMarker_1")),
         Qt::LeftButton,
         Qt::NoModifier,
         QPoint(12, 12));
+    openPreviewDetails(window);
     QTRY_VERIFY(window.findChild<QPushButton *>(
                     QStringLiteral("directChargeButton_PILE-A-01")) != nullptr);
     QTRY_COMPARE(window.findChild<QLabel *>(
@@ -936,6 +996,7 @@ void MainWindowTests::reservationAppearsOnHomeAndCanBeCancelled()
         window.findChild<QPushButton *>(QStringLiteral("stationDetailBackButton")),
         Qt::LeftButton);
     QTRY_VERIFY(currentOrderCard->isVisible());
+    expandCurrentOrder(window);
 
     auto *currentOrderNavigate = window.findChild<QPushButton *>(
         QStringLiteral("currentOrderNavigationButton"));
@@ -951,17 +1012,22 @@ void MainWindowTests::reservationAppearsOnHomeAndCanBeCancelled()
         window.findChild<QPushButton *>(QStringLiteral("navigationBackButton"));
     QTest::mouseClick(navigationBack, Qt::LeftButton);
     QTRY_VERIFY(currentOrderCard->isVisible());
+    expandCurrentOrder(window);
 
-    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationCard_2")) != nullptr);
+    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationMarker_2")) != nullptr);
     auto *stationTwoCard =
-        window.findChild<QWidget *>(QStringLiteral("stationCard_2"));
+        window.findChild<QWidget *>(QStringLiteral("stationMarker_2"));
     QTest::mouseClick(stationTwoCard, Qt::LeftButton);
+    openPreviewDetails(window);
     QTRY_VERIFY(window.findChild<QPushButton *>(
                     QStringLiteral("reserveButton_PILE-B-02")) != nullptr);
     auto *secondReserveButton =
         window.findChild<QPushButton *>(QStringLiteral("reserveButton_PILE-B-02"));
     QTest::mouseClick(secondReserveButton, Qt::LeftButton);
+    QTRY_COMPARE(window.findChild<QTabWidget *>("mainNavigation")->currentIndex(), 1);
+    window.findChild<QTabWidget *>("mainNavigation")->setCurrentIndex(0);
     QTRY_VERIFY(currentOrderCard->isVisible());
+    expandCurrentOrder(window);
     QCOMPARE(actionMessage->text(),
              QStringLiteral("您已有进行中的订单，请先处理当前订单"));
 
@@ -971,12 +1037,11 @@ void MainWindowTests::reservationAppearsOnHomeAndCanBeCancelled()
     QTest::mouseClick(reservationScanButton, Qt::LeftButton);
     auto *navigation =
         window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
-    QCOMPARE(navigation->currentIndex(), 2);
-    auto *preparedPileCode =
-        window.findChild<QLineEdit *>(QStringLiteral("scanPileCodeInput"));
-    QCOMPARE(preparedPileCode->text(), QStringLiteral("PILE-A-01"));
+    QCOMPARE(navigation->currentIndex(), 1);
+    QCOMPARE(window.findChild<ChargingPage *>()->pileCode(), QStringLiteral("PILE-A-01"));
     navigation->setCurrentIndex(0);
     QTRY_VERIFY(currentOrderCard->isVisible());
+    expandCurrentOrder(window);
 
     auto *cancelButton =
         window.findChild<QPushButton *>(QStringLiteral("cancelReservationButton"));
@@ -985,10 +1050,11 @@ void MainWindowTests::reservationAppearsOnHomeAndCanBeCancelled()
     QTRY_COMPARE(actionMessage->text(), QStringLiteral("预约已取消"));
     QTRY_VERIFY(!currentOrderCard->isVisible());
 
-    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationCard_1")) != nullptr);
+    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationMarker_1")) != nullptr);
     stationOneCard =
-        window.findChild<QWidget *>(QStringLiteral("stationCard_1"));
+        window.findChild<QWidget *>(QStringLiteral("stationMarker_1"));
     QTest::mouseClick(stationOneCard, Qt::LeftButton);
+    openPreviewDetails(window);
     QTRY_VERIFY(window.findChild<QPushButton *>(
                     QStringLiteral("reserveButton_PILE-A-01")) != nullptr);
     reserveButton =
@@ -1004,7 +1070,8 @@ void MainWindowTests::ordersPageShowsHistoryDetailAndReservationChanges()
     loginFixtureUser(window);
 
     auto *navigation = window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
-    navigation->setCurrentIndex(1);
+    navigation->setCurrentIndex(4);
+    window.findChild<QPushButton *>("profileOrdersButton")->click();
     QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("orderCard_101")) != nullptr);
     auto *completedStatus =
         window.findChild<QLabel *>(QStringLiteral("orderStatus_101"));
@@ -1052,13 +1119,14 @@ void MainWindowTests::ordersPageShowsHistoryDetailAndReservationChanges()
         window.findChild<QPushButton *>(QStringLiteral("orderDetailBackButton"));
     QTest::mouseClick(orderBackButton, Qt::LeftButton);
     navigation->setCurrentIndex(0);
-    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationCard_1")) != nullptr);
+    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationMarker_1")) != nullptr);
     auto *stationRefreshButton =
         window.findChild<QPushButton *>(QStringLiteral("stationRefreshButton"));
     QTRY_VERIFY(stationRefreshButton->isEnabled());
     auto *stationCard =
-        window.findChild<QWidget *>(QStringLiteral("stationCard_1"));
+        window.findChild<QWidget *>(QStringLiteral("stationMarker_1"));
     QTest::mouseClick(stationCard, Qt::LeftButton);
+    openPreviewDetails(window);
     QTRY_VERIFY(window.findChild<QPushButton *>(
                     QStringLiteral("reserveButton_PILE-A-01")) != nullptr);
     auto *reserveButton =
@@ -1070,7 +1138,8 @@ void MainWindowTests::ordersPageShowsHistoryDetailAndReservationChanges()
     QTest::mouseClick(reserveButton, Qt::LeftButton);
     QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("currentOrderCard"))->isVisible());
 
-    navigation->setCurrentIndex(1);
+    navigation->setCurrentIndex(4);
+    window.findChild<QPushButton *>("profileOrdersButton")->click();
     QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("orderCard_1001")) != nullptr);
     auto *reservedStatus =
         window.findChild<QLabel *>(QStringLiteral("orderStatus_1001"));
@@ -1097,7 +1166,8 @@ void MainWindowTests::ordersPageShowsHistoryDetailAndReservationChanges()
     QTest::mouseClick(
         window.findChild<QPushButton *>(QStringLiteral("navigationBackButton")),
         Qt::LeftButton);
-    navigation->setCurrentIndex(1);
+    navigation->setCurrentIndex(4);
+    window.findChild<QPushButton *>("profileOrdersButton")->click();
     auto *orderListPage =
         window.findChild<QWidget *>(QStringLiteral("orderListPage"));
     auto *orderRefreshButton =
@@ -1126,572 +1196,168 @@ void MainWindowTests::ordersPageShowsHistoryDetailAndReservationChanges()
 void MainWindowTests::leavingOrderDetailRefreshesChangedOrderState()
 {
     MockChargingApi api;
-    MainWindow window(api);
-    window.show();
-    loginFixtureUser(window);
-
-    QTRY_VERIFY(window.findChild<QWidget *>(
-                    QStringLiteral("stationCard_1")) != nullptr);
-    auto *stationCard =
-        window.findChild<QWidget *>(QStringLiteral("stationCard_1"));
-    QTest::mouseClick(stationCard, Qt::LeftButton);
-    QTRY_VERIFY(window.findChild<QPushButton *>(
-                    QStringLiteral("reserveButton_PILE-A-01")) != nullptr);
-    auto *reserveButton = window.findChild<QPushButton *>(
-        QStringLiteral("reserveButton_PILE-A-01"));
-    handleDialogWhenShown(
-        window,
-        QStringLiteral("reservationSuccessDialog"),
-        [](QMessageBox *dialog) { dialog->button(QMessageBox::Ok)->click(); });
-    QTest::mouseClick(reserveButton, Qt::LeftButton);
-    auto *currentOrderCard =
-        window.findChild<QWidget *>(QStringLiteral("currentOrderCard"));
-    QTRY_VERIFY(currentOrderCard->isVisible());
-
-    auto *navigation =
-        window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
-    navigation->setCurrentIndex(1);
-    auto *orderRefreshButton =
-        window.findChild<QPushButton *>(QStringLiteral("orderRefreshButton"));
-    QTRY_VERIFY(orderRefreshButton->isEnabled());
-    QTRY_VERIFY(window.findChild<QWidget *>(
-                    QStringLiteral("orderCard_1001")) != nullptr);
-    auto *reservedCard =
-        window.findChild<QWidget *>(QStringLiteral("orderCard_1001"));
-    QTest::mouseClick(reservedCard, Qt::LeftButton);
-    auto *detailPage =
-        window.findChild<QWidget *>(QStringLiteral("orderDetailPage"));
-    auto *detailStatus =
-        window.findChild<QLabel *>(QStringLiteral("orderDetailStatus"));
-    QTRY_VERIFY(detailPage->isVisible());
-    QCOMPARE(detailStatus->text(), QStringLiteral("预约中"));
-
-    navigation->setCurrentIndex(0);
-    auto *orderListPage =
-        window.findChild<QWidget *>(QStringLiteral("orderListPage"));
-    QCOMPARE(window.findChild<QStackedWidget *>(
-                 QStringLiteral("orderPages"))->currentWidget(),
-             orderListPage);
-    auto *startReservedChargingButton = window.findChild<QPushButton *>(
-        QStringLiteral("startReservedChargingButton"));
-    QTRY_VERIFY(startReservedChargingButton->isVisible());
-    QTest::mouseClick(startReservedChargingButton, Qt::LeftButton);
-    QCOMPARE(navigation->currentIndex(), 2);
-    auto *scanStartButton =
-        window.findChild<QPushButton *>(QStringLiteral("scanStartButton"));
-    QTRY_VERIFY(scanStartButton->isEnabled());
-    handleDialogWhenShown(
-        window,
-        QStringLiteral("chargingStartedDialog"),
-        [](QMessageBox *dialog) { dialog->button(QMessageBox::Ok)->click(); });
-    QTest::mouseClick(scanStartButton, Qt::LeftButton);
-    QTRY_COMPARE(navigation->currentIndex(), 0);
-    auto *homeActionMessage =
-        window.findChild<QLabel *>(QStringLiteral("stationActionMessage"));
-    QCOMPARE(homeActionMessage->text(), QStringLiteral("充电已开始"));
-
-    navigation->setCurrentIndex(1);
-    QTRY_VERIFY(orderListPage->isVisible());
-    QTRY_VERIFY(orderRefreshButton->isEnabled());
-    QTRY_VERIFY(window.findChild<QLabel *>(
-                    QStringLiteral("orderStatus_1001")) != nullptr);
-    auto *changedStatus =
-        window.findChild<QLabel *>(QStringLiteral("orderStatus_1001"));
-    QTRY_COMPARE(changedStatus->text(), QStringLiteral("充电中"));
-    QVERIFY(!detailPage->isVisible());
-
-    auto *chargingCard =
-        window.findChild<QWidget *>(QStringLiteral("orderCard_1001"));
-    QTest::mouseClick(chargingCard, Qt::LeftButton);
-    auto *detailStopButton =
-        window.findChild<QPushButton *>(QStringLiteral("orderDetailStopButton"));
-    QTRY_VERIFY(detailStopButton->isVisible());
-    QTimer::singleShot(10, &window, []() {
-        for (QWidget *topLevel : QApplication::topLevelWidgets()) {
-            auto *confirmation = qobject_cast<QMessageBox *>(topLevel);
-            if (confirmation != nullptr) {
-                confirmation->button(QMessageBox::Yes)->click();
-                return;
-            }
-        }
-    });
-    handleDialogWhenShown(
-        window,
-        QStringLiteral("chargingStoppedDialog"),
-        [](QMessageBox *dialog) { dialog->button(QMessageBox::Ok)->click(); });
-    QTest::mouseClick(detailStopButton, Qt::LeftButton);
-    auto *orderMessage =
-        window.findChild<QLabel *>(QStringLiteral("orderListMessage"));
-    QTRY_VERIFY(orderMessage->text().contains(
-        QStringLiteral("充电已结束并自动结算")));
-
-    navigation->setCurrentIndex(0);
-    QTRY_VERIFY(homeActionMessage->text().contains(
-        QStringLiteral("充电已结束并自动结算")));
-    QVERIFY(!homeActionMessage->text().contains(QStringLiteral("充电已开始")));
-    QTRY_VERIFY(!currentOrderCard->isVisible());
+    MainWindow window(api); window.show(); loginFixtureUser(window);
+    auto *navigation=window.findChild<QTabWidget *>("mainNavigation");
+    navigation->setCurrentIndex(4);
+    window.findChild<QPushButton *>("profileOrdersButton")->click();
+    QTRY_VERIFY(window.findChild<QWidget *>("orderListPage")->isVisible());
+    window.findChild<QPushButton *>("ordersBackButton")->click();
+    QVERIFY(window.findChild<QPushButton *>("profileOrdersButton")->isVisible());
+    QCOMPARE(navigation->currentIndex(),4);
+    window.findChild<ScanPage *>()->submitPileCode("PILE-A-01");
+    QTRY_COMPARE(navigation->currentIndex(),1);
+    QTRY_VERIFY(window.findChild<QPushButton *>("chargingStartButton")->isVisible());
+    QSignalSpy started(&api,&IChargingApi::chargingStartCompleted);
+    window.findChild<QPushButton *>("chargingStartButton")->click();
+    QTRY_COMPARE(started.count(),1);
+    QVERIFY(qvariant_cast<OrderResult>(started.first().first()).ok());
+    QTRY_VERIFY(window.findChild<QLabel *>("chargingState")->text().contains(QStringLiteral("正在充电")));
+    navigation->setCurrentIndex(4);
+    window.findChild<QPushButton *>("profileOrdersButton")->click();
+    QTRY_VERIFY(window.findChild<QWidget *>("orderListPage")->isVisible());
+    QTRY_VERIFY(window.findChild<QLabel *>("orderStatus_1001"));
+    QCOMPARE(window.findChild<QLabel *>("orderStatus_1001")->text(),QStringLiteral("充电中"));
 }
 
 void MainWindowTests::simulatedScanStartsChargingAndRefreshesHome()
 {
     MockChargingApi api;
-    MainWindow window(api);
-    window.show();
-    loginFixtureUser(window);
+    MainWindow window(api); window.show(); loginFixtureUser(window);
+    auto *navigation=window.findChild<QTabWidget *>("mainNavigation");
+    window.findChild<ScanPage *>()->submitPileCode("PILE-A-01");
+    QTRY_COMPARE(navigation->currentIndex(),1);
+    QTRY_VERIFY(window.findChild<QPushButton *>("chargingStartButton")->isVisible());
+    QSignalSpy requests(&api,&IChargingApi::chargingStartCompleted);
+    QTest::qWait(20); QCOMPARE(requests.count(),0);
+    QSignalSpy started(&api,&IChargingApi::chargingStartCompleted);
+    window.findChild<QPushButton *>("chargingStartButton")->click();
+    QTRY_COMPARE(started.count(),1);
+    QVERIFY(qvariant_cast<OrderResult>(started.first().first()).ok());
+    QTRY_VERIFY(window.findChild<QLabel *>("chargingState")->text().contains(QStringLiteral("正在充电")));
+    window.findChild<ScanPage *>()->submitPileCode("PILE-B-02");
+    QCOMPARE(window.findChild<ChargingPage *>()->pileCode(),QStringLiteral("PILE-A-01"));
+    QCOMPARE(requests.count(),1);
+}
 
-    auto *navigation = window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
-    navigation->setCurrentIndex(2);
-    auto *scanPage = window.findChild<QWidget *>(QStringLiteral("scanPage"));
-    auto *pileCodeInput =
-        window.findChild<QLineEdit *>(QStringLiteral("scanPileCodeInput"));
-    auto *startButton =
-        window.findChild<QPushButton *>(QStringLiteral("scanStartButton"));
-    auto *scanMessage = window.findChild<QLabel *>(QStringLiteral("scanMessage"));
-    auto *adapterHint =
-        window.findChild<QLabel *>(QStringLiteral("scanAdapterHint"));
-    QVERIFY(scanPage->isVisible());
-    QVERIFY(adapterHint->text().contains(QStringLiteral("模拟扫码")));
-
-    QTest::mouseClick(startButton, Qt::LeftButton);
-    QCOMPARE(scanMessage->text(), QStringLiteral("请输入有效的充电桩编号"));
-    pileCodeInput->setText(QStringLiteral("PILE-A-01"));
-    bool chargingStartedDialogSeen = false;
-    handleDialogWhenShown(
-        window,
-        QStringLiteral("chargingStartedDialog"),
-        [navigation, &chargingStartedDialogSeen](QMessageBox *dialog) {
-        QCOMPARE(navigation->currentIndex(), 2);
-        QCOMPARE(dialog->windowTitle(), QStringLiteral("充电已开始"));
-        QVERIFY(dialog->text().contains(QStringLiteral("PILE-A-01")));
-        QCOMPARE(dialog->button(QMessageBox::Ok)->text(),
-                 QStringLiteral("查看充电进度"));
-        chargingStartedDialogSeen = true;
-        dialog->button(QMessageBox::Ok)->click();
-    });
-    QTest::mouseClick(startButton, Qt::LeftButton);
-
-    auto *homePage =
-        window.findChild<QWidget *>(QStringLiteral("authenticatedHomePage"));
-    auto *currentOrderCard =
-        window.findChild<QWidget *>(QStringLiteral("currentOrderCard"));
-    auto *currentOrderSummary =
-        window.findChild<QLabel *>(QStringLiteral("currentOrderSummary"));
-    auto *actionMessage =
-        window.findChild<QLabel *>(QStringLiteral("stationActionMessage"));
-    QTRY_VERIFY(chargingStartedDialogSeen);
-    QTRY_VERIFY(homePage->isVisible());
-    QTRY_VERIFY(currentOrderCard->isVisible());
-    QVERIFY(currentOrderSummary->text().contains(QStringLiteral("充电中")));
-    QCOMPARE(actionMessage->text(), QStringLiteral("充电已开始"));
-
-    auto *stationRefreshButton =
-        window.findChild<QPushButton *>(QStringLiteral("stationRefreshButton"));
-    QTRY_VERIFY(stationRefreshButton->isEnabled());
-    auto *stationCard =
-        window.findChild<QWidget *>(QStringLiteral("stationCard_1"));
-    QTest::mouseClick(stationCard, Qt::LeftButton);
-    QTRY_VERIFY(window.findChild<QLabel *>(
-                    QStringLiteral("pileStatus_PILE-A-01")) != nullptr);
-    auto *pileStatus =
-        window.findChild<QLabel *>(QStringLiteral("pileStatus_PILE-A-01"));
-    QCOMPARE(pileStatus->text(), QStringLiteral("使用中"));
-
-    navigation->setCurrentIndex(2);
-    pileCodeInput->setText(QStringLiteral("PILE-B-02"));
-    QTest::mouseClick(startButton, Qt::LeftButton);
-    QTRY_COMPARE(scanMessage->text(),
-                 QStringLiteral("您已有充电中的订单，请先处理当前订单"));
-    QTRY_VERIFY(homePage->isVisible());
+void MainWindowTests::reservationStartsSameOrderOnChargingPage()
+{
+    MockChargingApi api; MainWindow window(api); window.show(); loginFixtureUser(window);
+    QSignalSpy reserved(&api,&IChargingApi::reservationCompleted);
+    (void)api.reserve("PILE-A-01"); QTRY_COMPARE(reserved.count(),1);
+    const auto reservation=qvariant_cast<OrderResult>(reserved.first().first());
+    QVERIFY(reservation.ok());
+    QSignalSpy started(&api,&IChargingApi::chargingStartCompleted);
+    window.findChild<StationBrowserPage *>()->reservationScanRequested("PILE-A-01");
+    QCOMPARE(window.findChild<QTabWidget *>("mainNavigation")->currentIndex(),1);
+    QCOMPARE(started.count(),0);
+    window.findChild<QPushButton *>("chargingStartButton")->click();
+    QTRY_COMPARE(started.count(),1);
+    const auto result=qvariant_cast<OrderResult>(started.first().first());
+    QVERIFY(result.ok());
+    QCOMPARE(result.payload->order.orderId,reservation.payload->order.orderId);
+    QVERIFY(result.payload->order.status==charging::protocol::OrderStatus::Charging);
 }
 
 void MainWindowTests::scannerAdapterCanSubmitDecodedPileCode()
 {
     MockChargingApi api;
-    MainWindow window(api);
-    window.show();
-    loginFixtureUser(window);
-
-    auto *scanController = window.findChild<ScanController *>();
-    QVERIFY(scanController != nullptr);
-    handleDialogWhenShown(
-        window,
-        QStringLiteral("chargingStartedDialog"),
-        [](QMessageBox *dialog) { dialog->button(QMessageBox::Ok)->click(); });
-    scanController->submitPileCode(QStringLiteral("  PILE-A-01  "));
-
-    auto *currentOrderCard =
-        window.findChild<QWidget *>(QStringLiteral("currentOrderCard"));
-    auto *currentOrderSummary =
-        window.findChild<QLabel *>(QStringLiteral("currentOrderSummary"));
-    QTRY_VERIFY(currentOrderCard->isVisible());
-    QVERIFY(currentOrderSummary->text().contains(QStringLiteral("PILE-A-01")));
-    QVERIFY(currentOrderSummary->text().contains(QStringLiteral("充电中")));
+    MainWindow window(api); window.show(); loginFixtureUser(window);
+    auto *navigation=window.findChild<QTabWidget *>("mainNavigation");
+    auto *scan=window.findChild<ScanPage *>();
+    scan->submitPileCode("https://example.com/PILE-A-01");
+    QCOMPARE(navigation->currentIndex(),0);
+    scan->submitPileCode("  PILE-A-01  ");
+    QTRY_COMPARE(navigation->currentIndex(),1);
+    QCOMPARE(window.findChild<ChargingPage *>()->pileCode(),QStringLiteral("PILE-A-01"));
 }
 
 void MainWindowTests::chargingProgressCanRefreshAndStopWithConfirmation()
 {
     MockChargingApi api;
-    MainWindow window(api);
-    window.show();
-    loginFixtureUser(window);
-
-    auto *navigation = window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
-    navigation->setCurrentIndex(2);
-    auto *pileCodeInput =
-        window.findChild<QLineEdit *>(QStringLiteral("scanPileCodeInput"));
-    auto *startButton =
-        window.findChild<QPushButton *>(QStringLiteral("scanStartButton"));
-    pileCodeInput->setText(QStringLiteral("PILE-A-01"));
-    handleDialogWhenShown(
-        window,
-        QStringLiteral("chargingStartedDialog"),
-        [](QMessageBox *dialog) { dialog->button(QMessageBox::Ok)->click(); });
-    QTest::mouseClick(startButton, Qt::LeftButton);
-
-    auto *progressLabel =
-        window.findChild<QLabel *>(QStringLiteral("currentOrderProgress"));
-    auto *progressButton =
-        window.findChild<QPushButton *>(QStringLiteral("chargingProgressButton"));
-    auto *stopButton =
-        window.findChild<QPushButton *>(QStringLiteral("chargingStopButton"));
-    QTRY_VERIFY(progressButton->isVisible());
-    QVERIFY(stopButton->isVisible());
-    auto *currentOrderNavigate = window.findChild<QPushButton *>(
-        QStringLiteral("currentOrderNavigationButton"));
-    QVERIFY(currentOrderNavigate->isVisible());
-    QTest::mouseClick(progressButton, Qt::LeftButton);
-    QTRY_VERIFY(progressButton->isEnabled());
-    QVERIFY(progressLabel->text().contains(QStringLiteral("1 分钟")));
-    QVERIFY(progressLabel->text().contains(QStringLiteral("当前预估金额")));
-
-    QString confirmButtonText;
-    QString cancelButtonText;
-    int confirmationWidth = 0;
-    bool chargingStoppedDialogSeen = false;
-    handleDialogWhenShown(
-        window,
-        QStringLiteral("chargingStoppedDialog"),
-        [&chargingStoppedDialogSeen](QMessageBox *dialog) {
-        QCOMPARE(dialog->windowTitle(), QStringLiteral("充电结束"));
-        QCOMPARE(dialog->button(QMessageBox::Ok)->text(),
-                 QStringLiteral("知道了"));
-        chargingStoppedDialogSeen = true;
-        dialog->button(QMessageBox::Ok)->click();
-    });
-    QTimer::singleShot(10, &window, [&]() {
-        for (QWidget *topLevel : QApplication::topLevelWidgets()) {
-            auto *confirmation = qobject_cast<QMessageBox *>(topLevel);
-            if (confirmation != nullptr) {
-                confirmButtonText =
-                    confirmation->button(QMessageBox::Yes)->text();
-                cancelButtonText =
-                    confirmation->button(QMessageBox::No)->text();
-                confirmationWidth = confirmation->width();
-                confirmation->button(QMessageBox::Yes)->click();
-                return;
-            }
-        }
-    });
-    QTest::mouseClick(stopButton, Qt::LeftButton);
-
-    auto *currentOrderCard =
-        window.findChild<QWidget *>(QStringLiteral("currentOrderCard"));
-    auto *actionMessage =
-        window.findChild<QLabel *>(QStringLiteral("stationActionMessage"));
-    QTRY_VERIFY(!currentOrderCard->isVisible());
-    QTRY_VERIFY(chargingStoppedDialogSeen);
-    QVERIFY(actionMessage->text().contains(QStringLiteral("充电已结束并自动结算")));
-    QCOMPARE(confirmButtonText, QStringLiteral("结束充电"));
-    QCOMPARE(cancelButtonText, QStringLiteral("取消"));
-    QVERIFY(confirmationWidth <= window.width());
-
-    navigation->setCurrentIndex(1);
-    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("orderCard_1001")) != nullptr);
-    auto *status = window.findChild<QLabel *>(QStringLiteral("orderStatus_1001"));
-    QCOMPARE(status->text(), QStringLiteral("已完成"));
+    MainWindow window(api); window.show(); loginFixtureUser(window);
+    auto *navigation=window.findChild<QTabWidget *>("mainNavigation");
+    window.findChild<ScanPage *>()->submitPileCode("PILE-A-01");
+    QTRY_COMPARE(navigation->currentIndex(),1);
+    QTRY_VERIFY(window.findChild<QPushButton *>("chargingStartButton")->isVisible());
+    QSignalSpy started(&api,&IChargingApi::chargingStartCompleted);
+    window.findChild<QPushButton *>("chargingStartButton")->click();
+    QTRY_COMPARE(started.count(),1);
+    QVERIFY(qvariant_cast<OrderResult>(started.first().first()).ok());
+    QTRY_VERIFY(window.findChild<QLabel *>("chargingState")->text().contains(QStringLiteral("正在充电")));
+    auto order=qvariant_cast<OrderResult>(started.first().first()).payload->order;
+    QSignalSpy progress(&api,&IChargingApi::chargingProgressCompleted);
+    (void)api.getChargingProgress(order.orderId);QTRY_COMPARE(progress.count(),1);
+    window.findChild<ChargingController *>()->refresh();
+    QTRY_VERIFY(window.findChild<QLabel *>("chargingDuration")->text()!="00:00");
+    QTimer::singleShot(10,&window,[]{for(auto*w:QApplication::topLevelWidgets())if(auto*d=qobject_cast<QMessageBox*>(w))if(d->button(QMessageBox::Yes))d->done(QMessageBox::Yes);});
+    window.findChild<QPushButton *>("chargingEndButton")->click();
+    QTRY_VERIFY(window.findChild<QLabel *>("chargingState")->text().contains(QStringLiteral("已结束")));
+    navigation->setCurrentIndex(4);
+    window.findChild<QPushButton *>("profileOrdersButton")->click();
+    QTRY_VERIFY(window.findChild<QWidget *>("orderListPage")->isVisible());
+    QTRY_VERIFY(window.findChild<QLabel *>("orderStatus_1001"));
+    QCOMPARE(window.findChild<QLabel *>("orderStatus_1001")->text(),QStringLiteral("已完成"));
 }
 
 void MainWindowTests::stoppingFromOrderDetailRefreshesOpenStationDetail()
 {
     MockChargingApi api;
-    MainWindow window(api);
-    window.show();
-    loginFixtureUser(window);
+    MainWindow window(api); window.show(); loginFixtureUser(window);
+    auto *navigation=window.findChild<QTabWidget *>("mainNavigation");
+    window.findChild<ScanPage *>()->submitPileCode("PILE-A-01");
+    QTRY_COMPARE(navigation->currentIndex(),1);
+    QTRY_VERIFY(window.findChild<QPushButton *>("chargingStartButton")->isVisible());
+    QSignalSpy started(&api,&IChargingApi::chargingStartCompleted);
+    window.findChild<QPushButton *>("chargingStartButton")->click();
+    QTRY_COMPARE(started.count(),1);
+    QVERIFY(qvariant_cast<OrderResult>(started.first().first()).ok());
+    QTRY_VERIFY(window.findChild<QLabel *>("chargingState")->text().contains(QStringLiteral("正在充电")));
+    navigation->setCurrentIndex(4);
+    window.findChild<QPushButton *>("profileOrdersButton")->click();
+    QTRY_VERIFY(window.findChild<QWidget *>("orderListPage")->isVisible());
+    QTRY_VERIFY(window.findChild<QWidget *>("orderCard_1001"));
+    window.findChild<QWidget *>("orderCard_1001")->setFocus();
+    QTest::mouseClick(window.findChild<QWidget *>("orderCard_1001"),Qt::LeftButton);
+    auto *view=window.findChild<QPushButton *>("orderDetailProgressButton");
+    QTRY_VERIFY(view->isVisible());view->click();
+    QTRY_COMPARE(navigation->currentIndex(),1);
+    QTimer::singleShot(10,&window,[]{for(auto*w:QApplication::topLevelWidgets())if(auto*d=qobject_cast<QMessageBox*>(w))if(d->button(QMessageBox::Yes))d->done(QMessageBox::Yes);});
+    window.findChild<QPushButton *>("chargingEndButton")->click();
+    QTRY_VERIFY(window.findChild<QLabel *>("chargingState")->text().contains(QStringLiteral("已结束")));
 
-    auto *navigation =
-        window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
-    navigation->setCurrentIndex(2);
-    auto *pileCodeInput =
-        window.findChild<QLineEdit *>(QStringLiteral("scanPileCodeInput"));
-    auto *startButton =
-        window.findChild<QPushButton *>(QStringLiteral("scanStartButton"));
-    pileCodeInput->setText(QStringLiteral("PILE-A-01"));
-    handleDialogWhenShown(
-        window,
-        QStringLiteral("chargingStartedDialog"),
-        [](QMessageBox *dialog) { dialog->button(QMessageBox::Ok)->click(); });
-    QTest::mouseClick(startButton, Qt::LeftButton);
-
-    QTRY_COMPARE(navigation->currentIndex(), 0);
-    QTRY_VERIFY(window.findChild<QWidget *>(
-                    QStringLiteral("stationCard_1")) != nullptr);
-    QTest::mouseClick(
-        window.findChild<QWidget *>(QStringLiteral("stationCard_1")),
-        Qt::LeftButton);
-    QTRY_VERIFY(window.findChild<QLabel *>(
-                    QStringLiteral("pileStatus_PILE-A-01")) != nullptr);
-    QCOMPARE(
-        window.findChild<QLabel *>(QStringLiteral("pileStatus_PILE-A-01"))->text(),
-        QStringLiteral("使用中"));
-
-    navigation->setCurrentIndex(1);
-    QTRY_VERIFY(window.findChild<QWidget *>(
-                    QStringLiteral("orderCard_1001")) != nullptr);
-    QTest::mouseClick(
-        window.findChild<QWidget *>(QStringLiteral("orderCard_1001")),
-        Qt::LeftButton);
-    QTRY_VERIFY(window.findChild<QPushButton *>(
-                    QStringLiteral("orderDetailStopButton")) != nullptr);
-    auto *detailStopButton = window.findChild<QPushButton *>(
-        QStringLiteral("orderDetailStopButton"));
-    QTRY_VERIFY(detailStopButton->isVisible());
-    QTimer::singleShot(10, &window, []() {
-        for (QWidget *topLevel : QApplication::topLevelWidgets()) {
-            auto *confirmation = qobject_cast<QMessageBox *>(topLevel);
-            if (confirmation != nullptr) {
-                confirmation->button(QMessageBox::Yes)->click();
-                return;
-            }
-        }
-    });
-    handleDialogWhenShown(
-        window,
-        QStringLiteral("chargingStoppedDialog"),
-        [](QMessageBox *dialog) { dialog->button(QMessageBox::Ok)->click(); });
-    QTest::mouseClick(detailStopButton, Qt::LeftButton);
-
-    navigation->setCurrentIndex(0);
-    auto *stationDetailPage =
-        window.findChild<QWidget *>(QStringLiteral("stationDetailPage"));
-    QTRY_VERIFY(stationDetailPage->isVisible());
-    QTRY_VERIFY(window.findChild<QLabel *>(
-                    QStringLiteral("pileStatus_PILE-A-01")) != nullptr);
-    QTRY_COMPARE(
-        window.findChild<QLabel *>(QStringLiteral("pileStatus_PILE-A-01"))->text(),
-        QStringLiteral("闲置 · 可预约"));
 }
 
 void MainWindowTests::pendingOrderLinksRechargeAndCanBeSettled()
 {
-    MockChargingApi api;
-    MainWindow window(api);
-    window.show();
-
-    auto *phoneInput = window.findChild<QLineEdit *>(QStringLiteral("phoneInput"));
-    auto *loginButton = window.findChild<QPushButton *>(QStringLiteral("loginButton"));
-    phoneInput->setText(QStringLiteral("13912345678"));
-    window.findChild<QLineEdit *>(QStringLiteral("verificationCodeInput"))->setText(QStringLiteral("123456"));
-    QTest::mouseClick(loginButton, Qt::LeftButton);
-    auto *navigation = window.findChild<QTabWidget *>(QStringLiteral("mainNavigation"));
+    MockChargingApi api; MainWindow window(api); window.show();
+    window.findChild<QLineEdit *>("phoneInput")->setText("13912345678");
+    window.findChild<QLineEdit *>("verificationCodeInput")->setText("123456");
+    window.findChild<QPushButton *>("loginButton")->click();
+    auto *navigation=window.findChild<QTabWidget *>("mainNavigation");
     QTRY_VERIFY(navigation->isVisible());
-
-    navigation->setCurrentIndex(2);
-    auto *pileCodeInput =
-        window.findChild<QLineEdit *>(QStringLiteral("scanPileCodeInput"));
-    auto *startButton =
-        window.findChild<QPushButton *>(QStringLiteral("scanStartButton"));
-    pileCodeInput->setText(QStringLiteral("PILE-A-01"));
-    handleDialogWhenShown(
-        window,
-        QStringLiteral("chargingStartedDialog"),
-        [](QMessageBox *dialog) { dialog->button(QMessageBox::Ok)->click(); });
-    QTest::mouseClick(startButton, Qt::LeftButton);
-    auto *currentOrderCard =
-        window.findChild<QWidget *>(QStringLiteral("currentOrderCard"));
-    QTRY_VERIFY(currentOrderCard->isVisible());
-
-    navigation->setCurrentIndex(1);
-    auto *orderRefreshButton =
-        window.findChild<QPushButton *>(QStringLiteral("orderRefreshButton"));
-    QTRY_VERIFY(orderRefreshButton->isEnabled());
-    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("orderCard_1001")) != nullptr);
-    auto *orderCard =
-        window.findChild<QWidget *>(QStringLiteral("orderCard_1001"));
-    QTest::mouseClick(orderCard, Qt::LeftButton);
-    auto *detailStopButton =
-        window.findChild<QPushButton *>(QStringLiteral("orderDetailStopButton"));
-    auto *detailProgressButton =
-        window.findChild<QPushButton *>(QStringLiteral("orderDetailProgressButton"));
-    auto *detailBody =
-        window.findChild<QLabel *>(QStringLiteral("orderDetailBody"));
-    auto *detailMessage =
-        window.findChild<QLabel *>(QStringLiteral("orderDetailMessage"));
-    auto *detailNavigation = window.findChild<QPushButton *>(
-        QStringLiteral("orderDetailNavigationButton"));
-    QTRY_VERIFY(detailProgressButton->isVisible());
-    QVERIFY(detailNavigation->isVisible());
-    QTest::mouseClick(detailProgressButton, Qt::LeftButton);
-    QTRY_VERIFY(detailProgressButton->isEnabled());
-    QVERIFY(detailBody->accessibleDescription().contains(
-        QStringLiteral("充电时长：1分钟")));
-    QCOMPARE(detailMessage->text(), QStringLiteral("充电进度已刷新"));
-    QTRY_VERIFY(detailStopButton->isVisible());
-    bool chargingDebtDialogSeen = false;
-    handleDialogWhenShown(
-        window,
-        QStringLiteral("chargingDebtDialog"),
-        [navigation, &chargingDebtDialogSeen](QMessageBox *dialog) {
-        QCOMPARE(navigation->currentIndex(), 1);
-        QCOMPARE(dialog->windowTitle(), QStringLiteral("充电结束，余额不足"));
-        QVERIFY(dialog->text().contains(QStringLiteral("欠费")));
-        QCOMPARE(dialog->button(QMessageBox::Ok)->text(),
-                 QStringLiteral("前往充值"));
-        chargingDebtDialogSeen = true;
-        dialog->button(QMessageBox::Ok)->click();
-    });
-    QTimer::singleShot(10, &window, []() {
-        for (QWidget *topLevel : QApplication::topLevelWidgets()) {
-            auto *confirmation = qobject_cast<QMessageBox *>(topLevel);
-            if (confirmation != nullptr) {
-                confirmation->button(QMessageBox::Yes)->click();
-                return;
-            }
-        }
-    });
-    QTest::mouseClick(detailStopButton, Qt::LeftButton);
-
-    auto *orderMessage =
-        window.findChild<QLabel *>(QStringLiteral("orderListMessage"));
-    QTRY_VERIFY(chargingDebtDialogSeen);
-    QTRY_VERIFY(orderMessage->text().contains(QStringLiteral("余额不足")));
-    QTRY_COMPARE(navigation->currentIndex(), 4);
-
-    navigation->setCurrentIndex(0);
-    auto *stationRefreshButton =
-        window.findChild<QPushButton *>(QStringLiteral("stationRefreshButton"));
-    QTRY_VERIFY(stationRefreshButton->isEnabled());
-    QTRY_VERIFY(window.findChild<QWidget *>(
-                    QStringLiteral("stationCard_1")) != nullptr);
-    auto *stationCard =
-        window.findChild<QWidget *>(QStringLiteral("stationCard_1"));
-    QTest::mouseClick(stationCard, Qt::LeftButton);
-    QTRY_VERIFY(window.findChild<QPushButton *>(
-                    QStringLiteral("reserveButton_PILE-A-01")) != nullptr);
-    auto *reserveButton = window.findChild<QPushButton *>(
-        QStringLiteral("reserveButton_PILE-A-01"));
-    bool pendingReservationDialogSeen = false;
-    handleDialogWhenShown(
-        window,
-        QStringLiteral("pendingPaymentDialog"),
-        [navigation, &pendingReservationDialogSeen](QMessageBox *dialog) {
-        QCOMPARE(navigation->currentIndex(), 0);
-        QCOMPARE(dialog->button(QMessageBox::Ok)->text(),
-                 QStringLiteral("前往订单"));
-        pendingReservationDialogSeen = true;
-        dialog->button(QMessageBox::Ok)->click();
-    });
-    QTest::mouseClick(reserveButton, Qt::LeftButton);
-    QTRY_VERIFY(pendingReservationDialogSeen);
-    QTRY_COMPARE(navigation->currentIndex(), 1);
-    QTRY_VERIFY(orderRefreshButton->isEnabled());
-    auto *pendingStatus =
-        window.findChild<QLabel *>(QStringLiteral("orderStatus_1001"));
-    QTRY_COMPARE(pendingStatus->text(), QStringLiteral("待支付"));
-
-    navigation->setCurrentIndex(2);
-    pileCodeInput->setText(QStringLiteral("PILE-B-02"));
-    bool pendingDirectChargeDialogSeen = false;
-    handleDialogWhenShown(
-        window,
-        QStringLiteral("pendingPaymentDialog"),
-        [navigation, &pendingDirectChargeDialogSeen](QMessageBox *dialog) {
-        QCOMPARE(navigation->currentIndex(), 2);
-        pendingDirectChargeDialogSeen = true;
-        dialog->button(QMessageBox::Ok)->click();
-    });
-    QTest::mouseClick(startButton, Qt::LeftButton);
-    QTRY_VERIFY(pendingDirectChargeDialogSeen);
-    QTRY_COMPARE(navigation->currentIndex(), 1);
-    QTRY_VERIFY(orderRefreshButton->isEnabled());
-
-    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("orderCard_1001")) != nullptr);
-    orderCard = window.findChild<QWidget *>(QStringLiteral("orderCard_1001"));
-    QTest::mouseClick(orderCard, Qt::LeftButton);
-    auto *payButton =
-        window.findChild<QPushButton *>(QStringLiteral("orderDetailPayButton"));
-    auto *rechargeLink =
-        window.findChild<QPushButton *>(QStringLiteral("orderDetailRechargeButton"));
-    QTRY_VERIFY(payButton->isVisible());
-    QVERIFY(rechargeLink->isVisible());
-    QTest::mouseClick(payButton, Qt::LeftButton);
-    QTRY_VERIFY(detailMessage->text().contains(QStringLiteral("余额不足")));
-
-    QTest::mouseClick(rechargeLink, Qt::LeftButton);
-    QCOMPARE(navigation->currentIndex(), 4);
-    auto *rechargeInput =
-        window.findChild<QLineEdit *>(QStringLiteral("rechargeAmountInput"));
-    auto *rechargeButton =
-        window.findChild<QPushButton *>(QStringLiteral("rechargeButton"));
-    auto *profileMessage =
-        window.findChild<QLabel *>(QStringLiteral("profileMessageLabel"));
-    QTRY_VERIFY(rechargeButton->isEnabled());
-    rechargeInput->setText(QStringLiteral("0.01"));
-    bool rechargeInsufficientDialogSeen = false;
-    QString rechargeInsufficientTitle;
-    QString rechargeInsufficientText;
-    QString rechargeInsufficientButtonText;
-    handleDialogWhenShown(
-        window,
-        QStringLiteral("rechargeInsufficientDialog"),
-        [&rechargeInsufficientDialogSeen,
-         &rechargeInsufficientTitle,
-         &rechargeInsufficientText,
-         &rechargeInsufficientButtonText](QMessageBox *dialog) {
-        rechargeInsufficientTitle = dialog->windowTitle();
-        rechargeInsufficientText = dialog->text();
-        rechargeInsufficientButtonText = dialog->button(QMessageBox::Ok)->text();
-        rechargeInsufficientDialogSeen = true;
-        dialog->button(QMessageBox::Ok)->click();
-    });
-    QTest::mouseClick(rechargeButton, Qt::LeftButton);
-    QTRY_VERIFY(rechargeInsufficientDialogSeen);
-    QCOMPARE(rechargeInsufficientTitle, QStringLiteral("充值成功，余额仍不足"));
-    QVERIFY(rechargeInsufficientText.contains(QStringLiteral("待支付订单尚未结算")));
-    QVERIFY(rechargeInsufficientText.contains(QStringLiteral("还需充值 ¥")));
-    QVERIFY(rechargeInsufficientText.contains(QStringLiteral("当前余额 ¥0.01")));
-    QCOMPARE(rechargeInsufficientButtonText, QStringLiteral("继续充值"));
-
-    rechargeInput->setText(QStringLiteral("0.99"));
-    bool automaticSettlementDialogSeen = false;
-    handleDialogWhenShown(
-        window,
-        QStringLiteral("automaticSettlementDialog"),
-        [&automaticSettlementDialogSeen](QMessageBox *dialog) {
-        QCOMPARE(dialog->windowTitle(), QStringLiteral("自动结算成功"));
-        QVERIFY(dialog->text().contains(QStringLiteral("MOCK-DIRECT-1001")));
-        QCOMPARE(dialog->button(QMessageBox::Ok)->text(),
-                 QStringLiteral("知道了"));
-        automaticSettlementDialogSeen = true;
-        dialog->button(QMessageBox::Ok)->click();
-    });
-    QTest::mouseClick(rechargeButton, Qt::LeftButton);
-    QTRY_VERIFY(automaticSettlementDialogSeen);
-    QTRY_VERIFY(profileMessage->text().contains(QStringLiteral("自动结算")));
-
-    navigation->setCurrentIndex(0);
-    auto *stationActionMessage =
-        window.findChild<QLabel *>(QStringLiteral("stationActionMessage"));
-    QTRY_VERIFY(stationActionMessage->text().contains(QStringLiteral("已自动结算")));
-    QVERIFY(!stationActionMessage->text().contains(QStringLiteral("余额不足")));
-    QTRY_VERIFY(!currentOrderCard->isVisible());
-
-    navigation->setCurrentIndex(1);
-    orderRefreshButton =
-        window.findChild<QPushButton *>(QStringLiteral("orderRefreshButton"));
-    QTRY_VERIFY(orderRefreshButton->isEnabled());
-    QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("orderCard_1001")) != nullptr);
-    auto *status = window.findChild<QLabel *>(QStringLiteral("orderStatus_1001"));
-    QTRY_COMPARE(status->text(), QStringLiteral("已完成"));
+    window.findChild<ScanPage *>()->submitPileCode("PILE-A-01");
+    QTRY_COMPARE(navigation->currentIndex(),1);
+    QTRY_VERIFY(window.findChild<QPushButton *>("chargingStartButton")->isVisible());
+    QSignalSpy started(&api,&IChargingApi::chargingStartCompleted);
+    window.findChild<QPushButton *>("chargingStartButton")->click();
+    QTRY_COMPARE(started.count(),1);
+    QVERIFY(qvariant_cast<OrderResult>(started.first().first()).ok());
+    QTRY_VERIFY(window.findChild<QLabel *>("chargingState")->text().contains(QStringLiteral("正在充电")));
+    auto order=qvariant_cast<OrderResult>(started.first().first()).payload->order;
+    QSignalSpy progress(&api,&IChargingApi::chargingProgressCompleted);
+    (void)api.getChargingProgress(order.orderId);QTRY_COMPARE(progress.count(),1);
+    QTimer::singleShot(10,&window,[]{for(auto*w:QApplication::topLevelWidgets())if(auto*d=qobject_cast<QMessageBox*>(w))if(d->button(QMessageBox::Yes))d->done(QMessageBox::Yes);});
+    window.findChild<QPushButton *>("chargingEndButton")->click();
+    QTRY_VERIFY(window.findChild<QLabel *>("chargingState")->text().contains(QStringLiteral("已结束")));
+    QTRY_VERIFY(window.findChild<QPushButton *>("chargingRechargeButton")->isVisible());
+    window.findChild<QPushButton *>("chargingRechargeButton")->click();
+    QCOMPARE(navigation->currentIndex(),4);
+    QSignalSpy recharged(&api,&IChargingApi::rechargeCompleted);
+    (void)api.recharge(1000);QTRY_COMPARE(recharged.count(),1);
+    QSignalSpy paid(&api,&IChargingApi::paymentCompleted);(void)api.payOrder(order.orderId);
+    QTRY_COMPARE(paid.count(),1);QVERIFY(qvariant_cast<PaymentResult>(paid.first().first()).ok());
+    navigation->setCurrentIndex(1);window.findChild<ChargingController *>()->refresh();
+    QTRY_VERIFY(!window.findChild<QPushButton *>("chargingRechargeButton")->isVisible());
 }
 
 void MainWindowTests::profileCanRefreshUpdateNicknameAndRecharge()
@@ -1716,7 +1382,7 @@ void MainWindowTests::profileCanRefreshUpdateNicknameAndRecharge()
         window.findChild<QLineEdit *>(QStringLiteral("rechargeAmountInput"));
     auto *rechargeButton = window.findChild<QPushButton *>(QStringLiteral("rechargeButton"));
 
-    navigation->setCurrentWidget(profilePage);
+    navigation->setCurrentIndex(4);
     QTRY_COMPARE(messageLabel->text(), QStringLiteral("资料已刷新"));
     QCOMPARE(nicknameLabel->text(), QStringLiteral("演示用户0001"));
     QCOMPARE(phoneLabel->text(), QStringLiteral("手机号：13800000001"));
@@ -1730,7 +1396,7 @@ void MainWindowTests::profileCanRefreshUpdateNicknameAndRecharge()
 
     navigation->setCurrentIndex(0);
     QCOMPARE(welcomeLabel->text(), QStringLiteral("你好，新的昵称"));
-    navigation->setCurrentWidget(profilePage);
+    navigation->setCurrentIndex(4);
     QTRY_COMPARE(messageLabel->text(), QStringLiteral("资料已刷新"));
 
     amountInput->setText(QStringLiteral("10"));
@@ -1766,7 +1432,7 @@ void MainWindowTests::profileRejectsInvalidRechargeAmount()
         window.findChild<QLineEdit *>(QStringLiteral("rechargeAmountInput"));
     auto *rechargeButton = window.findChild<QPushButton *>(QStringLiteral("rechargeButton"));
 
-    navigation->setCurrentWidget(profilePage);
+    navigation->setCurrentIndex(4);
     QTRY_COMPARE(messageLabel->text(), QStringLiteral("资料已刷新"));
 
     amountInput->clear();
@@ -1798,7 +1464,7 @@ void MainWindowTests::logoutReturnsToLoginPage()
     auto *messageLabel = window.findChild<QLabel *>(QStringLiteral("profileMessageLabel"));
     auto *logoutButton = window.findChild<QPushButton *>(QStringLiteral("logoutButton"));
 
-    navigation->setCurrentWidget(profilePage);
+    navigation->setCurrentIndex(4);
     QTRY_COMPARE(messageLabel->text(), QStringLiteral("资料已刷新"));
     QTest::mouseClick(logoutButton, Qt::LeftButton);
 

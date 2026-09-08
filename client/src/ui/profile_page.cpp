@@ -1,6 +1,7 @@
 #include "ui/profile_page.h"
 #include "ui/avatar_art.h"
 #include "ui/avatar_picker_dialog.h"
+#include "ui/decorative_heading.h"
 
 #include <QDoubleValidator>
 #include <QButtonGroup>
@@ -52,6 +53,10 @@ ProfilePage::ProfilePage(QWidget *parent)
     headingFont.setPointSize(24);
     headingFont.setBold(true);
     heading->setFont(headingFont);
+
+    auto *orders = new QPushButton(QStringLiteral("我的订单  ›"), content);
+    orders->setObjectName(QStringLiteral("profileOrdersButton"));
+    connect(orders, &QPushButton::clicked, this, &ProfilePage::ordersRequested);
 
     auto *identityCard = createCard(content);
     auto *identityLayout = new QHBoxLayout(identityCard);
@@ -184,8 +189,10 @@ ProfilePage::ProfilePage(QWidget *parent)
     logoutButton_ = new QPushButton(QStringLiteral("退出登录"), content);
     logoutButton_->setObjectName(QStringLiteral("logoutButton"));
 
-    contentLayout->addWidget(heading);
+    contentLayout->addWidget(new DecorativeHeading(heading, QStringLiteral("plant"),
+                                                   66, 4, content));
     contentLayout->addWidget(identityCard);
+    contentLayout->addWidget(orders);
     contentLayout->addWidget(walletCard);
     contentLayout->addWidget(profileCard);
     contentLayout->addWidget(messageLabel_);

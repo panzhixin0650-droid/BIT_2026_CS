@@ -141,6 +141,47 @@ QFrame[role="card"] {
 
 QFrame[role="card"] QLabel { background: transparent; border: none; }
 
+QWidget#stationHomeOverlay, QWidget#stationMapControls,
+QWidget#currentOrderDetails { background: transparent; }
+QFrame[role="mapCard"] {
+    background: rgba(255, 254, 250, 246);
+    border: 1px solid #dce5d7;
+    border-radius: 18px;
+}
+QFrame[role="mapCard"] QLabel { background: transparent; border: none; }
+QLabel#stationHomeBrand { font-size: 12px; font-weight: 700; color: #245c45; }
+QLabel#stationSearchIcon { font-size: 23px; color: #65796c; }
+QLabel#welcomeLabel, QLabel#stationLocationCaption, QLabel#stationResultCount {
+    font-size: 11px; color: #566f5f;
+}
+QLabel#stationMapMode { font-size: 10px; color: #65796c; }
+QLabel#stationMapStatus { background: #fffefa; border-radius: 16px; padding: 12px; }
+QLineEdit#stationKeywordInput { min-height: 34px; padding: 0 6px; border: none; background: transparent; font-size: 12px; }
+QLineEdit#stationKeywordInput:focus { border: 1px solid #91ab92; border-radius: 10px; }
+QPushButton#stationRefreshButton, QPushButton#stationFilterToggle {
+    min-height: 34px; padding: 0; font-size: 11px; border-radius: 10px;
+}
+QPushButton#stationFilterToggle:checked { background: #e3eedb; border-color: #91ab92; }
+QScrollArea#stationFilterScrollArea, QWidget#stationAdvancedFilters {
+    background: #fffefa; border-radius: 16px;
+}
+QWidget#stationAdvancedFilters QLabel { font-size: 11px; }
+QFrame#currentOrderCard { background: #edf4e5; border: 1px solid #c8d8bd; border-radius: 16px; }
+QPushButton#currentOrderToggle { text-align: left; min-height: 32px; padding: 0 4px; font-size: 12px; }
+QWidget#currentOrderDetails QPushButton { padding: 0 7px; min-height: 34px; font-size: 11px; }
+QLabel#currentOrderSummary, QLabel#currentOrderProgress { font-size: 12px; color: #36583c; }
+QLabel#stationPreviewName { font-size: 17px; font-weight: 700; color: #203d33; }
+QLabel#stationPreviewMetrics { font-size: 12px; color: #245c45; font-weight: 600; }
+QLabel#stationPreviewPrediction { font-size: 11px; color: #65796c; }
+QPushButton[role="mapControl"] {
+    min-height: 0; padding: 0; background: #fffefa;
+    border: 1px solid #d7e1d1; border-radius: 20px; font-size: 21px;
+}
+QPushButton[role="mapControl"]:hover { background: #e3eedb; }
+QPushButton[role="mapControl"]:focus { padding: 0; border: 2px solid #567b52; }
+QPushButton[role="mapDismiss"] { min-height: 0; padding: 0; border: none; background: transparent; font-size: 20px; }
+QPushButton[role="mapDismiss"]:hover { background: #e3eedb; }
+
 QPushButton[role="primary"], QPushButton#routePlanButton,
 QPushButton#startReservedChargingButton {
     color: white; background: #245c45; border-color: #245c45;

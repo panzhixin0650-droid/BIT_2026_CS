@@ -192,6 +192,10 @@ private slots:
     void sqliteAdminAccountsAndPasswordUpgrade();
     void mockReadingsNeverRetreat();
     void integerBilling();
+    void demoDeadlineStopsOnce_data() { backends(); }
+    void demoDeadlineStopsOnce();
+    void demoDeadlineHandlesDebtAfterRestart_data() { backends(); }
+    void demoDeadlineHandlesDebtAfterRestart();
     void realClientTcpOrderFlow();
 };
 
@@ -654,6 +658,55 @@ void OrderFlowTests::realClientTcpOrderFlow()
     QCOMPARE(history.payload->items.size(), 2);
     QCOMPARE(history.payload->items.first().orderId, id);
     QVERIFY(history.payload->items.first().status == OrderStatus::Completed);
+}
+
+void OrderFlowTests::demoDeadlineStopsOnce()
+{
+    QFETCH(bool, sqlite);
+    Fixture f; QVERIFY2(f.initialize(sqlite), qPrintable(f.error));
+    MockPile physical;
+    ApplicationService service(f.repository.get(), &f.sessions, &physical, &f.prediction);
+    service.enableDemoAutomaticStop();
+    service.completeDueDemoCharges(QDateTime::currentDateTimeUtc()); // finish seed sessions
+    QCOMPARE(f.call(MessageType::WalletRecharge, {{QStringLiteral("amountCents"), 1000}}).code, ErrorCode::Ok);
+    const auto result=service.startOrder(f.token, pileInput());
+    QVERIFY(result.ok());
+    OrderDto order; QVERIFY(fromJson(result.data.value("order").toObject(), &order));
+    const auto started=QDateTime::fromString(*order.startedAt, Qt::ISODate);
+    QCOMPARE(service.completeDueDemoCharges(started.addSecs(DemoChargingDurationSeconds-1)),0);
+    QCOMPARE(service.completeDueDemoCharges(started.addSecs(DemoChargingDurationSeconds+2)),1);
+    const auto stopped=f.repository->findOrderById(order.orderId);
+    QVERIFY(stopped); QCOMPARE(stopped->durationSeconds,qint64(DemoChargingDurationSeconds));
+    QCOMPARE(stopped->energyWh,qint64(DemoChargingDurationSeconds*2));
+    QVERIFY(stopped->status == OrderStatus::Completed);
+    QVERIFY(f.getPile().status == PileStatus::Idle);
+    const auto balance=f.repository->findUserById(order.userId)->balanceCents;
+    QCOMPARE(service.completeDueDemoCharges(started.addSecs(999)),0);
+    QCOMPARE(f.repository->findUserById(order.userId)->balanceCents,balance);
+}
+
+void OrderFlowTests::demoDeadlineHandlesDebtAfterRestart()
+{
+    QFETCH(bool, sqlite);
+    Fixture f; QVERIFY2(f.initialize(sqlite), qPrintable(f.error));
+    f.service->enableDemoAutomaticStop();
+    f.service->completeDueDemoCharges(QDateTime::currentDateTimeUtc());
+    const QString token=f.login(QStringLiteral("13912345678"));
+    const auto result=f.service->startOrder(token,pileInput());
+    QVERIFY(result.ok()); OrderDto order;
+    QVERIFY(fromJson(result.data.value("order").toObject(),&order));
+    QVERIFY(f.service->logout(token).ok());
+    MockPile restartedPile;
+    SessionStore noSessions;
+    ApplicationService restarted(f.repository.get(),&noSessions,&restartedPile,&f.prediction);
+    restarted.enableDemoAutomaticStop();
+    const auto now=QDateTime::fromString(*order.startedAt,Qt::ISODate).addSecs(DemoChargingDurationSeconds+10);
+    QCOMPARE(restarted.completeDueDemoCharges(now),1);
+    const auto ended=f.repository->findOrderById(order.orderId);QVERIFY(ended);
+    QVERIFY(ended->status == OrderStatus::PendingPayment);
+    QVERIFY(f.getPile().status == PileStatus::Idle);
+    QCOMPARE(f.repository->findUserById(order.userId)->balanceCents,qint64(0));
+    QCOMPARE(restarted.completeDueDemoCharges(now),0);
 }
 
 QTEST_GUILESS_MAIN(OrderFlowTests)
