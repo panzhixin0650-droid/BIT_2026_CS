@@ -3,6 +3,7 @@
 #include "charging/protocol/dto.h"
 
 #include <QWidget>
+#include <QImage>
 
 class QLabel;
 class QLineEdit;
@@ -29,11 +30,12 @@ signals:
     void ordersRequested();
     void repairRequested();
     void ticketsRequested();
+    void avatarSelectionRequested();
     void refreshRequested();
     void nicknameUpdateRequested(const QString &nickname);
     void rechargeRequested(const QString &amountYuan);
-    void avatarSelectionRequested();
     void avatarSelected(const QString &sourcePath);
+    void avatarImageSelected(const QImage &image);
     void logoutRequested();
 
 protected:
@@ -46,10 +48,10 @@ private:
     QLabel *detailPhone_ = nullptr;
     QLabel *fullAvatar_ = nullptr;
     QPushButton *avatarButton_ = nullptr;
-    QString avatarPath_;
     QString savedNickname_;
     [[nodiscard]] QString formatBalance(qint64 balanceCents) const;
 
+    QImage avatarImage_;
     QLabel *avatarLabel_ = nullptr;
     QLabel *nicknameLabel_ = nullptr;
     QLabel *phoneLabel_ = nullptr;

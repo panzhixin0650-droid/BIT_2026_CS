@@ -1,4 +1,5 @@
 #include "ui/profile_page.h"
+#include "ui/avatar_art.h"
 #include "ui/decorative_heading.h"
 
 #include <QDoubleValidator>
@@ -9,9 +10,6 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
-#include <QPainter>
-#include <QPainterPath>
-#include <QPixmap>
 #include <QScrollArea>
 #include <QStackedWidget>
 #include <QResizeEvent>
@@ -81,7 +79,7 @@ ProfilePage::ProfilePage(QWidget *parent)
     heading->setFont(headingFont);
 
     auto *orders = new QPushButton(QStringLiteral("我的订单  ›"), content);
-    orders->setObjectName("profileOrdersButton");
+    orders->setObjectName(QStringLiteral("profileOrdersButton"));
     connect(orders, &QPushButton::clicked, this, &ProfilePage::ordersRequested);
     auto *identityCard = new IdentityButton(content);
     identityCard->setObjectName("profileDetailsButton");
@@ -289,10 +287,12 @@ ProfilePage::ProfilePage(QWidget *parent)
     contentLayout->addStretch();
 
     scrollArea->setWidget(content);
-
+    setAvatarPath({});
 
     connect(refreshButton_, &QPushButton::clicked, this, &ProfilePage::refreshRequested);
-    connect(changeAvatarButton, &QPushButton::clicked, this, &ProfilePage::avatarSelectionRequested);
+    connect(changeAvatarButton, &QPushButton::clicked, this, [this]() {
+        emit avatarSelectionRequested();
+    });
     connect(saveNicknameButton_, &QPushButton::clicked, this, [this]() {
         emit nicknameUpdateRequested(nicknameInput_->text());
     });
@@ -319,32 +319,15 @@ void ProfilePage::setBalance(qint64 balanceCents)
 
 void ProfilePage::setAvatarPath(const QString &path)
 {
-    avatarPath_ = path;
-    updateFullAvatar();
-    QPixmap source(path);
-    avatarButton_->setIcon(source.isNull() ? QIcon{} : QIcon(source));
-    if (source.isNull()) {
-        avatarLabel_->setPixmap({});
-        avatarLabel_->setText(QStringLiteral("用户"));
-        return;
+    // Read the file afresh: each user replaces the same PNG on subsequent saves.
+    avatarImage_ = path.isEmpty() ? QImage() : QImage(path);
+    if (avatarImage_.isNull()) {
+        avatarImage_ = defaultAvatar();
     }
-
-    const QSize targetSize = avatarLabel_->size();
-    const QPixmap scaled = source.scaled(targetSize,
-                                         Qt::KeepAspectRatioByExpanding,
-                                         Qt::SmoothTransformation);
-    QPixmap circular(targetSize);
-    circular.fill(Qt::transparent);
-    QPainter painter(&circular);
-    painter.setRenderHint(QPainter::Antialiasing);
-    QPainterPath clipPath;
-    clipPath.addEllipse(circular.rect());
-    painter.setClipPath(clipPath);
-    const QPoint offset((scaled.width() - targetSize.width()) / 2,
-                        (scaled.height() - targetSize.height()) / 2);
-    painter.drawPixmap(-offset, scaled);
     avatarLabel_->setText({});
-    avatarLabel_->setPixmap(circular);
+    avatarLabel_->setPixmap(circularAvatar(avatarImage_, avatarLabel_->width(), devicePixelRatioF()));
+    avatarButton_->setIcon(QIcon(QPixmap::fromImage(avatarImage_)));
+    updateFullAvatar();
 }
 
 void ProfilePage::setBusy(bool busy)
@@ -384,7 +367,7 @@ void ProfilePage::showOverview()
 
 void ProfilePage::updateFullAvatar()
 {
-    const QPixmap source(avatarPath_);
+    const QPixmap source = QPixmap::fromImage(avatarImage_);
     if (source.isNull()) {
         fullAvatar_->setPixmap({});
         fullAvatar_->setText(QStringLiteral("还没有设置头像"));

@@ -25,7 +25,10 @@ ProfileController::ProfileController(ProfilePage &page,
             this,
             &ProfileController::updateNickname);
     connect(&page_, &ProfilePage::rechargeRequested, this, &ProfileController::recharge);
-    connect(&page_, &ProfilePage::avatarSelected, this, &ProfileController::saveAvatar);
+    connect(&page_, &ProfilePage::avatarImageSelected,
+            this, qOverload<const QImage &>(&ProfileController::saveAvatar));
+    connect(&page_, qOverload<const QString &>(&ProfilePage::avatarSelected),
+            this, qOverload<const QString &>(&ProfileController::saveAvatar));
     connect(&page_, &ProfilePage::logoutRequested, this, &ProfileController::logout);
     connect(&api_,
             &IChargingApi::profileCompleted,
@@ -112,6 +115,18 @@ void ProfileController::recharge(const QString &amountYuan)
 
 void ProfileController::saveAvatar(const QString &sourcePath)
 {
+    QString savedPath;
+    QString error;
+    if (!avatarStorage_.saveAvatar(currentAvatarKey_, sourcePath, &savedPath, &error)) {
+        page_.showMessage(error, true);
+        return;
+    }
+    page_.setAvatarPath(savedPath);
+    page_.showMessage(QStringLiteral("头像已保存到本机"));
+}
+
+void ProfileController::saveAvatar(const QImage &image)
+{
     if (currentAvatarKey_.isEmpty()) {
         page_.showMessage(QStringLiteral("请先登录后再修改头像"), true);
         return;
@@ -119,7 +134,7 @@ void ProfileController::saveAvatar(const QString &sourcePath)
 
     QString savedPath;
     QString error;
-    if (!avatarStorage_.saveAvatar(currentAvatarKey_, sourcePath, &savedPath, &error)) {
+    if (!avatarStorage_.saveImage(currentAvatarKey_, image, &savedPath, &error)) {
         page_.showMessage(error, true);
         return;
     }

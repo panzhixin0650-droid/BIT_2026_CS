@@ -2,6 +2,10 @@
 
 状态：IMPLEMENTED（2026-09-08，用户明确要求调研并修改）。
 
+后续调整：本文记录初版实现；筛选入口、推荐算法、距离范围及历史展示数量已由
+[ADR 0015](0015-client-location-recommendation.md) 替代；顶栏与全屏底栏行为见
+[ADR 0014](0014-client-shell-profile-support.md)。
+
 ## 交互依据与范围
 
 - [Material 标准底部面板](https://github.com/material-components/material-components-android/blob/master/docs/components/BottomSheet.md)：常驻面板不使用遮罩，保持地图可以操作。

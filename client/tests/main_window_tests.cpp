@@ -9,6 +9,7 @@
 #include "ui/support_desk_page.h"
 #include "ui/photo_album_page.h"
 #include "ui/profile_page.h"
+#include "ui/avatar_art.h"
 #include "local/avatar_storage.h"
 #include <QFile>
 #include <QListWidget>
@@ -245,6 +246,32 @@ void MainWindowTests::profileAvatarUsesSharedAlbum()
     QCOMPARE(pages->currentWidget(), tabs);
     QCOMPARE(selected.count(), 1);
     QCOMPARE(QImage(savedPath), saved);
+
+    // Built-in images from main must follow the same embedded album return path
+    // and refresh both the identity thumbnail and the complete avatar preview.
+    QSignalSpy imageSelected(profile, &ProfilePage::avatarImageSelected);
+    for (const auto &basic : basicAvatars()) {
+        change->click();
+        QCOMPARE(pages->currentWidget(), album);
+        QPushButton *basicButton = nullptr;
+        for (auto *button : album->findChildren<QPushButton *>()) {
+            if (button->text() == basic.name) basicButton = button;
+        }
+        QVERIFY(basicButton);
+        basicButton->click();
+        QCOMPARE(pages->currentWidget(), tabs);
+        QVERIFY(profile->findChild<QWidget *>("profileAvatarPage")->isVisible());
+        const QImage updated(savedPath);
+        QCOMPARE(updated.convertToFormat(QImage::Format_ARGB32),
+                 basic.image.convertToFormat(QImage::Format_ARGB32));
+        QCOMPARE(avatar->pixmap().toImage(),
+                 circularAvatar(updated, avatar->width(), profile->devicePixelRatioF()).toImage());
+        auto *full = profile->findChild<QLabel *>("profileFullAvatar");
+        QCOMPARE(full->pixmap().toImage(), QPixmap::fromImage(updated).scaled(
+                     full->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation).toImage());
+    }
+    QCOMPARE(imageSelected.count(), 4);
+    QCOMPARE(selected.count(), 1); // Image selection does not emit a bogus path.
 }
 
 void MainWindowTests::scanRepairSubmitsToSharedTickets()

@@ -15,6 +15,7 @@
 #include "ui/profile_controller.h"
 #include "ui/profile_page.h"
 #include "ui/photo_album_page.h"
+#include "ui/avatar_art.h"
 #include "ui/charging_controller.h"
 #include "ui/charging_page.h"
 #include <QPushButton>
@@ -532,6 +533,11 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
                 if (pages_->currentWidget() != avatarAlbum_) return;
                 pages_->setCurrentWidget(mainTabs_);
                 emit profilePage_->avatarSelected(path);
+            });
+            connect(avatarAlbum_, &PhotoAlbumPage::imageSelectedImage, this, [this](const QImage &image) {
+                if (pages_->currentWidget() != avatarAlbum_) return;
+                pages_->setCurrentWidget(mainTabs_);
+                emit profilePage_->avatarImageSelected(image);
             });
         }
         avatarAlbum_->reload();

@@ -83,6 +83,10 @@ add_library(charging_client_ui STATIC
     src/local/tencent_map_service.cpp
     src/local/tencent_map_service.h
     src/ui/api_error_message.h
+    src/ui/avatar_art.cpp
+    src/ui/avatar_art.h
+    src/ui/avatar_picker_dialog.cpp
+    src/ui/avatar_picker_dialog.h
     src/ui/charging_stop_dialog.cpp
     src/ui/charging_stop_dialog.h
     src/ui/client_theme.cpp
@@ -298,6 +302,7 @@ if(BUILD_TESTING)
     add_executable(charging_client_avatar_storage_tests
         tests/avatar_storage_tests.cpp
     )
+
 
     target_link_libraries(charging_client_avatar_storage_tests
         PRIVATE
