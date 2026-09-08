@@ -122,6 +122,23 @@ PhotoAlbumPage::PhotoAlbumPage(QWidget *parent, const QString &directory, Purpos
     caption->setContentsMargins(16, 0, 16, 0);
     caption->setStyleSheet("color:#71806e;font-size:11px;");
     root->addWidget(caption);
+    if (purpose_ == Purpose::Avatar) {
+        auto *basicRow = new QHBoxLayout();
+        basicRow->setContentsMargins(16, 0, 16, 0);
+        basicRow->setSpacing(6);
+        for (const auto &avatar : basicAvatars()) {
+            auto *button = new QPushButton(avatar.name, this);
+            button->setIcon(QIcon(QPixmap::fromImage(avatar.image.scaled(
+                30, 30, Qt::KeepAspectRatio, Qt::SmoothTransformation))));
+            button->setIconSize(QSize(30, 30));
+            button->setToolTip(QStringLiteral("使用基础头像：%1").arg(avatar.name));
+            connect(button, &QPushButton::clicked, this, [this, image = avatar.image]() {
+                emit imageSelectedImage(image);
+            });
+            basicRow->addWidget(button, 1);
+        }
+        root->addLayout(basicRow);
+    }
 
     pages_ = new QStackedWidget(this);
     auto *gridPage = new QWidget(pages_);
@@ -194,14 +211,6 @@ void PhotoAlbumPage::reload()
         if (!QDir(directory).exists()) directory = QStringLiteral(":/demo-album");
     }
     const QDir folder(directory);
-    if (purpose_ == Purpose::Avatar) {
-        for (const auto &avatar : basicAvatars()) {
-            auto *item = new QListWidgetItem(avatar.name, photos_);
-            item->setData(imageRole, avatar.image);
-            item->setData(Qt::DecorationRole, QPixmap::fromImage(avatar.image.scaled(
-                200, 200, Qt::KeepAspectRatio, Qt::SmoothTransformation)));
-        }
-    }
     const auto files = folder.entryInfoList(QDir::Files | QDir::Readable, QDir::Name);
     for (const auto &file : files) {
         if (!QStringList{"png", "jpg", "jpeg", "bmp", "webp"}.contains(file.suffix().toLower())) continue;
