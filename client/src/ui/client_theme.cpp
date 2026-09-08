@@ -102,6 +102,38 @@ QPixmap navigationPixmap(NavigationIcon icon,
         painter.drawPath(arrow);
         break;
     }
+    case NavigationIcon::Repair: {
+        QPainterPath wrench;
+        wrench.moveTo(39, 10);
+        wrench.cubicTo(26, 5, 19, 18, 24, 28);
+        wrench.lineTo(9, 43);
+        wrench.cubicTo(3, 50, 14, 61, 21, 54);
+        wrench.lineTo(37, 38);
+        wrench.cubicTo(49, 43, 60, 31, 54, 20);
+        wrench.lineTo(43, 30);
+        wrench.lineTo(34, 21);
+        wrench.closeSubpath();
+        painter.drawPath(wrench);
+        break;
+    }
+    case NavigationIcon::Tickets:
+        painter.drawRoundedRect(QRectF(10, 12, 44, 42), 5, 5);
+        painter.drawLine(QPointF(21, 23), QPointF(43, 23));
+        painter.drawLine(QPointF(21, 32), QPointF(34, 32));
+        painter.drawLine(QPointF(22, 42), QPointF(28, 47));
+        painter.drawLine(QPointF(28, 47), QPointF(42, 37));
+        break;
+    case NavigationIcon::ChevronRight:
+        painter.drawLine(QPointF(25, 15), QPointF(42, 32));
+        painter.drawLine(QPointF(42, 32), QPointF(25, 49));
+        break;
+    case NavigationIcon::Wallet:
+        painter.drawRoundedRect(QRectF(8, 16, 48, 37), 6, 6);
+        painter.drawLine(QPointF(12, 16), QPointF(43, 8));
+        painter.drawLine(QPointF(43, 8), QPointF(47, 16));
+        painter.drawRoundedRect(QRectF(37, 28, 19, 14), 3, 3);
+        painter.drawPoint(QPointF(44, 35));
+        break;
     }
 
     return pixmap;
@@ -448,6 +480,71 @@ QToolTip {
     background: #36523f;
     border: none;
     border-radius: 5px;
+}
+)QSS");
+}
+
+QString profileServicesStyleSheet()
+{
+    // Apply to the service card only, never the profile root or nested detail pages.
+    return QStringLiteral(R"QSS(
+QFrame#profileServicesCard {
+    background: #ffffff; border: 1px solid #e5e9e2; border-radius: 16px;
+}
+QFrame#profileServicesCard QFrame[role="profileDivider"] {
+    background: #e5e9e2; border: none;
+}
+QFrame#profileServicesCard QPushButton[role="profileService"] {
+    min-height: 50px; padding: 0 6px; background: transparent;
+    border: 1px solid transparent; border-radius: 10px; font-weight: 500;
+}
+QFrame#profileServicesCard QLabel {
+    color: #24372d; font-size: 14px; background: transparent; border: none;
+}
+QFrame#profileServicesCard QPushButton[role="profileService"]:hover { background: #f0f5ed; }
+QFrame#profileServicesCard QPushButton[role="profileService"]:pressed { background: #dfeadb; }
+QFrame#profileServicesCard QPushButton[role="profileService"]:focus { border-color: #6f927a; }
+)QSS");
+}
+
+QString profileWalletStyleSheet()
+{
+    return QStringLiteral(R"QSS(
+QFrame#profileWalletCard {
+    background: #ffffff; border: 1px solid #e5e9e2; border-radius: 16px;
+}
+QFrame#profileWalletCard QLabel { color: #24372d; background: transparent; border: none; }
+QFrame#profileWalletCard QLabel[role="profileSection"] { font-size: 14px; font-weight: 600; }
+QFrame#profileWalletCard QLabel#profileBalanceLabel { color: #365b44; }
+QFrame#profileWalletCard QPushButton, QFrame#profileWalletCard QLineEdit {
+    min-height: 38px; padding: 0 12px; border: 1px solid #e5e9e2; border-radius: 10px;
+    color: #24372d; background: #ffffff; font-size: 13px;
+    selection-background-color: #6f927a;
+}
+QFrame#profileWalletCard QPushButton:hover, QFrame#profileWalletCard QLineEdit:hover {
+    background: #f5f7f2; border-color: #a8bca9;
+}
+QFrame#profileWalletCard QPushButton:pressed { background: #dfeadb; }
+QFrame#profileWalletCard QPushButton:focus, QFrame#profileWalletCard QLineEdit:focus {
+    min-height: 36px; border: 2px solid #6f927a; padding: 0 11px;
+}
+QFrame#profileWalletCard QPushButton[rechargeAmount] {
+    min-height: 30px; padding: 0 4px; background: #f5f7f2; border-color: #e5e9e2; border-radius: 9px; font-weight: 500;
+}
+QFrame#profileWalletCard QPushButton[rechargeAmount]:checked {
+    color: #365b44; background: #eaf1e8; border-color: #6f927a; font-weight: 600;
+}
+QFrame#profileWalletCard QPushButton[rechargeAmount]:hover { background: #eaf1e8; border-color: #a8bca9; }
+QFrame#profileWalletCard QPushButton[rechargeAmount]:focus { min-height: 28px; padding: 0 3px; border: 2px solid #6f927a; }
+QFrame#profileWalletCard QPushButton#rechargeButton {
+    background: #6f927a; color: #ffffff; border-color: #6f927a;
+}
+QFrame#profileWalletCard QPushButton#rechargeButton:hover { background: #5e8169; border-color: #5e8169; }
+QFrame#profileWalletCard QPushButton:disabled, QFrame#profileWalletCard QLineEdit:disabled {
+    color: #93a097; background: #edf0e9; border-color: #e5e9e2;
+}
+QFrame#profileWalletCard QPushButton#rechargeButton:disabled {
+    color: #ffffff; background: #a6b9ab; border-color: #a6b9ab;
 }
 )QSS");
 }
