@@ -1,5 +1,6 @@
 #include "ui/login_page.h"
 #include "ui/charging_art.h"
+#include "ui/decorative_heading.h"
 
 #include <QFrame>
 #include <QHBoxLayout>
@@ -47,7 +48,8 @@ LoginPage::LoginPage(QWidget *parent)
     auto *headline = new QLabel(QStringLiteral("每一程，\n都满电出发。"), intro);
     headline->setStyleSheet(QStringLiteral("font-size: 32px; font-weight: 700; color: #203d33;"));
     introLayout->addWidget(wordmark);
-    introLayout->addWidget(headline);
+    introLayout->addWidget(new DecorativeHeading(headline, QStringLiteral("clover"),
+                                                104, -8, intro));
     introLayout->addWidget(new ChargingArt(ChargingArt::Scene::Welcome, intro));
     contentLayout->addWidget(intro);
 

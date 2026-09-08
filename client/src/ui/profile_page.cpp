@@ -1,4 +1,5 @@
 #include "ui/profile_page.h"
+#include "ui/decorative_heading.h"
 
 #include <QDoubleValidator>
 #include <QButtonGroup>
@@ -185,7 +186,8 @@ ProfilePage::ProfilePage(QWidget *parent)
     logoutButton_ = new QPushButton(QStringLiteral("退出登录"), content);
     logoutButton_->setObjectName(QStringLiteral("logoutButton"));
 
-    contentLayout->addWidget(heading);
+    contentLayout->addWidget(new DecorativeHeading(heading, QStringLiteral("plant"),
+                                                  66, 4, content));
     contentLayout->addWidget(identityCard);
     contentLayout->addWidget(walletCard);
     contentLayout->addWidget(profileCard);
