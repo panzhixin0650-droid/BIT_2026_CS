@@ -39,12 +39,10 @@ namespace charging::client {
 
 namespace {
 
-constexpr int navigationItemSize = 68;
-constexpr int navigationPadding = 12;
-constexpr int navigationBottomGap = 18;
+constexpr int navigationItemSize = 52;
+constexpr int navigationPadding = 6;
+constexpr int navigationBottomGap = 10;
 constexpr int navigationHeight = navigationItemSize + 2 * navigationPadding;
-constexpr int navigationShadowRadius = 13;
-constexpr int navigationShadowOffset = 3;
 
 class NavigationTabBar final : public QTabBar {
 public:
@@ -92,13 +90,13 @@ protected:
                 painter.drawControl(QStyle::CE_TabBarTabShape, option);
             }
             const QRect content = option.rect.adjusted(2, 0, -2, 0);
-            const QSize drawnIconSize(27, 27);
+            const QSize drawnIconSize(22, 22);
             QFont labelFont = painter.font();
-            labelFont.setPointSize(9);
+            labelFont.setPixelSize(11);
             labelFont.setWeight(selected ? QFont::DemiBold : QFont::Medium);
             painter.setFont(labelFont);
             const int labelHeight = painter.fontMetrics().height();
-            constexpr int iconTextGap = 4;
+            constexpr int iconTextGap = 3;
             const int groupHeight =
                 drawnIconSize.height() + iconTextGap + labelHeight;
             const int groupTop =
@@ -121,9 +119,9 @@ protected:
                                  content.width(),
                                  labelHeight + 1);
             const QColor textColor = !enabled ? QColor(QStringLiteral("#96a18e"))
-                : selected ? QColor(QStringLiteral("#245c45"))
-                           : hovered ? QColor(QStringLiteral("#245c45"))
-                                     : QColor(QStringLiteral("#697969"));
+                : selected ? QColor(QStringLiteral("#466b53"))
+                           : hovered ? QColor(QStringLiteral("#6f927a"))
+                                     : QColor(QStringLiteral("#718078"));
             painter.setPen(textColor);
             painter.drawText(textRect,
                              Qt::AlignHCenter | Qt::AlignTop,
@@ -155,27 +153,6 @@ protected:
             qMax(0, width() - 2 * (outerMargin + navigationPadding)));
     }
 
-    void paintEvent(QPaintEvent *event) override
-    {
-        QTabWidget::paintEvent(event);
-        if (!tabBar()->isVisible()) return;
-
-        // Paint the shadow below both children, respecting the original dirty
-        // region. A live effect on the sibling frame expands disjoint tab
-        // updates to their bounding rectangle and erases the clean tabs between.
-        QPainter painter(this);
-        painter.setRenderHint(QPainter::Antialiasing);
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(QColor(32, 61, 48, 2));
-        const QRectF frame = QRectF(navigationContainer_->geometry())
-                                 .translated(0, navigationShadowOffset);
-        for (int spread = navigationShadowRadius; spread > 0; --spread) {
-            const qreal radius = navigationHeight / 2.0 + spread;
-            painter.drawRoundedRect(frame.adjusted(-spread, -spread, spread, spread),
-                                    radius, radius);
-        }
-    }
-
     bool eventFilter(QObject *watched, QEvent *event) override
     {
         if (watched == tabBar()
@@ -185,9 +162,7 @@ protected:
             const QRect oldFrame = navigationContainer_->geometry();
             navigationContainer_->setGeometry(tabBar()->geometry().adjusted(
                 -navigationPadding, 0, navigationPadding, -navigationBottomGap));
-            const int shadowMargin = navigationShadowRadius + navigationShadowOffset;
-            update(oldFrame.united(navigationContainer_->geometry()).adjusted(
-                -shadowMargin, -shadowMargin, shadowMargin, shadowMargin));
+            update(oldFrame.united(navigationContainer_->geometry()));
         }
         return QTabWidget::eventFilter(watched, event);
     }
@@ -338,7 +313,7 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
     mainTabs_->setObjectName(QStringLiteral("mainNavigation"));
     mainTabs_->setTabPosition(QTabWidget::South);
     mainTabs_->setDocumentMode(true);
-    mainTabs_->setIconSize(QSize(27, 27));
+    mainTabs_->setIconSize(QSize(22, 22));
     mainTabs_->tabBar()->setExpanding(true);
     mainTabs_->tabBar()->setUsesScrollButtons(false);
 
@@ -383,6 +358,18 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
     mainTabs_->addTab(profilePage_,
                       clientNavigationIcon(NavigationIcon::Profile),
                       QStringLiteral("我的"));
+
+    connect(profilePage_, &ProfilePage::ordersRequested, this, [this] {
+        mainTabs_->setCurrentWidget(orderPage_);
+    });
+    connect(profilePage_, &ProfilePage::repairRequested, this, [this, ensureSupportDesk] {
+        ensureSupportDesk();
+        supportDesk_->openRepair({});
+    });
+    connect(profilePage_, &ProfilePage::ticketsRequested, this, [this, ensureSupportDesk] {
+        ensureSupportDesk();
+        supportDesk_->openTickets();
+    });
 
     pages_->addWidget(loginPage_);
     pages_->addWidget(mainTabs_);

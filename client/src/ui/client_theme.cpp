@@ -20,12 +20,7 @@ QPixmap navigationPixmap(NavigationIcon icon,
     painter.setRenderHint(QPainter::Antialiasing);
 
     QColor strokeColor = color;
-    if (icon == NavigationIcon::Scan) {
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(QColor(selected ? "#d5eab1" : "#245c45"));
-        painter.drawEllipse(QRectF(2, 2, 60, 60));
-        strokeColor = QColor(selected ? "#245c45" : "#ffffff");
-    }
+    Q_UNUSED(selected)
 
     QPen pen(strokeColor, 4.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
     painter.setPen(pen);
@@ -93,6 +88,38 @@ QPixmap navigationPixmap(NavigationIcon icon,
         painter.drawPath(arrow);
         break;
     }
+    case NavigationIcon::Repair: {
+        QPainterPath wrench;
+        wrench.moveTo(39, 10);
+        wrench.cubicTo(26, 5, 19, 18, 24, 28);
+        wrench.lineTo(9, 43);
+        wrench.cubicTo(3, 50, 14, 61, 21, 54);
+        wrench.lineTo(37, 38);
+        wrench.cubicTo(49, 43, 60, 31, 54, 20);
+        wrench.lineTo(43, 30);
+        wrench.lineTo(34, 21);
+        wrench.closeSubpath();
+        painter.drawPath(wrench);
+        break;
+    }
+    case NavigationIcon::Tickets:
+        painter.drawRoundedRect(QRectF(10, 12, 44, 42), 5, 5);
+        painter.drawLine(QPointF(21, 23), QPointF(43, 23));
+        painter.drawLine(QPointF(21, 32), QPointF(34, 32));
+        painter.drawLine(QPointF(22, 42), QPointF(28, 47));
+        painter.drawLine(QPointF(28, 47), QPointF(42, 37));
+        break;
+    case NavigationIcon::ChevronRight:
+        painter.drawLine(QPointF(25, 15), QPointF(42, 32));
+        painter.drawLine(QPointF(42, 32), QPointF(25, 49));
+        break;
+    case NavigationIcon::Wallet:
+        painter.drawRoundedRect(QRectF(8, 16, 48, 37), 6, 6);
+        painter.drawLine(QPointF(12, 16), QPointF(43, 8));
+        painter.drawLine(QPointF(43, 8), QPointF(47, 16));
+        painter.drawRoundedRect(QRectF(37, 28, 19, 14), 3, 3);
+        painter.drawPoint(QPointF(44, 35));
+        break;
     }
 
     return pixmap;
@@ -352,9 +379,9 @@ QTabWidget#mainNavigation::tab-bar {
 }
 
 QFrame#navigationContainer {
-    background: #fffefa;
-    border: 1px solid #dfe7da;
-    border-radius: 46px;
+    background: #ffffff;
+    border: 1px solid #e5e9e2;
+    border-radius: 20px;
 }
 
 QTabWidget#mainNavigation > QTabBar {
@@ -367,21 +394,21 @@ QTabWidget#mainNavigation > QTabBar {
 QTabWidget#mainNavigation QTabBar::tab {
     padding: 0;
     margin: 0;
-    color: #697969;
+    color: #718078;
     background: transparent;
     border: none;
-    border-radius: 18px;
+    border-radius: 12px;
     font-weight: 500;
 }
 
 QTabWidget#mainNavigation QTabBar::tab:hover {
-    color: #245c45;
+    color: #6f927a;
 }
 
 QTabWidget#mainNavigation QTabBar::tab:selected {
-    color: #245c45;
-    background: #e8f1df;
-    border: 1px solid #d5e3cb;
+    color: #466b53;
+    background: #eaf1e8;
+    border: none;
     font-weight: 700;
 }
 
@@ -407,6 +434,82 @@ QToolTip {
     border: none;
     border-radius: 5px;
 }
+
+)QSS");
+}
+
+QString profileThemeStyleSheet()
+{
+    // Keep Profile rules local so unrelated pages do not inherit their style metrics.
+    return QStringLiteral(R"QSS(
+QWidget#profilePage, QWidget#profileScrollContent, QWidget#profileContent {
+    background: #f7f8f3;
+    color: #24372d;
+}
+QWidget#profilePage QLabel { color: #24372d; }
+QWidget#profilePage QLabel[role="profileSecondary"] { color: #718078; font-size: 12px; }
+QWidget#profilePage QLabel[role="profileSection"] { font-size: 14px; font-weight: 600; }
+QWidget#profilePage QFrame[role="card"] {
+    background: #ffffff; border: 1px solid #e5e9e2; border-radius: 16px;
+}
+QWidget#profilePage QFrame#profileIdentityCard {
+    background: #eaf1e8; border: none;
+}
+QWidget#profilePage QLabel#profileAvatar {
+    background: #dce9b5; color: #466b53; border-radius: 34px; font-size: 16px; font-weight: 600;
+}
+QWidget#profilePage QLabel#profileBalanceLabel { color: #365b44; }
+QWidget#profilePage QWidget#profileEditor { background: transparent; }
+QWidget#profilePage QFrame[role="profileDivider"] { background: #e5e9e2; border: none; }
+QWidget#profilePage QPushButton, QWidget#profilePage QLineEdit {
+    min-height: 38px; padding: 0 12px; border: 1px solid #e5e9e2; border-radius: 10px;
+    color: #24372d; background: #ffffff; font-size: 13px;
+    selection-background-color: #6f927a;
+}
+QWidget#profilePage QPushButton:hover, QWidget#profilePage QLineEdit:hover {
+    background: #f5f7f2; border-color: #a8bca9;
+}
+QWidget#profilePage QPushButton:pressed { background: #dfeadb; }
+QWidget#profilePage QPushButton:focus, QWidget#profilePage QLineEdit:focus {
+    min-height: 36px; border: 2px solid #6f927a; padding: 0 11px;
+}
+QWidget#profilePage QPushButton[rechargeAmount] {
+    min-height: 30px; padding: 0 4px; background: #f5f7f2; border-color: #e5e9e2; border-radius: 9px; font-weight: 500;
+}
+QWidget#profilePage QPushButton[rechargeAmount]:checked {
+    color: #365b44; background: #eaf1e8; border-color: #6f927a; font-weight: 600;
+}
+QWidget#profilePage QPushButton[rechargeAmount]:hover { background: #eaf1e8; border-color: #a8bca9; }
+QWidget#profilePage QPushButton[rechargeAmount]:focus { min-height: 28px; padding: 0 3px; border: 2px solid #6f927a; }
+QWidget#profilePage QPushButton#rechargeButton {
+    background: #6f927a; color: #ffffff; border-color: #6f927a;
+}
+QWidget#profilePage QPushButton#rechargeButton:hover { background: #5e8169; border-color: #5e8169; }
+QWidget#profilePage QPushButton#saveNicknameButton {
+    background: #eaf1e8; color: #466b53; border-color: #dce5d8;
+}
+QWidget#profilePage QPushButton#saveNicknameButton:hover { background: #dce9d8; }
+QWidget#profilePage QPushButton:disabled, QWidget#profilePage QLineEdit:disabled {
+    color: #93a097; background: #edf0e9; border-color: #e5e9e2;
+}
+QWidget#profilePage QPushButton#rechargeButton:disabled {
+    color: #ffffff; background: #a6b9ab; border-color: #a6b9ab;
+}
+QWidget#profilePage QPushButton#saveNicknameButton:disabled {
+    color: #93a097; background: #edf0e9; border-color: #e5e9e2;
+}
+QWidget#profilePage QPushButton:flat, QWidget#profilePage QPushButton[role="profileService"] {
+    min-height: 30px; padding: 0 6px; background: transparent; border: 1px solid transparent;
+    color: #718078; font-weight: 500;
+}
+QWidget#profilePage QPushButton[role="profileService"] { min-height: 50px; }
+QWidget#profilePage QPushButton[role="profileService"] QLabel { font-size: 14px; }
+QWidget#profilePage QPushButton:flat:hover,
+QWidget#profilePage QPushButton[role="profileService"]:hover { background: #f0f5ed; }
+QWidget#profilePage QPushButton:flat:focus,
+QWidget#profilePage QPushButton[role="profileService"]:focus { border: 1px solid #6f927a; }
+QWidget#profilePage QPushButton#logoutButton { min-height: 34px; color: #718078; }
+QWidget#profilePage QPushButton#logoutButton:hover { color: #a5564e; background: #f7eeeb; }
 )QSS");
 }
 
@@ -414,17 +517,17 @@ QIcon clientNavigationIcon(NavigationIcon icon)
 {
     QIcon result;
     result.addPixmap(navigationPixmap(icon,
-                                      QColor(QStringLiteral("#697969")),
+                                      QColor(QStringLiteral("#718078")),
                                       false),
                      QIcon::Normal,
                      QIcon::Off);
     result.addPixmap(navigationPixmap(icon,
-                                      QColor(QStringLiteral("#245c45")),
+                                      QColor(QStringLiteral("#6f927a")),
                                       false),
                      QIcon::Active,
                      QIcon::Off);
     result.addPixmap(navigationPixmap(icon,
-                                      QColor(QStringLiteral("#245c45")),
+                                      QColor(QStringLiteral("#466b53")),
                                       true),
                      QIcon::Selected,
                      QIcon::Off);

@@ -23,6 +23,9 @@ public:
     void showMessage(const QString &message, bool error = false);
 
 signals:
+    void ordersRequested();
+    void repairRequested();
+    void ticketsRequested();
     void refreshRequested();
     void nicknameUpdateRequested(const QString &nickname);
     void rechargeRequested(const QString &amountYuan);

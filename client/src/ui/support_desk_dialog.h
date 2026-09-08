@@ -25,6 +25,7 @@ public:
                       QWidget *parent = nullptr);
     void openDesk(const QList<AssistantTurn> &history = {});
     void openRepair(const QString &pileCode);
+    void openTickets();
     void resetSession();
 signals:
     void invalidSession(const QString &message);

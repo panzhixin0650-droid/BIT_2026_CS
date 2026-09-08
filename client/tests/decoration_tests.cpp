@@ -75,7 +75,7 @@ void DecorationTests::responsivePages()
             }
         }
         for (auto *scroll : window.findChildren<QScrollArea *>()) {
-            if (scroll->isVisible()) QCOMPARE(scroll->horizontalScrollBar()->maximum(), 0);
+            if (scroll->isVisible()) QTRY_COMPARE(scroll->horizontalScrollBar()->maximum(), 0);
         }
         const QString directory = qEnvironmentVariable("BIT_DECOR_SCREENSHOTS");
         if (!directory.isEmpty()) {

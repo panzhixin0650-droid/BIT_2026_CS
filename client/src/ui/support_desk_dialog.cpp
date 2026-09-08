@@ -294,6 +294,12 @@ void SupportDeskDialog::openDesk(const QList<AssistantTurn> &history)
     show(); raise(); activateWindow();
 }
 
+void SupportDeskDialog::openTickets()
+{
+    openDesk();
+    tabs_->setCurrentIndex(2);
+}
+
 void SupportDeskDialog::send()
 {
     const auto question = input_->toPlainText().trimmed();
