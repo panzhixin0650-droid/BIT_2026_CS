@@ -9,6 +9,7 @@
 
 class QStackedWidget;
 class QTabWidget;
+class QPushButton;
 
 namespace charging::client {
 
@@ -50,6 +51,7 @@ private:
                     const AssistantConfig &assistantConfig = {});
     void showAuthenticatedHome(const protocol::UserDto &user, bool isNewUser);
     void showLoginPage(const QString &message = {});
+    void updateAccountHeader(const protocol::UserDto &user);
 
     QStackedWidget *pages_ = nullptr;
     LoginPage *loginPage_ = nullptr;
@@ -64,6 +66,11 @@ private:
     AssistantService *assistantService_ = nullptr;
     SupportPage *supportPage_ = nullptr;
     SupportDeskPage *supportDesk_ = nullptr;
+    SupportDeskPage *repairPage_ = nullptr;
+    SupportDeskPage *ticketsPage_ = nullptr;
+    QPushButton *headerAccount_ = nullptr;
+    QPushButton *headerRefresh_ = nullptr;
+    bool authenticated_ = false;
     ProfilePage *profilePage_ = nullptr;
     PhotoAlbumPage *avatarAlbum_ = nullptr;
     LoginController *loginController_ = nullptr;

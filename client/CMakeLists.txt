@@ -117,6 +117,7 @@ add_library(charging_client_ui STATIC
     src/ui/station_browser_controller.h
     src/ui/station_browser_page.cpp
     src/ui/station_browser_home.cpp
+    src/ui/station_browser_discovery.cpp
     src/ui/station_browser_page.h
     src/ui/station_map_view.cpp
     src/ui/station_map_view.h
