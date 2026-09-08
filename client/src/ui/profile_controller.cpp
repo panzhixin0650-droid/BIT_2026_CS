@@ -26,7 +26,7 @@ ProfileController::ProfileController(ProfilePage &page,
             &ProfileController::updateNickname);
     connect(&page_, &ProfilePage::rechargeRequested, this, &ProfileController::recharge);
     connect(&page_, &ProfilePage::avatarImageSelected,
-            this, &ProfileController::saveAvatar);
+            this, qOverload<const QImage &>(&ProfileController::saveAvatar));
     connect(&page_, qOverload<const QString &>(&ProfilePage::avatarSelected),
             this, qOverload<const QString &>(&ProfileController::saveAvatar));
     connect(&page_, &ProfilePage::logoutRequested, this, &ProfileController::logout);
