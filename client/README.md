@@ -563,6 +563,11 @@ ctest --test-dir build/client -R 'charging_client_(station_map|map|navigation)_t
 `xvfb-run -a ctest --test-dir build/client --output-on-failure`。
 不要强制该测试使用 Qt 6.2 的 `offscreen` 软件渲染：重载地图时可能在 Qt Quick 场景图内崩溃。
 
+VMware 下可对使用 SDK 替身的 Xvfb 测试设置 `LIBGL_ALWAYS_SOFTWARE=1`，但不要把这个
+测试参数默认带入真实腾讯地图客户端。本机 Qt WebEngine 会屏蔽该软件渲染器的 WebGL，
+日志出现 `WebGL1/2 blocklisted`，页面提示地图绘制失败。遇到该情况先移除这个变量，
+以正常桌面图形配置启动，再验证真实底图与站点标记；替身测试通过不能证明 WebGL 可用。
+
 导航测试会用本机 HTTP SDK 替身执行自有 HTML，检查缩放上下限、
 显示全程、地图实例复用、跨入口恢复、分类错误、显式重载和尺寸变化。测试不读取真实
 Key，不访问腾讯；同时覆盖站点 Marker/位置、点击桥接与冒泡、选中状态、筛选后更新、
