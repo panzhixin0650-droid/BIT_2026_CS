@@ -144,6 +144,7 @@ MockChargingApi::MockChargingApi(QObject *parent, Clock clock)
     auto *timer = new QTimer(this);
     connect(timer, &QTimer::timeout, this, [this] {
         const auto now = nowUtc();
+        expireDueReservations(now);
         const auto ids = ordersById_.keys();
         for (auto id : ids) {
             const auto order = ordersById_.value(id);
@@ -154,6 +155,22 @@ MockChargingApi::MockChargingApi(QObject *parent, Clock clock)
     });
     timer->start(1000);
 
+}
+
+void MockChargingApi::expireDueReservations(const QDateTime &now)
+{
+    if (!now.isValid()) return;
+    for (auto &order : ordersById_) {
+        if (order.status != protocol::OrderStatus::Reserved || !order.reservedAt) continue;
+        const auto reserved = QDateTime::fromString(*order.reservedAt, Qt::ISODate);
+        if (!reserved.isValid() || reserved.addSecs(protocol::DemoReservationDurationSeconds) > now)
+            continue;
+        auto pile = pilesByCode_.find(order.pileCode);
+        if (pile == pilesByCode_.end() || pile->pileId != order.pileId
+            || pile->status != protocol::PileStatus::Reserved) continue;
+        order.status = protocol::OrderStatus::Cancelled;
+        pile->status = protocol::PileStatus::Idle;
+    }
 }
 
 QString MockChargingApi::loginUser(const QString &phone)
@@ -340,6 +357,7 @@ QString MockChargingApi::listStations(const StationQuery &query)
     const QString requestId = nextRequestId();
 
     QTimer::singleShot(0, this, [this, requestId, query]() {
+        expireDueReservations(nowUtc());
         StationListResult result;
         if (!authenticatedUser().has_value()) {
             result.response = response(requestId,
@@ -432,6 +450,7 @@ QString MockChargingApi::getStation(qint64 stationId)
     const QString requestId = nextRequestId();
 
     QTimer::singleShot(0, this, [this, requestId, stationId]() {
+        expireDueReservations(nowUtc());
         StationDetailResult result;
         if (!authenticatedUser().has_value()) {
             result.response = response(requestId,
@@ -478,6 +497,7 @@ QString MockChargingApi::getCurrentOrder()
     const QString requestId = nextRequestId();
 
     QTimer::singleShot(0, this, [this, requestId]() {
+        expireDueReservations(nowUtc());
         CurrentOrderResult result;
         const auto user = authenticatedUser();
         if (!user.has_value()) {
@@ -509,6 +529,7 @@ QString MockChargingApi::listOrders()
     const QString requestId = nextRequestId();
 
     QTimer::singleShot(0, this, [this, requestId]() {
+        expireDueReservations(nowUtc());
         OrderListResult result;
         const auto user = authenticatedUser();
         if (!user.has_value()) {
@@ -549,6 +570,7 @@ QString MockChargingApi::reserve(const QString &pileCode)
     const QString requestId = nextRequestId();
 
     QTimer::singleShot(0, this, [this, requestId, pileCode]() {
+        expireDueReservations(nowUtc());
         OrderResult result;
         const auto user = authenticatedUser();
         if (!user.has_value()) {
@@ -635,6 +657,7 @@ QString MockChargingApi::cancel(qint64 orderId)
     const QString requestId = nextRequestId();
 
     QTimer::singleShot(0, this, [this, requestId, orderId]() {
+        expireDueReservations(nowUtc());
         OrderResult result;
         const auto user = authenticatedUser();
         if (!user.has_value()) {
@@ -697,6 +720,8 @@ QString MockChargingApi::startCharging(
 
     QTimer::singleShot(0, this,
         [this, requestId, pileCode, reservationOrderId]() {
+            const QDateTime startedAt = nowUtc();
+            expireDueReservations(startedAt);
             OrderResult result;
             const auto user = authenticatedUser();
             if (!user.has_value()) {
@@ -728,7 +753,6 @@ QString MockChargingApi::startCharging(
 
             protocol::PileDto pile = pilesByCode_.value(normalizedPileCode);
             protocol::OrderDto order;
-            const QDateTime startedAt = nowUtc();
             const QString now = startedAt.toString(Qt::ISODate);
             const auto price = chargingUnitPriceCents(station(pile.stationId).priceCentsPerKwh,
                                                      startedAt);

@@ -189,6 +189,7 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/../client/src
     )
     target_compile_definitions(charging_order_flow_tests PRIVATE
+            CHARGING_RESERVATION_FIXTURE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../contracts/examples/reservation-timeout.local.json"
             CHARGING_PEAK_FIXTURE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../contracts/examples/demo-peak-pricing.local.json"
             CHARGING_SQLITE3_EXECUTABLE="${SQLITE3_EXECUTABLE}"
             CHARGING_DATABASE_MIGRATION_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../database/migrations/001_initial_demo.sql"

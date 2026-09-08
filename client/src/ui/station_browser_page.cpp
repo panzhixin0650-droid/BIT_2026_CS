@@ -1,4 +1,5 @@
 #include "ui/station_browser_page.h"
+#include "ui/reservation_hint.h"
 
 #include "ui/charging_stop_dialog.h"
 #include "ui/station_map_view.h"
@@ -559,6 +560,12 @@ void StationBrowserPage::showCurrentOrder(
     currentOrderToggle_->setText(QStringLiteral("ϟ 当前%1 · %2  ›")
         .arg(orderStatusText(order->status), order->stationName));
     currentOrderToggle_->setToolTip(currentOrderToggle_->text());
+    if (order->status == protocol::OrderStatus::Reserved) {
+        currentOrderSummaryLabel_->setText(currentOrderSummaryLabel_->text()
+                                           + QChar('\n') + reservationHint(*order));
+        currentOrderToggle_->setToolTip(currentOrderToggle_->text()
+                                        + QChar('\n') + reservationHint(*order));
+    }
     cancelOrderButton_->setProperty("orderId", order->orderId);
     currentOrderNavigationButton_->setProperty("stationId", order->stationId);
     reservationScanButton_->setProperty("pileCode", order->pileCode);

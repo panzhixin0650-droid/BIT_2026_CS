@@ -92,6 +92,71 @@ private:
         emit api.loginCompleted(result);
     }
 private slots:
+    void expiredReservationNeverFallsBackToDirectStart_data() {
+        QTest::addColumn<bool>("expiresDuringStart");
+        QTest::newRow("gone-at-current-check") << false;
+        QTest::newRow("expires-after-check-before-start") << true;
+    }
+
+    void expiredReservationNeverFallsBackToDirectStart() {
+        QFETCH(bool, expiresDuringStart);
+        DeferredApi api;
+        ChargingPage page;
+        page.show();
+        ChargingController controller(page, api);
+        QSignalSpy released(&controller, &ChargingController::reservationReleased);
+        controller.activate();
+        auto current = api.reply<CurrentOrderResult>("order.current");
+        protocol::OrderDto reservation;
+        reservation.orderId = 18; reservation.stationId = 1;
+        reservation.pileCode = "PILE-A-01";
+        reservation.stationName = QStringLiteral("浑南演示充电站");
+        reservation.mode = protocol::OrderMode::Reservation;
+        reservation.status = protocol::OrderStatus::Reserved;
+        reservation.reservedAt = "2026-09-08T15:45:00Z";
+        current.payload->order = reservation;
+        emit api.currentOrderCompleted(current);
+        auto quote = api.reply<StationDetailResult>("station.detail");
+        quote.payload->station.stationId = 1;
+        quote.payload->station.priceCentsPerKwh = 135;
+        protocol::PileDto pile; pile.stationId = 1; pile.pileCode = "PILE-A-01";
+        quote.payload->piles = {pile};
+        emit api.stationDetailCompleted(quote);
+        auto *hint = page.findChild<QLabel *>("chargingReservationHint");
+        QVERIFY(hint && hint->isVisible());
+        QVERIFY(hint->text().contains(QStringLiteral("09-09 00:15:00")));
+        QVERIFY(hint->text().contains(QStringLiteral("不扣费")));
+        auto *start = page.findChild<QPushButton *>("chargingStartButton");
+        QVERIFY(start->isEnabled()); start->click();
+        auto checked = api.reply<CurrentOrderResult>("order.current");
+        if (expiresDuringStart) checked.payload->order = reservation;
+        emit api.currentOrderCompleted(checked);
+        if (expiresDuringStart) {
+            QCOMPARE(api.calls["order.start"], 1);
+            emit api.chargingStartCompleted(api.reply<OrderResult>(
+                "order.start", protocol::ErrorCode::IllegalOrderState));
+            emit api.currentOrderCompleted(api.reply<CurrentOrderResult>("order.current"));
+        }
+        QCOMPARE(api.calls["order.start"], expiresDuringStart ? 1 : 0);
+        QVERIFY(!start->isEnabled());
+        QCOMPARE(api.calls["order.list"], 1);
+        auto history = api.reply<OrderListResult>("order.list");
+        reservation.status = protocol::OrderStatus::Cancelled;
+        history.payload->items = {reservation};
+        emit api.orderListCompleted(history);
+        QCOMPARE(released.count(), 1);
+        QVERIFY(!start->isVisible());
+        QVERIFY(!hint->isVisible());
+        QCOMPARE(page.findChild<QLabel *>("chargingState")->text(), QStringLiteral("预约已取消"));
+        controller.refresh();
+        emit api.currentOrderCompleted(api.reply<CurrentOrderResult>("order.current"));
+        QCOMPARE(released.count(), 1);
+        QCOMPARE(api.calls["order.start"], expiresDuringStart ? 1 : 0);
+        controller.reset();
+        emit api.orderListCompleted(history);
+        QVERIFY(page.pileCode().isEmpty());
+    }
+
     void chargingQuoteRejectsStaleResponsesAndUsesLockedApiPrice() {
         DeferredApi api;
         ChargingPage page;

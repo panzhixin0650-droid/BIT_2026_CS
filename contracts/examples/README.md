@@ -47,6 +47,12 @@ Responses 请求及成功/失败事件，**不是 TCP 请求/响应**，不包�
 
 ## 独立失败场景
 
+预约超时增量：[reservation-timeout.local.json](reservation-timeout.local.json) 为服务端
+与客户端 Mock 共用的固定时钟测试（不是 TCP 消息）。到期后 `order.current` 使用
+现有 empty 响应，`order.list` 中该单为 CANCELLED（DTO 与 `order-cancel.response.json`
+一致，不能据此区分手动或自动取消）。`order-start.expired.*.json` 表示预约已过截止时间
+后继续带原 ID 启动，被按既有状态规则拒绝，不新建直接订单。
+
 以下 fixture 各自依赖独立前置状态，不应插入上面的成功链路：
 
 - `station-list.invalid-session.*.json`：请求缺少 token，返回 `40101 INVALID_SESSION`。

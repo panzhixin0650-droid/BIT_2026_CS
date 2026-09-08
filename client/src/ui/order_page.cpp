@@ -1,4 +1,5 @@
 #include "ui/order_page.h"
+#include "ui/reservation_hint.h"
 
 #include "ui/charging_stop_dialog.h"
 
@@ -542,6 +543,9 @@ void OrderPage::showOrderDetail(qint64 orderId)
     if (order.reservedAt.has_value()) {
         appendDetail(QStringLiteral("预约时间"),
                      formatDateTime(*order.reservedAt));
+    }
+    if (order.status == protocol::OrderStatus::Reserved) {
+        appendDetail(QStringLiteral("赴约提示"), reservationHint(order));
     }
     if (order.startedAt.has_value()) {
         appendDetail(QStringLiteral("开始时间"),

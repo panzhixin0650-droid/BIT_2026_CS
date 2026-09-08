@@ -4,6 +4,7 @@
 
 namespace charging::protocol {
 inline constexpr int DemoChargingDurationSeconds = 180;
+inline constexpr int DemoReservationDurationSeconds = 30 * 60;
 inline constexpr auto DemoPeakPricingRule = "DEMO_PEAK_START_V1";
 
 inline constexpr int kProtocolVersion = 1;
