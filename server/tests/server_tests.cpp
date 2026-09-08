@@ -41,6 +41,7 @@ private slots:
     void adminStationDisableEnforcesPileSafety();
     void adminCannotFreezeUserWithCurrentOrder();
     void adminAccountsSupportRolesScopesAndPasswordChanges();
+    void adminPasswordsAllowSixDigitsAndEnforceBoundaries();
     void rolePermissionsAreEnforcedByTheService();
 };
 
@@ -504,6 +505,31 @@ void ServerTests::adminAccountsSupportRolesScopesAndPasswordChanges()
              ErrorCode::InvalidCredentials);
     QCOMPARE(facade.login(QStringLiteral("admin"), QStringLiteral("newpassword8")).code,
              ErrorCode::Ok);
+}
+
+void ServerTests::adminPasswordsAllowSixDigitsAndEnforceBoundaries()
+{
+    ServiceFixture fixture;
+    AdminFacade system(&fixture.service), account(&fixture.service);
+    QVERIFY(system.login("admin", "123456").ok());
+    QJsonObject input{{"username", "six_digit_admin"}, {"displayName", "Six digit account"},
+                      {"initialPassword", "12345"}, {"role", "USER_ADMIN"}, {"stationIds", QJsonArray{}}};
+    QCOMPARE(system.createAdmin(input).code, ErrorCode::InvalidRequest);
+    input["initialPassword"] = QString(129, '1');
+    QCOMPARE(system.createAdmin(input).code, ErrorCode::InvalidRequest);
+    input["initialPassword"] = "123456";
+    QVERIFY(system.createAdmin(input).ok());
+    QVERIFY(account.login("six_digit_admin", "123456").ok());
+    QCOMPARE(account.changePassword("123456", "12345").code, ErrorCode::InvalidRequest);
+    QCOMPARE(account.changePassword("123456", QString(129, '2')).code, ErrorCode::InvalidRequest);
+    QCOMPARE(account.changePassword("123456", "123456").code, ErrorCode::InvalidRequest);
+    QCOMPARE(account.changePassword("wrong1", "654321").code, ErrorCode::InvalidCredentials);
+    QVERIFY(account.changePassword("123456", "654321").ok());
+    QCOMPARE(account.currentAdmin().code, ErrorCode::InvalidSession);
+    QCOMPARE(account.login("six_digit_admin", "123456").code, ErrorCode::InvalidCredentials);
+    QVERIFY(account.login("six_digit_admin", "654321").ok());
+    QVERIFY(account.changePassword("654321", QString(128, '3')).ok());
+    QVERIFY(account.login("six_digit_admin", QString(128, '3')).ok());
 }
 
 void ServerTests::rolePermissionsAreEnforcedByTheService()

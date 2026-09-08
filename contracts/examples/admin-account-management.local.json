@@ -20,7 +20,7 @@
   "createStationAdmin": {
     "input": {
       "username": "station.demo",
-      "initialPassword": "Initial-123",
+      "initialPassword": "123456",
       "displayName": "一号站管理员",
       "role": "STATION_ADMIN",
       "stationIds": [1]
@@ -40,8 +40,8 @@
   },
   "changePassword": {
     "input": {
-      "currentPassword": "Initial-123",
-      "newPassword": "Changed-456"
+      "currentPassword": "123456",
+      "newPassword": "654321"
     },
     "result": {
       "changed": true,
