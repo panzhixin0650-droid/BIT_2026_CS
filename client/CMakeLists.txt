@@ -49,6 +49,9 @@ target_link_libraries(charging_client_api
 )
 
 add_library(charging_client_ui STATIC
+    resources/album_resources.qrc
+    src/ui/photo_album_page.cpp
+    src/ui/photo_album_page.h
     resources/decorations.qrc
     src/ui/decorative_heading.cpp
     src/ui/decorative_heading.h
@@ -128,6 +131,9 @@ target_include_directories(charging_client_ui
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
 
+target_compile_definitions(charging_client_ui PRIVATE
+    CHARGING_DEMO_ALBUM_DIR="${CMAKE_CURRENT_SOURCE_DIR}/demo-album")
+
 target_link_libraries(charging_client_ui
     PUBLIC
         charging_client_api
@@ -150,11 +156,7 @@ if(CHARGING_CLIENT_ENABLE_SCANNER)
     find_library(ZBAR_LIBRARY NAMES zbar REQUIRED)
     target_sources(charging_client_ui PRIVATE
         src/local/qr_decoder.cpp src/local/qr_decoder.h
-        src/ui/qr_scan_dialog.cpp src/ui/qr_scan_dialog.h
-        src/ui/photo_album_page.cpp src/ui/photo_album_page.h
-        resources/album_resources.qrc)
-    target_compile_definitions(charging_client_ui PRIVATE
-        CHARGING_DEMO_ALBUM_DIR="${CMAKE_CURRENT_SOURCE_DIR}/demo-album")
+        src/ui/qr_scan_dialog.cpp src/ui/qr_scan_dialog.h)
     target_include_directories(charging_client_ui PRIVATE ${ZBAR_INCLUDE_DIR})
     target_link_libraries(charging_client_ui PUBLIC Qt6::Multimedia PRIVATE ${ZBAR_LIBRARY})
     target_compile_definitions(charging_client_ui PUBLIC CHARGING_CLIENT_HAS_SCANNER=1)

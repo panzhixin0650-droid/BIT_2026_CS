@@ -14,7 +14,9 @@ namespace charging::client {
 class PhotoAlbumPage final : public QWidget {
     Q_OBJECT
 public:
-    explicit PhotoAlbumPage(QWidget *parent = nullptr, const QString &directory = {});
+    enum class Purpose { QrCode, Avatar };
+    explicit PhotoAlbumPage(QWidget *parent = nullptr, const QString &directory = {},
+                            Purpose purpose = Purpose::QrCode);
     void reload();
 signals:
     void imageSelected(const QString &path);
@@ -28,6 +30,7 @@ private:
     void showPreview();
     void updatePreview();
     QString directory_;
+    Purpose purpose_;
     QStackedWidget *pages_;
     QListWidget *photos_;
     QLabel *count_, *selection_, *empty_, *preview_;

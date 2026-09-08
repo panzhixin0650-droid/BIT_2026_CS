@@ -3,7 +3,6 @@
 
 #include <QDoubleValidator>
 #include <QButtonGroup>
-#include <QFileDialog>
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -203,16 +202,7 @@ ProfilePage::ProfilePage(QWidget *parent)
     pageLayout->addWidget(scrollArea);
 
     connect(refreshButton_, &QPushButton::clicked, this, &ProfilePage::refreshRequested);
-    connect(changeAvatarButton, &QPushButton::clicked, this, [this]() {
-        const QString sourcePath = QFileDialog::getOpenFileName(
-            this,
-            QStringLiteral("选择头像"),
-            {},
-            QStringLiteral("图片文件 (*.png *.jpg *.jpeg *.bmp *.webp)"));
-        if (!sourcePath.isEmpty()) {
-            emit avatarSelected(sourcePath);
-        }
-    });
+    connect(changeAvatarButton, &QPushButton::clicked, this, &ProfilePage::avatarSelectionRequested);
     connect(saveNicknameButton_, &QPushButton::clicked, this, [this]() {
         emit nicknameUpdateRequested(nicknameInput_->text());
     });

@@ -7,6 +7,15 @@
 #include "ui/station_browser_page.h"
 #include "ui/support_page.h"
 #include "ui/support_desk_page.h"
+#include "ui/photo_album_page.h"
+#include "ui/profile_page.h"
+#include "local/avatar_storage.h"
+#include <QFile>
+#include <QListWidget>
+#include <QScopeGuard>
+#include <QSettings>
+#include <QStandardPaths>
+#include <QUuid>
 #include <QPlainTextEdit>
 #include <QSignalSpy>
 
@@ -66,6 +75,7 @@ private slots:
     void logoutReturnsToLoginPage();
     void scanRepairSubmitsToSharedTickets();
     void supportDeskUsesInAppPageAndPreservesDraft();
+    void profileAvatarUsesSharedAlbum();
 };
 
 namespace {
@@ -151,6 +161,71 @@ void MainWindowTests::supportDeskUsesInAppPageAndPreservesDraft()
     back->click();
     QCOMPARE(pages->currentWidget(),tabs); QCOMPARE(tabs->currentIndex(),1);
     QCOMPARE(created.count(),0);
+}
+
+void MainWindowTests::profileAvatarUsesSharedAlbum()
+{
+    const auto originalName = QCoreApplication::applicationName();
+    const auto originalOrganization = QCoreApplication::organizationName();
+    QCoreApplication::setOrganizationName("BITAlbumTests");
+    QCoreApplication::setApplicationName("avatar-album-test-" + QUuid::createUuid().toString(QUuid::WithoutBraces));
+    const auto dataDirectory = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    const auto cleanup = qScopeGuard([&] {
+        QSettings settings;
+        settings.clear(); settings.sync();
+        QFile::remove(settings.fileName());
+        if (!dataDirectory.isEmpty()) QDir(dataDirectory).removeRecursively();
+        QCoreApplication::setApplicationName(originalName);
+        QCoreApplication::setOrganizationName(originalOrganization);
+    });
+    MockChargingApi api;
+    MainWindow window(api); window.resize(360,640); window.show();
+    loginFixtureUser(window);
+    auto *tabs = window.findChild<QTabWidget *>("mainNavigation");
+    auto *pages = window.findChild<QStackedWidget *>("applicationPages");
+    tabs->setCurrentIndex(4);
+    auto *profile = window.findChild<ProfilePage *>();
+    auto *avatar = profile->findChild<QLabel *>("profileAvatar");
+    auto *change = profile->findChild<QPushButton *>("changeAvatarButton");
+    QSignalSpy selected(profile, &ProfilePage::avatarSelected);
+    change->click();
+    auto *album = window.findChild<PhotoAlbumPage *>();
+    QVERIFY(album && !album->isWindow());
+    QCOMPARE(pages->currentWidget(), album);
+    auto *photos = album->findChild<QListWidget *>("albumPhotos");
+    auto *confirm = album->findChild<QPushButton *>("albumConfirm");
+    auto *back = album->findChild<QPushButton *>("albumBack");
+    QCOMPARE(photos->count(), 9);
+    QVERIFY(!confirm->isEnabled());
+    const auto coffee = photos->findItems("sample-coffee", Qt::MatchExactly);
+    QCOMPARE(coffee.size(), 1);
+    photos->setCurrentItem(coffee.first());
+    const auto sourcePath = coffee.first()->data(Qt::UserRole).toString();
+    QCOMPARE(confirm->text(), QStringLiteral("设为头像"));
+    album->findChild<QPushButton *>("albumPreview")->click();
+    QVERIFY(!album->findChild<QLabel *>("albumPreviewImage")->pixmap(Qt::ReturnByValue).isNull());
+    QCOMPARE(selected.count(), 0);
+    back->click(); // Return from preview without applying it.
+    QCOMPARE(pages->currentWidget(), album);
+    confirm->click();
+    QCOMPARE(pages->currentWidget(), tabs);
+    QCOMPARE(tabs->currentIndex(), 4);
+    QCOMPARE(selected.count(), 1);
+    QCOMPARE(selected.first().first().toString(), sourcePath);
+    QVERIFY2(!avatar->pixmap(Qt::ReturnByValue).isNull(),
+             qPrintable(profile->findChild<QLabel *>("profileMessageLabel")->text()));
+    AvatarStorage storage;
+    const auto savedPath = storage.avatarPath("1:13800000001");
+    const QImage saved(savedPath);
+    QVERIFY(!saved.isNull());
+    QVERIFY(saved.width() <= 512 && saved.height() <= 512);
+    change->click();
+    QVERIFY(!confirm->isEnabled());
+    photos->setCurrentRow(0);
+    back->click();
+    QCOMPARE(pages->currentWidget(), tabs);
+    QCOMPARE(selected.count(), 1);
+    QCOMPARE(QImage(savedPath), saved);
 }
 
 void MainWindowTests::scanRepairSubmitsToSharedTickets()

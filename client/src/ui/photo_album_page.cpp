@@ -79,8 +79,8 @@ public:
 };
 } // namespace
 
-PhotoAlbumPage::PhotoAlbumPage(QWidget *parent, const QString &directory)
-    : QWidget(parent), directory_(directory)
+PhotoAlbumPage::PhotoAlbumPage(QWidget *parent, const QString &directory, Purpose purpose)
+    : QWidget(parent), directory_(directory), purpose_(purpose)
 {
     initializeAlbumResources();
     setObjectName("photoAlbumPage");
@@ -105,7 +105,8 @@ PhotoAlbumPage::PhotoAlbumPage(QWidget *parent, const QString &directory)
     back_ = new QPushButton(QStringLiteral("取消"), this);
     back_->setObjectName("albumBack");
     header->addWidget(back_);
-    auto *title = new QLabel(QStringLiteral("选择照片"), this);
+    auto *title = new QLabel(purpose_ == Purpose::Avatar ? QStringLiteral("选择头像")
+                                                        : QStringLiteral("选择照片"), this);
     title->setAlignment(Qt::AlignCenter);
     title->setStyleSheet("font-size:18px;font-weight:600;");
     header->addWidget(title, 1);
@@ -113,7 +114,9 @@ PhotoAlbumPage::PhotoAlbumPage(QWidget *parent, const QString &directory)
     count_->setStyleSheet("color:#71806e;font-size:11px;");
     header->addWidget(count_);
     root->addLayout(header);
-    auto *caption = new QLabel(QStringLiteral("测试相册 · 选择一张二维码图片"), this);
+    auto *caption = new QLabel(purpose_ == Purpose::Avatar
+        ? QStringLiteral("测试相册 · 选择一张图片作为头像")
+        : QStringLiteral("测试相册 · 选择一张二维码图片"), this);
     caption->setContentsMargins(16, 0, 16, 0);
     caption->setStyleSheet("color:#71806e;font-size:11px;");
     root->addWidget(caption);
@@ -219,7 +222,8 @@ void PhotoAlbumPage::updateSelection()
     confirm_->setEnabled(selected);
     previewButton_->setEnabled(selected);
     selection_->setText(selected ? QStringLiteral("已选 1 张") : QStringLiteral("未选择"));
-    confirm_->setText(selected ? QStringLiteral("识别 (1)") : QStringLiteral("识别"));
+    confirm_->setText(purpose_ == Purpose::Avatar ? QStringLiteral("设为头像")
+        : selected ? QStringLiteral("识别 (1)") : QStringLiteral("识别"));
 }
 
 void PhotoAlbumPage::showPreview()

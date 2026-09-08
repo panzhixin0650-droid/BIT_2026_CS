@@ -22,6 +22,7 @@ class OrderController;
 class OrderPage;
 class ProfileController;
 class ProfilePage;
+class PhotoAlbumPage;
 class ChargingController;
 class ChargingPage;
 class ScanPage;
@@ -64,6 +65,7 @@ private:
     SupportPage *supportPage_ = nullptr;
     SupportDeskPage *supportDesk_ = nullptr;
     ProfilePage *profilePage_ = nullptr;
+    PhotoAlbumPage *avatarAlbum_ = nullptr;
     LoginController *loginController_ = nullptr;
     MapController *mapController_ = nullptr;
     ProfileController *profileController_ = nullptr;

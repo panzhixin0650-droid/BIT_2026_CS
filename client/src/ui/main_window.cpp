@@ -14,6 +14,7 @@
 #include "ui/order_page.h"
 #include "ui/profile_controller.h"
 #include "ui/profile_page.h"
+#include "ui/photo_album_page.h"
 #include "ui/charging_controller.h"
 #include "ui/charging_page.h"
 #include <QPushButton>
@@ -400,6 +401,23 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
     avatarStorage_ = std::make_unique<AvatarStorage>();
     profileController_ =
         new ProfileController(*profilePage_, api, *avatarStorage_, this);
+    connect(profilePage_, &ProfilePage::avatarSelectionRequested, this, [this] {
+        if (!avatarAlbum_) {
+            avatarAlbum_ = new PhotoAlbumPage(pages_, {}, PhotoAlbumPage::Purpose::Avatar);
+            pages_->addWidget(avatarAlbum_);
+            connect(avatarAlbum_, &PhotoAlbumPage::backRequested, this, [this] {
+                if (pages_->currentWidget() == avatarAlbum_)
+                    pages_->setCurrentWidget(mainTabs_);
+            });
+            connect(avatarAlbum_, &PhotoAlbumPage::imageSelected, this, [this](const QString &path) {
+                if (pages_->currentWidget() != avatarAlbum_) return;
+                pages_->setCurrentWidget(mainTabs_);
+                emit profilePage_->avatarSelected(path);
+            });
+        }
+        avatarAlbum_->reload();
+        pages_->setCurrentWidget(avatarAlbum_);
+    });
     stationBrowserController_ =
         new StationBrowserController(*homePage_, api, this);
     mapController_ = new MapController(*homePage_, mapService, this);
