@@ -26,6 +26,7 @@ class StationMapTests final : public QObject {
 private slots:
     void offlineHomePreloadsDuringLogin();
     void offlineBackdropCachesViewport();
+    void closingDuringPreloadIsSafe();
     void mapHomeFitsAndSelects_data();
     void mapHomeFitsAndSelects();
     void filteringClearsSelectionAndRetainsMap();
@@ -52,6 +53,7 @@ void login(MainWindow &window)
     window.findChild<QLineEdit *>("verificationCodeInput")->setText(QStringLiteral("123456"));
     window.findChild<QPushButton *>("loginButton")->click();
     QTRY_VERIFY(window.findChild<QAbstractButton *>("stationMarker_2"));
+    QTRY_VERIFY_WITH_TIMEOUT(window.findChild<StationMapView *>()->isReady(), 2000);
 }
 
 void screenshot(MainWindow &window, const QString &name)
@@ -125,6 +127,7 @@ void StationMapTests::offlineBackdropCachesViewport()
     backdrop.prepare(size, center, 1600000, 1);
     const qint64 coldMs = timer.elapsed();
     QVERIFY(backdrop.isReady());
+    QVERIFY(backdrop.featureCount() > 1000); // Actual bundled API extract, not a procedural grid.
     timer.restart();
     backdrop.prepare(size, center, 1600000, 1);
     qInfo("Offline backdrop preparation: %lld ms; cached viewport: %lld ms",
@@ -144,6 +147,17 @@ void StationMapTests::offlineBackdropCachesViewport()
         backdrop.paint(painter, size, center + QPointF(.0001, .0001), 1600000, 1);
     }
     QVERIFY(first != second);
+}
+
+void StationMapTests::closingDuringPreloadIsSafe()
+{
+    {
+        StationMapView map;
+        map.resize(480, 750);
+        map.preload();
+        QVERIFY(!map.isReady());
+    } // Joins the data/image-only worker; queued replies cannot reach a deleted widget.
+    QCoreApplication::processEvents();
 }
 
 void StationMapTests::mapHomeFitsAndSelects_data()

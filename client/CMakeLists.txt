@@ -49,6 +49,9 @@ target_link_libraries(charging_client_api
 )
 
 add_library(charging_client_ui STATIC
+    resources/decorations.qrc
+    src/ui/decorative_heading.cpp
+    src/ui/decorative_heading.h
     resources/assistant_resources.qrc
     resources/map_resources.qrc
     src/assistant/assistant_config.cpp
@@ -178,6 +181,11 @@ if(BUILD_TESTING)
         set_tests_properties(charging_client_qr_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     endif()
 
+    add_executable(charging_client_decoration_tests tests/decoration_tests.cpp)
+    target_link_libraries(charging_client_decoration_tests PRIVATE charging_client_ui Qt6::Test)
+    add_test(NAME charging_client_decoration_tests COMMAND charging_client_decoration_tests)
+    set_tests_properties(charging_client_decoration_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     add_executable(charging_client_station_map_tests tests/station_map_tests.cpp)
     target_link_libraries(charging_client_station_map_tests PRIVATE charging_client_ui Qt6::Test)
     add_test(NAME charging_client_station_map_tests COMMAND charging_client_station_map_tests)
@@ -197,8 +205,12 @@ if(BUILD_TESTING)
     add_executable(charging_client_navigation_tests tests/navigation_tests.cpp)
     target_link_libraries(charging_client_navigation_tests PRIVATE charging_client_ui Qt6::Test)
     add_test(NAME charging_client_navigation_tests COMMAND charging_client_navigation_tests)
-    set_tests_properties(charging_client_navigation_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    # The real WebEngine renderer needs the desktop/Xvfb platform. Qt 6.2's
+    # offscreen software scene graph can crash while replacing a map view.
+    if(NOT CHARGING_CLIENT_ENABLE_WEBENGINE)
+        set_tests_properties(charging_client_navigation_tests PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    endif()
 
     add_executable(charging_client_assistant_tests tests/assistant_tests.cpp)
     target_link_libraries(charging_client_assistant_tests PRIVATE charging_client_ui Qt6::Test)

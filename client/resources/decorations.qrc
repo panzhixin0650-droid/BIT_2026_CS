@@ -1,0 +1,12 @@
+<RCC>
+  <qresource prefix="/decorations">
+    <file alias="clover.png">decorations/clover.png</file>
+    <file alias="avocado.png">decorations/avocado.png</file>
+    <file alias="bow.png">decorations/bow.png</file>
+    <file alias="leaves.png">decorations/leaves.png</file>
+    <file alias="rabbit.png">decorations/rabbit.png</file>
+    <file alias="drink.png">decorations/drink.png</file>
+    <file alias="frog.png">decorations/frog.png</file>
+    <file alias="plant.png">decorations/plant.png</file>
+  </qresource>
+</RCC>

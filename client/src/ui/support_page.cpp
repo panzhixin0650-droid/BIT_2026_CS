@@ -1,5 +1,6 @@
 #include "ui/support_page.h"
 #include "ui/busy_indicator.h"
+#include "ui/decorative_heading.h"
 
 #include <QApplication>
 #include <QClipboard>
@@ -157,8 +158,10 @@ SupportPage::SupportPage(AssistantService &service, QWidget *parent)
     cardLayout->setSpacing(14);
     cardLayout->addWidget(textLabel(QStringLiteral("你的充电向导，随时在这里"), card,
                                    QStringLiteral("assistantWelcomeTag")));
-    cardLayout->addWidget(textLabel(QStringLiteral("你好，有什么\n可以帮你？"), card,
-                                   QStringLiteral("supportTitle")));
+    cardLayout->addWidget(new DecorativeHeading(
+        textLabel(QStringLiteral("你好，有什么\n可以帮你？"), card,
+                  QStringLiteral("supportTitle")),
+        QStringLiteral("rabbit"), 92, 5, card));
     cardLayout->addWidget(textLabel(QStringLiteral("从找站到结束充电，让每一步更清楚。\n选一个问题，或在下方直接问我。"),
                                    card, QStringLiteral("assistantWelcomeDescription")));
     auto *grid = new QGridLayout;
@@ -246,7 +249,7 @@ SupportPage::SupportPage(AssistantService &service, QWidget *parent)
         stickToBottom_ = value >= bar->maximum() - 24;
     });
     connect(bar, &QScrollBar::rangeChanged, this, [this]() {
-        if (stickToBottom_) { scrollToBottom(); }
+        if (stickToBottom_ && !messages_.isEmpty()) { scrollToBottom(); }
     });
     waitingTimer_.setInterval(1000);
     connect(&waitingTimer_, &QTimer::timeout, this, &SupportPage::updateControls);
@@ -256,7 +259,7 @@ SupportPage::SupportPage(AssistantService &service, QWidget *parent)
 void SupportPage::scrollToBottom()
 {
     QTimer::singleShot(0, this, [this]() {
-        if (!stickToBottom_) { return; }
+        if (!stickToBottom_ || messages_.isEmpty()) { return; }
         auto *bar = scroll_->verticalScrollBar();
         const QSignalBlocker blocker(bar);
         bar->setValue(bar->maximum());
@@ -413,6 +416,7 @@ void SupportPage::resetConversation()
     }
     messages_.clear();
     welcome_->show();
+    scroll_->verticalScrollBar()->setValue(0);
     input_->clear();
     stickToBottom_ = true;
     updateControls();
