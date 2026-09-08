@@ -1,17 +1,15 @@
 #include "ui/profile_page.h"
+#include "ui/avatar_art.h"
+#include "ui/avatar_picker_dialog.h"
 
 #include <QDoubleValidator>
 #include <QButtonGroup>
-#include <QFileDialog>
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
-#include <QPainter>
-#include <QPainterPath>
-#include <QPixmap>
 #include <QScrollArea>
 #include <QVBoxLayout>
 
@@ -67,6 +65,7 @@ ProfilePage::ProfilePage(QWidget *parent)
     avatarLabel_->setAlignment(Qt::AlignCenter);
     avatarLabel_->setStyleSheet(QStringLiteral(
         "background: #acb8a6; color: white; border-radius: 32px; font-weight: 600;"));
+    setAvatarPath({});
     auto *changeAvatarButton = new QPushButton(QStringLiteral("更换头像"), identityCard);
     changeAvatarButton->setObjectName(QStringLiteral("changeAvatarButton"));
     changeAvatarButton->setFlat(true);
@@ -198,14 +197,19 @@ ProfilePage::ProfilePage(QWidget *parent)
 
     connect(refreshButton_, &QPushButton::clicked, this, &ProfilePage::refreshRequested);
     connect(changeAvatarButton, &QPushButton::clicked, this, [this]() {
-        const QString sourcePath = QFileDialog::getOpenFileName(
-            this,
-            QStringLiteral("选择头像"),
-            {},
-            QStringLiteral("图片文件 (*.png *.jpg *.jpeg *.bmp *.webp)"));
-        if (!sourcePath.isEmpty()) {
-            emit avatarSelected(sourcePath);
+        if (avatarPicker_) {
+            avatarPicker_->raise();
+            return;
         }
+        auto *picker = new AvatarPickerDialog(avatarImage_, this);
+        avatarPicker_ = picker;
+        picker->setAttribute(Qt::WA_DeleteOnClose);
+        connect(picker, &QDialog::accepted, this, [this, picker]() {
+            if (!picker->selectedImage().isNull()) {
+                emit avatarSelected(picker->selectedImage());
+            }
+        });
+        picker->open();
     });
     connect(saveNicknameButton_, &QPushButton::clicked, this, [this]() {
         emit nicknameUpdateRequested(nicknameInput_->text());
@@ -218,6 +222,11 @@ ProfilePage::ProfilePage(QWidget *parent)
 
 void ProfilePage::setUser(const protocol::UserDto &user)
 {
+    const QString key = QStringLiteral("%1:%2").arg(user.userId).arg(user.phone);
+    if (key != avatarUserKey_ && avatarPicker_) {
+        avatarPicker_->reject();
+    }
+    avatarUserKey_ = key;
     nicknameLabel_->setText(user.nickname);
     phoneLabel_->setText(QStringLiteral("手机号：%1").arg(user.phone));
     nicknameInput_->setText(user.nickname);
@@ -231,29 +240,13 @@ void ProfilePage::setBalance(qint64 balanceCents)
 
 void ProfilePage::setAvatarPath(const QString &path)
 {
-    QPixmap source(path);
-    if (source.isNull()) {
-        avatarLabel_->setPixmap({});
-        avatarLabel_->setText(QStringLiteral("用户"));
-        return;
+    // Read the file afresh: each user replaces the same PNG on subsequent saves.
+    avatarImage_ = path.isEmpty() ? QImage() : QImage(path);
+    if (avatarImage_.isNull()) {
+        avatarImage_ = defaultAvatar();
     }
-
-    const QSize targetSize = avatarLabel_->size();
-    const QPixmap scaled = source.scaled(targetSize,
-                                         Qt::KeepAspectRatioByExpanding,
-                                         Qt::SmoothTransformation);
-    QPixmap circular(targetSize);
-    circular.fill(Qt::transparent);
-    QPainter painter(&circular);
-    painter.setRenderHint(QPainter::Antialiasing);
-    QPainterPath clipPath;
-    clipPath.addEllipse(circular.rect());
-    painter.setClipPath(clipPath);
-    const QPoint offset((scaled.width() - targetSize.width()) / 2,
-                        (scaled.height() - targetSize.height()) / 2);
-    painter.drawPixmap(-offset, scaled);
     avatarLabel_->setText({});
-    avatarLabel_->setPixmap(circular);
+    avatarLabel_->setPixmap(circularAvatar(avatarImage_, avatarLabel_->width(), devicePixelRatioF()));
 }
 
 void ProfilePage::setBusy(bool busy)

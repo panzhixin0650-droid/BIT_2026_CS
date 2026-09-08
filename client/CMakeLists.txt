@@ -73,6 +73,10 @@ add_library(charging_client_ui STATIC
     src/local/tencent_map_service.cpp
     src/local/tencent_map_service.h
     src/ui/api_error_message.h
+    src/ui/avatar_art.cpp
+    src/ui/avatar_art.h
+    src/ui/avatar_picker_dialog.cpp
+    src/ui/avatar_picker_dialog.h
     src/ui/charging_stop_dialog.cpp
     src/ui/charging_stop_dialog.h
     src/ui/client_theme.cpp
@@ -139,6 +143,12 @@ target_link_libraries(user-client
 
 if(BUILD_TESTING)
     find_package(Qt6 6.2 REQUIRED COMPONENTS Test)
+
+    add_executable(charging_client_avatar_picker_tests tests/avatar_picker_tests.cpp)
+    target_link_libraries(charging_client_avatar_picker_tests PRIVATE charging_client_ui Qt6::Test)
+    add_test(NAME charging_client_avatar_picker_tests COMMAND charging_client_avatar_picker_tests)
+    set_tests_properties(charging_client_avatar_picker_tests PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     add_executable(charging_client_assistant_responsiveness_tests tests/assistant_responsiveness_tests.cpp)
     target_link_libraries(charging_client_assistant_responsiveness_tests PRIVATE charging_client_ui Qt6::Test)

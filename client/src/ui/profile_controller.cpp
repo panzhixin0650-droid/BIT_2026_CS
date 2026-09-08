@@ -110,7 +110,7 @@ void ProfileController::recharge(const QString &amountYuan)
     pendingRequestId_ = api_.recharge(*amountCents);
 }
 
-void ProfileController::saveAvatar(const QString &sourcePath)
+void ProfileController::saveAvatar(const QImage &image)
 {
     if (currentAvatarKey_.isEmpty()) {
         page_.showMessage(QStringLiteral("请先登录后再修改头像"), true);
@@ -119,7 +119,7 @@ void ProfileController::saveAvatar(const QString &sourcePath)
 
     QString savedPath;
     QString error;
-    if (!avatarStorage_.saveAvatar(currentAvatarKey_, sourcePath, &savedPath, &error)) {
+    if (!avatarStorage_.saveImage(currentAvatarKey_, image, &savedPath, &error)) {
         page_.showMessage(error, true);
         return;
     }

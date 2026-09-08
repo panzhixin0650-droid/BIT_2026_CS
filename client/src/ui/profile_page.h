@@ -3,12 +3,16 @@
 #include "charging/protocol/dto.h"
 
 #include <QWidget>
+#include <QImage>
+#include <QPointer>
 
 class QLabel;
 class QLineEdit;
 class QPushButton;
 
 namespace charging::client {
+
+class AvatarPickerDialog;
 
 class ProfilePage final : public QWidget {
     Q_OBJECT
@@ -26,12 +30,15 @@ signals:
     void refreshRequested();
     void nicknameUpdateRequested(const QString &nickname);
     void rechargeRequested(const QString &amountYuan);
-    void avatarSelected(const QString &sourcePath);
+    void avatarSelected(const QImage &image);
     void logoutRequested();
 
 private:
     [[nodiscard]] QString formatBalance(qint64 balanceCents) const;
 
+    QImage avatarImage_;
+    QString avatarUserKey_;
+    QPointer<AvatarPickerDialog> avatarPicker_;
     QLabel *avatarLabel_ = nullptr;
     QLabel *nicknameLabel_ = nullptr;
     QLabel *phoneLabel_ = nullptr;
