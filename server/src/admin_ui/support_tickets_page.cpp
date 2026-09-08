@@ -2,7 +2,9 @@
 #include "admin_ui/admin_facade.h"
 #include "charging/protocol/protocol_constants.h"
 
-#include <QComboBox>
+#include "admin_combo_box.h"
+#include <QFrame>
+#include "admin_time_format.h"
 #include <QHBoxLayout>
 #include <QJsonArray>
 #include <QLabel>
@@ -19,47 +21,106 @@ SupportTicketsPage::SupportTicketsPage(AdminFacade *facade, QWidget *parent)
 {
     setObjectName(QStringLiteral("supportTicketsPage"));
     auto *root = new QVBoxLayout(this);
-    notice_ = new QLabel(QStringLiteral("用户确认提交的工单；回复和状态只影响工单，不会修改订单或余额。"), this);
-    notice_->setObjectName(QStringLiteral("adminTicketNotice"));
-    notice_->setTextFormat(Qt::PlainText);
-    notice_->setWordWrap(true);
-    root->addWidget(notice_);
-    auto *actions = new QHBoxLayout;
-    auto *refreshButton = new QPushButton(QStringLiteral("刷新工单"), this);
-    refreshButton->setObjectName(QStringLiteral("adminTicketRefresh"));
-    more_ = new QPushButton(QStringLiteral("加载更多"), this);
-    more_->setObjectName(QStringLiteral("adminTicketMore"));
-    actions->addWidget(refreshButton); actions->addStretch(); actions->addWidget(more_);
-    root->addLayout(actions);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(16);
     auto *body = new QHBoxLayout;
-    list_ = new QListWidget(this);
+    body->setSpacing(16);
+    auto *inbox = new QFrame(this);
+    inbox->setObjectName("panel");
+    inbox->setMinimumWidth(280);
+    inbox->setMaximumWidth(360);
+    auto *inboxLayout = new QVBoxLayout(inbox);
+    inboxLayout->setContentsMargins(16, 18, 16, 14);
+    inboxLayout->setSpacing(12);
+    auto *inboxHeader = new QHBoxLayout;
+    count_ = new QLabel(QStringLiteral("全部工单"), inbox);
+    count_->setObjectName("adminTicketCount");
+    count_->setProperty("role", "sectionTitle");
+    inboxHeader->addWidget(count_, 1);
+    inboxLayout->addLayout(inboxHeader);
+    list_ = new QListWidget(inbox);
     list_->setObjectName(QStringLiteral("adminTicketList"));
-    body->addWidget(list_, 1);
+    list_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    list_->setTextElideMode(Qt::ElideRight);
+    list_->setMouseTracking(true);
+    list_->setSpacing(2);
+    inboxLayout->addWidget(list_, 1);
+    more_ = new QPushButton(QStringLiteral("加载更多"), inbox);
+    more_->setObjectName(QStringLiteral("adminTicketMore"));
+    inboxLayout->addWidget(more_);
+    body->addWidget(inbox, 2);
+
     auto *detail = new QVBoxLayout;
-    detail->addWidget(new QLabel(QStringLiteral("工单详情"), this));
-    summary_ = new QPlainTextEdit(this);
+    detail->setSpacing(16);
+    auto *description = new QFrame(this);
+    description->setObjectName("panel");
+    auto *descriptionLayout = new QVBoxLayout(description);
+    descriptionLayout->setContentsMargins(20, 18, 20, 18);
+    auto *detailTitle = new QLabel(QStringLiteral("问题详情"), description);
+    detailTitle->setProperty("role", "sectionTitle");
+    auto *detailHeader = new QHBoxLayout;
+    detailHeader->addWidget(detailTitle, 1);
+    locatePile_ = new QPushButton(QStringLiteral("定位电桩"), description);
+    locatePile_->setObjectName(QStringLiteral("adminTicketLocatePile"));
+    detailHeader->addWidget(locatePile_);
+    descriptionLayout->addLayout(detailHeader);
+    connect(locatePile_, &QPushButton::clicked, this, [this] {
+        const int row = list_->currentRow();
+        if (row >= 0 && row < tickets_.size() && !tickets_[row].pileCode.isEmpty())
+            emit locatePileRequested(tickets_[row].pileCode);
+    });
+    summary_ = new QPlainTextEdit(description);
     summary_->setObjectName(QStringLiteral("adminTicketSummary"));
     summary_->setReadOnly(true);
-    summary_->setPlaceholderText(QStringLiteral("选择工单查看用户问题"));
-    detail->addWidget(summary_, 1);
-    status_ = new QComboBox(this);
+    summary_->setPlaceholderText(QStringLiteral("暂无工单，收到用户反馈后会在这里显示"));
+    descriptionLayout->addWidget(summary_, 1);
+    detail->addWidget(description, 1);
+    auto *handling = new QFrame(this);
+    handling->setObjectName("panel");
+    auto *handlingLayout = new QVBoxLayout(handling);
+    handlingLayout->setContentsMargins(20, 18, 20, 18);
+    handlingLayout->setSpacing(10);
+    auto *handlingHeader = new QHBoxLayout;
+    auto *handlingTitle = new QLabel(QStringLiteral("处理与回复"), handling);
+    handlingTitle->setProperty("role", "sectionTitle");
+    handlingHeader->addWidget(handlingTitle, 1);
+    auto *statusLabel = new QLabel(QStringLiteral("处理状态"), handling);
+    handlingHeader->addWidget(statusLabel);
+    status_ = new AdminComboBox(handling);
     status_->setObjectName(QStringLiteral("adminTicketStatus"));
     for (auto status : {TicketStatus::Open, TicketStatus::InProgress, TicketStatus::Resolved})
         status_->addItem(ticketStatusLabel(status), toString(status));
-    detail->addWidget(new QLabel(QStringLiteral("处理状态"), this));
-    detail->addWidget(status_);
-    reply_ = new QPlainTextEdit(this);
+    statusLabel->setBuddy(status_);
+    handlingHeader->addWidget(status_);
+    handlingLayout->addLayout(handlingHeader);
+    reply_ = new QPlainTextEdit(handling);
     reply_->setObjectName(QStringLiteral("adminTicketReply"));
-    reply_->setPlaceholderText(QStringLiteral("管理员回复（最多 2000 字；标记已解决时必填）"));
-    detail->addWidget(new QLabel(QStringLiteral("回复用户"), this));
-    detail->addWidget(reply_, 1);
-    save_ = new QPushButton(QStringLiteral("保存处理结果"), this);
+    reply_->setAccessibleName(QStringLiteral("回复用户"));
+    reply_->setPlaceholderText(QStringLiteral("填写处理情况，用户可在‘我的工单’查看回复"));
+    reply_->setMinimumHeight(110);
+    handlingLayout->addWidget(reply_, 1);
+    auto *footer = new QHBoxLayout;
+    auto *limit = new QLabel(QStringLiteral("0 / 2000 字 · 已解决时须填写回复"), handling);
+    limit->setProperty("role", "muted");
+    footer->addWidget(limit, 1);
+    connect(reply_, &QPlainTextEdit::textChanged, this, [this, limit] {
+        limit->setText(QStringLiteral("%1 / 2000 字 · 已解决时须填写回复").arg(reply_->toPlainText().size()));
+    });
+    save_ = new QPushButton(QStringLiteral("保存处理结果"), handling);
     save_->setObjectName(QStringLiteral("adminTicketSave"));
     save_->setProperty("primary", true);
-    detail->addWidget(save_);
-    body->addLayout(detail, 2);
+    save_->setMinimumHeight(28);
+    footer->addWidget(save_);
+    handlingLayout->addLayout(footer);
+    detail->addWidget(handling, 1);
+    body->addLayout(detail, 4);
     root->addLayout(body, 1);
-    connect(refreshButton, &QPushButton::clicked, this, [this] { refresh(); });
+    notice_ = new QLabel(this);
+    notice_->setObjectName(QStringLiteral("adminTicketNotice"));
+    notice_->setTextFormat(Qt::PlainText);
+    notice_->setWordWrap(true);
+    notice_->setMinimumHeight(34);
+    root->addWidget(notice_);
     connect(more_, &QPushButton::clicked, this, [this] { refresh(true); });
     connect(list_, &QListWidget::currentRowChanged, this, [this] { selectTicket(); });
     connect(save_, &QPushButton::clicked, this, [this] { save(); });
@@ -70,7 +131,10 @@ void SupportTicketsPage::clear()
 {
     tickets_.clear(); list_->clear(); summary_->clear(); reply_->clear();
     hasMore_ = false; more_->setEnabled(false); save_->setEnabled(false);
+    locatePile_->hide(); locatePile_->setEnabled(false); locatePile_->setToolTip({});
     status_->setCurrentIndex(0);
+    status_->setEnabled(false); reply_->setEnabled(false);
+    count_->setText(QStringLiteral("全部工单")); notice_->clear();
 }
 
 void SupportTicketsPage::refresh(bool more)
@@ -97,9 +161,39 @@ void SupportTicketsPage::refresh(bool more)
     }
     hasMore_ = result.data.value("hasMore").toBool();
     more_->setEnabled(hasMore_);
-    notice_->setText(QStringLiteral("已加载 %1 张工单。回复和处理状态仅影响工单，不会自动退款或修改订单。")
-                     .arg(tickets_.size()));
+    count_->setText(QStringLiteral("已加载 %1 张").arg(tickets_.size()));
+    notice_->setText(tickets_.isEmpty() ? QStringLiteral("暂无工单") : QString());
+    for (int row = 0; row < list_->count(); ++row) {
+        list_->item(row)->setSizeHint(QSize(0, 88));
+        list_->item(row)->setToolTip(list_->item(row)->text());
+    }
     if (list_->currentRow() < 0 && list_->count()) list_->setCurrentRow(0);
+}
+
+qint64 SupportTicketsPage::selectedTicketId() const
+{
+    const int row = list_->currentRow();
+    return row >= 0 && row < tickets_.size() ? tickets_[row].ticketId : 0;
+}
+
+void SupportTicketsPage::restoreTicketSelection(qint64 ticketId)
+{
+    refresh(); // Recheck authorization and current data before restoring a historical selection.
+    if (ticketId <= 0) return;
+    while (!tickets_.isEmpty()) {
+        for (int row = 0; row < tickets_.size(); ++row) {
+            if (tickets_[row].ticketId == ticketId) {
+                list_->setCurrentRow(row);
+                list_->scrollToItem(list_->item(row));
+                return;
+            }
+        }
+        // Pages are ordered by descending ID. Stop if the old item is gone.
+        if (!hasMore_ || tickets_.last().ticketId < ticketId) return;
+        const int previousCount = tickets_.size();
+        refresh(true);
+        if (tickets_.size() <= previousCount) return;
+    }
 }
 
 void SupportTicketsPage::selectTicket()
@@ -107,14 +201,18 @@ void SupportTicketsPage::selectTicket()
     const int row = list_->currentRow();
     const bool valid = row >= 0 && row < tickets_.size();
     save_->setEnabled(valid);
+    const bool hasPile = valid && !tickets_[row].pileCode.isEmpty();
+    locatePile_->setVisible(hasPile);
+    locatePile_->setEnabled(hasPile);
+    locatePile_->setToolTip(hasPile ? QStringLiteral("在充电桩管理中定位 %1").arg(tickets_[row].pileCode) : QString());
+    status_->setEnabled(valid); reply_->setEnabled(valid);
     if (!valid) { summary_->clear(); reply_->clear(); return; }
     const auto &ticket = tickets_[row];
-    summary_->setPlainText(QStringLiteral("#%1 · %2\n用户 #%3 · %4\n摘要来源：%5\n\n%6\n\n最后更新：%7")
-        .arg(ticket.ticketId).arg(ticket.title).arg(ticket.userId).arg(ticket.createdAt,
-             ticket.sourceModel.isEmpty() ? QStringLiteral("手动填写") : ticket.sourceModel,
-             ticket.summary, ticket.updatedAt));
+    summary_->setPlainText(QStringLiteral("#%1 · %2\n用户 #%3 · %4\n\n%5\n\n最后更新：%6")
+        .arg(ticket.ticketId).arg(ticket.title).arg(ticket.userId).arg(adminTimeText(ticket.createdAt),
+             ticket.summary, adminTimeText(ticket.updatedAt)));
     if (!ticket.pileCode.isEmpty()) summary_->appendPlainText(
-        QStringLiteral("\n充电桩报修\n桩编号：%1\n故障类型：%2\n处理状态不自动改变电桩或订单状态。")
+        QStringLiteral("\n充电桩报修\n桩编号：%1\n故障类型：%2")
             .arg(ticket.pileCode, ticket.faultType));
     status_->setCurrentIndex(status_->findData(toString(ticket.status)));
     reply_->setPlainText(ticket.reply);

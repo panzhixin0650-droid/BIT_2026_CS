@@ -467,9 +467,9 @@ StationCreateInput = {
 | `login` | `username, password` | `Result<{admin: AdminProfileDto}>` | 校验密码与账号状态；初始账号 `admin/123456`；schema 3 中旧 SHA-256 在成功登录后升级为 PBKDF2-SHA256 |
 | `logout/currentAdmin` | 无 | `Result<AdminProfileDto>` | 清除进程内身份/读取当前身份；停用后下一次调用立即失效 |
 | `listAdmins` | `keyword?, status?` | `Result<AdminProfileDto[]>` | 仅系统管理员；可按账号、显示名和状态查询；不返回密码字段 |
-| `createAdmin` | `username, initialPassword, displayName, role, stationIds[]` | `Result<AdminProfileDto>` | 仅系统管理员；初始密码 8..128；站点管理员至少授权一个站点，其他角色范围为空 |
+| `createAdmin` | `username, initialPassword, displayName, role, stationIds[]` | `Result<AdminProfileDto>` | 仅系统管理员；初始密码 6..128（允许纯数字）；站点管理员至少授权一个站点，其他角色范围为空 |
 | `updateAdmin` | `adminId, displayName, role, status, stationIds[], reason` | `Result<AdminProfileDto>` | 仅系统管理员；站点范围完整替换；禁止停用自己或改变自己的角色，并保留有效系统管理员 |
-| `changePassword` | `currentPassword, newPassword` | `Result<{changed: true}>` | 管理员本人；新密码 8..128 且不能与旧密码相同；成功后退出登录 |
+| `changePassword` | `currentPassword, newPassword` | `Result<{changed: true}>` | 管理员本人；新密码 6..128（允许纯数字） 且不能与旧密码相同；成功后退出登录 |
 | `getDashboard` | `days: 7 或 30`，或管理端内部 `startDate, endDate` | `Result<DashboardDto>` | KPI、营收曲线和桩状态比例；自定义范围不超过 366 个中国业务日 |
 | `listStations` | `region?, keyword?` | `Result<StationDto[]>` | 管理端包含停用站点 |
 | `getStation` | `stationId` | `Result<StationDetailDto>` | 站点和站内实时 Mock 状态 |

@@ -2,6 +2,7 @@
 
 #include <QMainWindow>
 #include <QDate>
+#include <QDateTime>
 #include <QList>
 #include <QJsonObject>
 #include <QSet>
@@ -24,6 +25,7 @@ namespace charging::server {
 class AdminFacade;
 class SupportTicketsPage;
 class RevenueChart;
+class AnalysisBarChart;
 class PileStatusChart;
 
 class AdminWindow final : public QMainWindow {
@@ -39,6 +41,8 @@ public:
 private:
     struct PageState {
         int pageIndex = 0;
+        int analysisScroll = 0;
+        int stationOccupancy = -1;
         QString stationSearch;
         int stationSearchField = 2;
         QSet<QString> stationRegions;
@@ -48,6 +52,7 @@ private:
         int pileSearchField = 2;
         QSet<qint64> pileStations;
         QSet<QString> pileStatuses;
+        bool pilesActiveStationsOnly = false;
         QString userSearch;
         int userSearchField = 2;
         QSet<QString> userStatuses;
@@ -55,10 +60,17 @@ private:
         int orderSearchField = 3;
         QSet<QString> orderStatuses;
         QSet<QString> orderModes;
+        QSet<qint64> orderStations;
+        int orderStartPeriod = -1;
+        int orderTimeHours = 0;
+        QDateTime orderStartTime;
+        QDateTime orderEndTime;
         int dashboardDays = 7;
         QDate dashboardStartDate;
         QDate dashboardEndDate;
         qint64 selectedStationId = 0;
+        qint64 selectedStationPileId = 0;
+        qint64 selectedTicketId = 0;
         qint64 selectedPileId = 0;
         qint64 selectedUserId = 0;
         qint64 selectedOrderId = 0;
@@ -87,14 +99,26 @@ private:
     // touch navigation history or refresh unrelated pages.
     void refreshCurrentPage();
     void refreshDashboard();
+    void playAnalysisIntro(int page);
+    void wireAnalysisActions();
+    void navigateToAnalysisPage(const PageState &state);
+    void openRevenueOrders(const QDate &start, const QDate &end, qint64 stationId = 0,
+                           const QString &stationName = {}, const QString &mode = {}, int startPeriod = -1);
+    void openAnalysisPiles(qint64 stationId = 0, const QSet<QString> &statuses = {}, bool activeOnly = false);
+    QWidget *refreshFeedback_ = nullptr;
+    QSet<int> visitedAnalysisPages_;
     void refreshOperations();
     void refreshStations();
     void refreshPiles();
     void refreshUsers();
     void refreshOrders();
+    void resetOrderTimeFilter();
+    void showOrderTimeFilter();
+    void updateOrderTimeFilterButton();
     void refreshAdmins();
     void applyAdminPermissions(const QJsonObject &admin);
     bool showChangePasswordDialog(bool required);
+    void showAdminDetails(qint64 adminId);
     void showCreateAdminDialog();
     void showEditAdminDialog(qint64 adminId);
     void showCreateStationDialog();
@@ -102,6 +126,8 @@ private:
     void showCreatePileDialog(qint64 fixedStationId = 0);
     void showEditPileDialog(qint64 pileId);
     void navigateToPile(qint64 pileId, qint64 stationId);
+    void navigateToTicketPile(const QString &pileCode);
+    void navigateToPileStation(qint64 pileId);
     void navigateToStationPiles(qint64 stationId);
     void navigateToPileStatus(const QString &statusKey);
     void navigateBack();
@@ -136,6 +162,11 @@ private:
     QToolButton *refreshButton_ = nullptr;
     QToolButton *forwardButton_ = nullptr;
     QListWidget *navigation_ = nullptr;
+    QLabel *dashboardPeriod_ = nullptr;
+    QDate revenueStartDate_;
+    QDate revenueEndDate_;
+    QDate revenueSnapshotDate_;
+    QWidget *dashboardCustomRange_ = nullptr;
     QLabel *pageTitle_ = nullptr;
     QLineEdit *usernameEdit_ = nullptr;
     QLineEdit *passwordEdit_ = nullptr;
@@ -152,6 +183,25 @@ private:
     QLabel *dashboardEndLabel_ = nullptr;
     QPushButton *dashboardApplyButton_ = nullptr;
     RevenueChart *revenueChart_ = nullptr;
+    RevenueChart *paidOrdersChart_ = nullptr;
+    RevenueChart *energyChart_ = nullptr;
+    AnalysisBarChart *stationRevenueChart_ = nullptr;
+    PileStatusChart *modeRevenueChart_ = nullptr;
+    AnalysisBarChart *startPeriodChart_ = nullptr;
+    QLabel *rangeRevenue_ = nullptr;
+    QLabel *rangeOrders_ = nullptr;
+    QLabel *rangeEnergy_ = nullptr;
+    QLabel *rangeAverage_ = nullptr;
+    QLabel *analysisSummary_ = nullptr;
+    QLabel *operationsStations_ = nullptr;
+    QLabel *operationsIdle_ = nullptr;
+    QLabel *operationsInUse_ = nullptr;
+    QLabel *operationsAbnormal_ = nullptr;
+    QLabel *operationsSummary_ = nullptr;
+    QLabel *operationsClock_ = nullptr;
+    PileStatusChart *stationOccupancyChart_ = nullptr;
+    AnalysisBarChart *stationFaultChart_ = nullptr;
+    PileStatusChart *orderStatesChart_ = nullptr;
     PileStatusChart *pileStatusChart_ = nullptr;
     QTableWidget *operationsTable_ = nullptr;
     QLineEdit *stationSearch_ = nullptr;
@@ -181,6 +231,15 @@ private:
     QPushButton *orderStatusFilter_ = nullptr;
     QPushButton *orderModeFilter_ = nullptr;
     QTableWidget *ordersTable_ = nullptr;
+    QComboBox *orderStation_ = nullptr;
+    QPushButton *orderStationFilter_ = nullptr;
+    QPushButton *orderPeriodFilter_ = nullptr;
+    QSet<qint64> selectedOrderStations_;
+    int orderStartPeriod_ = -1;
+    QPushButton *orderTimeFilter_ = nullptr;
+    int orderTimeHours_ = 0; // 0: unrestricted; -1: custom; positive: rolling hours.
+    QDateTime orderStartTime_;
+    QDateTime orderEndTime_;
     QLineEdit *adminSearch_ = nullptr;
     QComboBox *adminStatus_ = nullptr;
     QComboBox *adminRole_ = nullptr;
@@ -194,8 +253,12 @@ private:
     QString appliedAdminSearch_;
     QSet<QString> selectedStationRegions_;
     QSet<QString> selectedStationStatuses_;
+    int stationOccupancy_ = -1;
+    QPushButton *stationOccupancyFilter_ = nullptr;
     QSet<qint64> selectedPileStations_;
     QSet<QString> selectedPileStatuses_;
+    bool pilesActiveStationsOnly_ = false;
+    QPushButton *pileActiveScope_ = nullptr;
     QSet<QString> selectedUserStatuses_;
     QSet<QString> selectedOrderStatuses_;
     QSet<QString> selectedOrderModes_;

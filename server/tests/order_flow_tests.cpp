@@ -224,7 +224,7 @@ void OrderFlowTests::sqliteAdminAccountsAndPasswordUpgrade()
 
     const QJsonObject input{
         {QStringLiteral("username"), QStringLiteral("station.sqlite")},
-        {QStringLiteral("initialPassword"), QStringLiteral("Initial-123")},
+        {QStringLiteral("initialPassword"), QStringLiteral("123456")},
         {QStringLiteral("displayName"), QStringLiteral("SQLite 站点管理员")},
         {QStringLiteral("role"), QStringLiteral("STATION_ADMIN")},
         {QStringLiteral("stationIds"), QJsonArray{1}},
@@ -236,18 +236,18 @@ void OrderFlowTests::sqliteAdminAccountsAndPasswordUpgrade()
     QVERIFY(adminId > 1);
 
     const auto initialLogin = f.service->loginAdmin(QStringLiteral("station.sqlite"),
-                                                     QStringLiteral("Initial-123"));
+                                                     QStringLiteral("123456"));
     QCOMPARE(initialLogin.code, ErrorCode::Ok);
     QCOMPARE(f.service->getDashboard(adminId, 7).message,
              QStringLiteral("PASSWORD_CHANGE_REQUIRED"));
-    QCOMPARE(f.service->changeAdminPassword(adminId, QStringLiteral("Initial-123"),
-                                            QStringLiteral("Changed-456")).code,
+    QCOMPARE(f.service->changeAdminPassword(adminId, QStringLiteral("123456"),
+                                            QStringLiteral("654321")).code,
              ErrorCode::Ok);
     QCOMPARE(f.service->loginAdmin(QStringLiteral("station.sqlite"),
-                                   QStringLiteral("Initial-123")).code,
+                                   QStringLiteral("123456")).code,
              ErrorCode::InvalidCredentials);
     QCOMPARE(f.service->loginAdmin(QStringLiteral("station.sqlite"),
-                                   QStringLiteral("Changed-456")).code,
+                                   QStringLiteral("654321")).code,
              ErrorCode::Ok);
 
     QVERIFY(f.sql("SELECT count(*) FROM admin_audit_logs;\n"));
