@@ -29,7 +29,8 @@ signals:
     void refreshRequested();
     void nicknameUpdateRequested(const QString &nickname);
     void rechargeRequested(const QString &amountYuan);
-    void avatarSelected(const QImage &image);
+    void avatarSelected(const QString &sourcePath);
+    void avatarImageSelected(const QImage &image);
     void logoutRequested();
 
 private:

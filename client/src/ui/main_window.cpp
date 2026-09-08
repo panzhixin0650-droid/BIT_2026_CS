@@ -413,12 +413,12 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
             connect(avatarAlbum_, &PhotoAlbumPage::imageSelected, this, [this](const QString &path) {
                 if (pages_->currentWidget() != avatarAlbum_) return;
                 pages_->setCurrentWidget(mainTabs_);
-                emit profilePage_->avatarSelected(QImage(path));
+                emit profilePage_->avatarSelected(path);
             });
             connect(avatarAlbum_, &PhotoAlbumPage::imageSelectedImage, this, [this](const QImage &image) {
                 if (pages_->currentWidget() != avatarAlbum_) return;
                 pages_->setCurrentWidget(mainTabs_);
-                emit profilePage_->avatarSelected(image);
+                emit profilePage_->avatarImageSelected(image);
             });
         }
         avatarAlbum_->reload();
