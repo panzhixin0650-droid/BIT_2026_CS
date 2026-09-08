@@ -44,6 +44,9 @@
 扫一扫报修：[ADR-0010](decisions/0010-scan-repair-tickets.md)，
 复用[工单契约](../contracts/support-tickets-v1.md)，设备信息由迁移 004 增加。
 
+真实离线底图与首页预加载：[ADR-0011](decisions/0011-client-offline-basemap.md)，
+仅影响客户端地图资源、缓存与加载预览，不改变地图服务或充电业务协议。
+
 - 当前实现不得因为扩展文档出现某张表或某个接口就提前增加它。
 - 基线发生兼容性增加时，在现有契约中更新并补 fixture。
 - 破坏性网络变更新建 V2 契约；数据库结构变化增加编号迁移文件。

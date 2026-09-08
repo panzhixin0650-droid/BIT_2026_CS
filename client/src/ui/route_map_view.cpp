@@ -1,6 +1,8 @@
 #include "ui/route_map_view.h"
 
 #include <QFile>
+#include <QCoreApplication>
+#include <QStandardPaths>
 #include <QHideEvent>
 #include <QJsonDocument>
 #include <QPointer>
@@ -9,12 +11,36 @@
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
 #include <QWebChannel>
 #include <QWebEnginePage>
+#include <QWebEngineProfile>
 #include <QWebEngineView>
 #endif
 
 static void initializeMapResources() { Q_INIT_RESOURCE(map_resources); }
 
 namespace charging::client {
+
+#ifdef CHARGING_CLIENT_HAS_WEBENGINE
+namespace {
+QWebEngineProfile *mapProfile()
+{
+    // Qt 6's implicit profile is off-the-record. Keep the map SDK's normal
+    // HTTP cache across launches; honor response cache headers, no tile scraper.
+    // Shared by home and navigation, but isolated from business/account pages.
+    static QPointer<QWebEngineProfile> profile;
+    if (!profile) {
+        profile = new QWebEngineProfile(QStringLiteral("bit-map-v1"), QCoreApplication::instance());
+        const QString directory = QStandardPaths::writableLocation(QStandardPaths::CacheLocation)
+            + QStringLiteral("/map-webengine");
+        profile->setCachePath(directory + QStringLiteral("/http"));
+        profile->setPersistentStoragePath(directory + QStringLiteral("/storage"));
+        profile->setHttpCacheType(QWebEngineProfile::DiskHttpCache);
+        profile->setHttpCacheMaximumSize(64 * 1024 * 1024);
+        profile->setPersistentCookiesPolicy(QWebEngineProfile::NoPersistentCookies);
+    }
+    return profile;
+}
+}
+#endif
 
 RouteMapView::RouteMapView(QWidget *parent) : QWidget(parent)
 {
@@ -29,12 +55,20 @@ RouteMapView::RouteMapView(QWidget *parent) : QWidget(parent)
         fail(FailureReason::Timeout,
              reportInitializationFailure_ || routePending_);
     });
+    tileTimeout_.setSingleShot(true);
+    tileTimeout_.setParent(this);
+    tileTimeout_.setObjectName(QStringLiteral("stationTileTimeout"));
+    tileTimeout_.setInterval(15000);
+    connect(&tileTimeout_, &QTimer::timeout, this, [this] {
+        if (stationMode_ && !baseMapReady_) fail(FailureReason::Timeout, isVisible());
+    });
 }
 
 RouteMapView::~RouteMapView()
 {
     ++generation_;
     timeout_.stop();
+    tileTimeout_.stop();
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
     // WebEngine may complete a JavaScript callback while its page is destroyed.
     // Invalidate callbacks while this object's members are still alive.
@@ -124,11 +158,14 @@ void RouteMapView::initialize(const QUrl &scriptUrl, bool reportFailure)
     initializing_ = true;
     pageLoaded_ = false;
     channelReady_ = false;
+    baseMapReady_ = false;
+    emit baseMapReadyChanged(false);
     reportInitializationFailure_ = reportFailure;
     scriptUrl_ = scriptUrl;
     timeout_.setInterval(reportFailure ? 15000 : 60000);
     timeout_.start();
     // Only failed/cancelled initialization or a changed SDK configuration needs a new view.
+    if (stationMode_) tileTimeout_.start();
     if (view_) {
         view_->disconnect(this);
         view_->stop();
@@ -136,6 +173,7 @@ void RouteMapView::initialize(const QUrl &scriptUrl, bool reportFailure)
         view_->deleteLater();
     }
     view_ = new QWebEngineView(this);
+    view_->setPage(new QWebEnginePage(mapProfile(), view_));
     view_->setObjectName(stationMode_ ? QStringLiteral("stationWebView") : QStringLiteral("routeWebView"));
     view_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     view_->setContextMenuPolicy(Qt::NoContextMenu);
@@ -158,6 +196,12 @@ void RouteMapView::initialize(const QUrl &scriptUrl, bool reportFailure)
         channelReady_ = true;
         checkInitialization();
     });
+    connect(bridge, &MapEventBridge::tilesLoaded, this, [this, source] {
+        if (!source || source != view_ || baseMapReady_) return;
+        baseMapReady_ = true;
+        tileTimeout_.stop();
+        emit baseMapReadyChanged(true);
+    });
     connect(bridge, &MapEventBridge::stationClicked, this, [this, source](const QString &id) {
         if (source && source == view_ && stationMode_ && initialized_) emit stationSelected(id);
     });
@@ -168,6 +212,8 @@ void RouteMapView::initialize(const QUrl &scriptUrl, bool reportFailure)
             return;
         }
         pageLoaded_ = true;
+        view_->page()->setLifecycleState(QWebEnginePage::LifecycleState::Active);
+        view_->page()->setVisible(true);
         checkInitialization();
     });
     connect(view_, &QWebEngineView::renderProcessTerminated, this,
@@ -309,10 +355,13 @@ void RouteMapView::fail(FailureReason reason, bool reportFailure,
     ++generation_;
     sdkLoaded_ = false;
     initialized_ = false;
+    baseMapReady_ = false;
+    emit baseMapReadyChanged(false);
     initializing_ = false;
     routePending_ = false;
     reportInitializationFailure_ = false;
     timeout_.stop();
+    tileTimeout_.stop();
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
     if (view_) {
         view_->disconnect(this);

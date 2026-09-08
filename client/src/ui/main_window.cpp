@@ -1,4 +1,5 @@
 #include "ui/main_window.h"
+#include "ui/station_map_view.h"
 #include "ui/support_desk_dialog.h"
 
 #include "api/i_charging_api.h"
@@ -550,16 +551,15 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
     // including SDK parsing / map initialization / default-area tiles. Nothing
     // authenticated is requested until showAuthenticatedHome(). Widgets stay
     // on the GUI thread; WebEngine downloads and readiness are asynchronous.
-    QTimer::singleShot(80, this, [this, mapScriptUrl]() {
+    if (!mapScriptUrl.isEmpty()) {
+        connect(homePage_->findChild<StationMapView *>(), &StationMapView::mapReady,
+            this, [this, mapScriptUrl] { homePage_->preloadMap(mapScriptUrl); }, Qt::SingleShotConnection);
+    }
+    QTimer::singleShot(0, this, [this]() {
         homePage_->prepareHomeMap(QSize(pages_->width(),
             qMax(220, pages_->height() - navigationHeight - navigationBottomGap)));
-        // Navigation is secondary: do not compete with the home on the first
-        // login frame, but retain its existing SDK-only preload and reuse.
-        if (!mapScriptUrl.isEmpty()) {
-            QTimer::singleShot(500, this, [this, mapScriptUrl]() {
-                homePage_->preloadMap(mapScriptUrl);
-            });
-        }
+        // Navigation waits for the home's actual visible tiles, not a fixed
+        // delay that downloads a second SDK while the first map is still cold.
     });
 }
 

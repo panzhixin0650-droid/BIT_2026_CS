@@ -11,9 +11,12 @@
 #include <QResizeEvent>
 #include <QVBoxLayout>
 #include <QWheelEvent>
+#include <QThread>
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
+#include <memory>
 
 namespace charging::client {
 namespace {
@@ -66,6 +69,20 @@ protected:
         painter.fillPath(bolt, Qt::white);
     }
 };
+
+class LoadingMapPreview final : public QWidget {
+public:
+    LoadingMapPreview(QWidget *parent, std::function<void(QPainter &)> draw)
+        : QWidget(parent), draw_(std::move(draw))
+    {
+        setObjectName(QStringLiteral("stationLoadingPreview"));
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+    }
+protected:
+    void paintEvent(QPaintEvent *) override { QPainter painter(this); draw_(painter); }
+private:
+    std::function<void(QPainter &)> draw_;
+};
 }  // namespace
 
 StationMapView::StationMapView(QWidget *parent) : QWidget(parent)
@@ -75,6 +92,8 @@ StationMapView::StationMapView(QWidget *parent) : QWidget(parent)
     setMinimumSize(0, 220);
     setCursor(Qt::OpenHandCursor);
     center_ = project({{}, 123.42, 41.75});
+    loadingPreview_ = new LoadingMapPreview(this, [this](QPainter &painter) { paintOfflineMap(painter); });
+    loadingPreview_->hide();
     controls_ = new QWidget(this);
     controls_->setObjectName(QStringLiteral("stationMapControls"));
     auto *tools = new QVBoxLayout(controls_);
@@ -96,10 +115,10 @@ StationMapView::StationMapView(QWidget *parent) : QWidget(parent)
     connect(plus, &QPushButton::clicked, this, &StationMapView::zoomIn);
     connect(minus, &QPushButton::clicked, this, &StationMapView::zoomOut);
     connect(locate_, &QPushButton::clicked, this, [this] { if (location_) setCenter(*location_); });
-    modeLabel_ = new QLabel(QStringLiteral("沈阳 · 离线默认地图（示意）"), this);
+    modeLabel_ = new QLabel(QStringLiteral("沈阳离线地图 · <a href=\"https://www.openstreetmap.org/copyright\">© OpenStreetMap</a>"), this);
     modeLabel_->setObjectName(QStringLiteral("stationMapMode"));
-    modeLabel_->setToolTip(QStringLiteral("内置原创地图示意，不是实测路网，不用于真实导航。"));
-    modeLabel_->setAttribute(Qt::WA_TransparentForMouseEvents);
+    modeLabel_->setToolTip(QStringLiteral("通过 Overpass API 预先获取的真实地图数据，ODbL 1.0；非实时路况或真实导航。"));
+    modeLabel_->setOpenExternalLinks(true);
     statusLabel_ = new QLabel(this);
     statusLabel_->setObjectName(QStringLiteral("stationMapStatus"));
     statusLabel_->setTextFormat(Qt::PlainText);
@@ -110,6 +129,13 @@ StationMapView::StationMapView(QWidget *parent) : QWidget(parent)
     retry_->setObjectName(QStringLiteral("stationMapRetry"));
     retry_->hide();
     connect(retry_, &QPushButton::clicked, this, [this] { if (webMap_) webMap_->retry(); });
+}
+
+StationMapView::~StationMapView()
+{
+    // The worker owns only geometry/QImage, never this widget. Finish it before
+    // QApplication/font resources are destroyed (bounded local computation).
+    if (preloadThread_) preloadThread_->wait();
 }
 
 void StationMapView::setMapScriptUrl(const QUrl &url)
@@ -135,17 +161,17 @@ void StationMapView::setMapScriptUrl(const QUrl &url)
             updateControls();
         });
         connect(webMap_, &RouteMapView::loadingChanged, this, [this](bool loading) {
-            if (loading) statusLabel_->setText(QStringLiteral("正在加载腾讯地图…"));
-            statusLabel_->setVisible(loading);
+            if (loading) statusLabel_->hide(); // Compact preview caption, not a blocking centre panel.
             updateControls();
         });
         connect(webMap_, &RouteMapView::retryAvailableChanged, retry_, &QWidget::setVisible);
-        connect(webMap_, &RouteMapView::readyChanged, this, [this](bool ready) {
+        connect(webMap_, &RouteMapView::baseMapReadyChanged, this, [this](bool ready) {
+            updatePreview();
             if (ready) emit mapReady();
         });
     }
     if (webMap_) webMap_->setVisible(!url.isEmpty());
-    modeLabel_->setVisible(url.isEmpty());
+    updatePreview();
     for (auto *marker : markers_) marker->setVisible(url.isEmpty());
     webSceneDirty_ = true;
     applyWebScene();
@@ -160,18 +186,32 @@ void StationMapView::preload()
     // resizeEvent is deferred for a hidden widget. Size the nested canvas
     // explicitly before it creates the browser and its initial tile viewport.
     if (webMap_) webMap_->setGeometry(rect());
-    if (scriptUrl_.isEmpty()) {
-        fitStations();
-        demoBackdrop_.prepare(size(), center_, scale_, devicePixelRatioF());
-    }
+    fitStations();
+    const auto prepared = std::make_shared<DemoMapBackdrop>();
+    const QSize viewportSize = size();
+    const QPointF viewportCenter = center_;
+    const double viewportScale = scale_;
+    const qreal pixelRatio = devicePixelRatioF();
+    preloadThread_ = QThread::create([prepared, viewportSize, viewportCenter, viewportScale, pixelRatio] {
+        prepared->prepare(viewportSize, viewportCenter, viewportScale, pixelRatio);
+    });
+    preloadThread_->setParent(this);
+    connect(preloadThread_, &QThread::finished, this, [this, prepared] {
+        demoBackdrop_ = std::move(*prepared);
+        preloadThread_->deleteLater();
+        preloadThread_ = nullptr;
+        update();
+        loadingPreview_->update();
+        if (scriptUrl_.isEmpty()) emit mapReady();
+    });
+    preloadThread_->start();
     webSceneDirty_ = true;
     applyWebScene();
-    if (scriptUrl_.isEmpty()) emit mapReady();
 }
 
 bool StationMapView::isReady() const
 {
-    return scriptUrl_.isEmpty() ? demoBackdrop_.isReady() : (webMap_ && webMap_->isReady());
+    return scriptUrl_.isEmpty() ? demoBackdrop_.isReady() : (webMap_ && webMap_->isReady() && webMap_->isBaseMapReady());
 }
 
 void StationMapView::setCurrentLocation(const std::optional<MapLocation> &location)
@@ -312,7 +352,7 @@ void StationMapView::applyWebScene()
     // the same broad zoom that the first station response will use.
     if (warming_ || !receivedStations_) {
         scene.insert(QStringLiteral("defaultBounds"), QJsonArray{
-            coordinate({{}, 123.39, 41.70}), coordinate({{}, 123.44, 41.79})});
+            coordinate({{}, 123.40, 41.79}), coordinate({{}, 123.43, 41.70})});
     }
     webMap_->setStationScene(scriptUrl_, scene);
     webSceneDirty_ = false;
@@ -320,6 +360,7 @@ void StationMapView::applyWebScene()
 
 void StationMapView::updateMarkers()
 {
+    loadingPreview_->update();
     for (const auto &station : stations_) {
         if (auto *marker = markers_.value(station.stationId)) {
             const QPoint point = pointForLocation({{}, station.longitude, station.latitude}).toPoint();
@@ -331,6 +372,18 @@ void StationMapView::updateMarkers()
     controls_->raise();
 }
 
+void StationMapView::updatePreview()
+{
+    const bool preview = !scriptUrl_.isEmpty() && webMap_ && !webMap_->isBaseMapReady();
+    loadingPreview_->setVisible(preview);
+    modeLabel_->setVisible(scriptUrl_.isEmpty() || preview);
+    modeLabel_->setText(preview
+        ? QStringLiteral("腾讯加载中 · <a href=\"https://www.openstreetmap.org/copyright\">© OSM 离线预览</a>")
+        : QStringLiteral("沈阳离线地图 · <a href=\"https://www.openstreetmap.org/copyright\">© OpenStreetMap</a>"));
+    loadingPreview_->raise();
+    updateControls();
+}
+
 void StationMapView::updateControls()
 {
     controls_->resize(40, 134);
@@ -340,12 +393,14 @@ void StationMapView::updateControls()
     statusLabel_->setGeometry(24, height() / 2 - 55, std::max(0, width() - 48), 110);
     retry_->setGeometry(width() / 2 - 75, height() / 2 + 60, 150, 40);
     controls_->raise(); statusLabel_->raise(); retry_->raise();
+    modeLabel_->raise();
 }
 
 void StationMapView::resizeEvent(QResizeEvent *event)
 {
     QWidget::resizeEvent(event);
     if (webMap_) webMap_->setGeometry(rect());
+    loadingPreview_->setGeometry(rect());
     if (autoFit_) fitStations(); else updateMarkers();
     updateControls();
 }
@@ -411,6 +466,16 @@ void StationMapView::paintEvent(QPaintEvent *)
     QPainter painter(this);
     painter.fillRect(rect(), QColor("#edf1e8"));
     if (!scriptUrl_.isEmpty()) return;
+    paintOfflineMap(painter);
+}
+
+void StationMapView::paintOfflineMap(QPainter &painter)
+{
+    if (!preloadStarted_) preload();
+    if (!demoBackdrop_.isReady()) {
+        painter.fillRect(rect(), QColor("#f4f3ec"));
+        return;
+    }
     painter.setRenderHint(QPainter::Antialiasing);
     demoBackdrop_.paint(painter, size(), center_, scale_, devicePixelRatioF());
     if (location_) {
