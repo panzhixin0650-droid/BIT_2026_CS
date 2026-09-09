@@ -48,6 +48,7 @@ add_executable(server-app
     src/admin_ui/support_tickets_page.h
     src/admin_ui/pile_status_chart.cpp
     src/admin_ui/pile_status_chart.h
+    src/admin_ui/analysis_bar_chart.cpp
     src/admin_ui/revenue_chart.cpp
     src/admin_ui/revenue_chart.h
     resources/server_resources.qrc
@@ -117,6 +118,7 @@ if(BUILD_TESTING)
         src/admin_ui/admin_window.cpp
         src/admin_ui/admin_facade.cpp
         src/admin_ui/pile_status_chart.cpp
+        src/admin_ui/analysis_bar_chart.cpp
         src/admin_ui/revenue_chart.cpp
         src/application/application_service.cpp
         src/application/order_service.cpp

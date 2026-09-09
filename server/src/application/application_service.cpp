@@ -728,7 +728,7 @@ ServiceResult ApplicationService::createAdminAccount(qint64 actorAdminId,
         || !readString(input, QStringLiteral("role"), &role)
         || !readStationIds(input, &stationIds)
         || !usernamePattern.match(username).hasMatch()
-        || initialPassword.size() < 8 || initialPassword.size() > 128
+        || initialPassword.size() < 6 || initialPassword.size() > 128
         || displayName.trimmed().isEmpty() || displayName.trimmed().size() > 32
         || (role != QStringLiteral("SYS_ADMIN")
             && role != QStringLiteral("STATION_ADMIN")
@@ -878,7 +878,7 @@ ServiceResult ApplicationService::changeAdminPassword(qint64 actorAdminId,
     if (!actor.has_value()) return failure;
     if (!repository_->supportsAdminAccounts()) return ServiceResult::failure(
         ErrorCode::ServiceUnavailable, QStringLiteral("ADMIN_ACCOUNTS_MIGRATION_REQUIRED"));
-    if (currentPassword.isEmpty() || newPassword.size() < 8
+    if (currentPassword.isEmpty() || newPassword.size() < 6
         || newPassword.size() > 128 || currentPassword == newPassword) {
         return invalidRequest();
     }

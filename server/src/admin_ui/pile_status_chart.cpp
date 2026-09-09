@@ -1,7 +1,9 @@
 #include "pile_status_chart.h"
+#include <algorithm>
 
 #include <QEvent>
 #include <QMouseEvent>
+#include <QKeyEvent>
 #include <QPainter>
 #include <QToolTip>
 
@@ -18,17 +20,44 @@ constexpr double kPi = 3.14159265358979323846;
 PileStatusChart::PileStatusChart(QWidget *parent)
     : QWidget(parent)
 {
+    intro_ = new ChartIntro(this);
     setMinimumHeight(280);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    setCursor(Qt::PointingHandCursor);
+    setCursor(interactive_ ? Qt::PointingHandCursor : Qt::ArrowCursor);
     setMouseTracking(true);
+    setFocusPolicy(Qt::StrongFocus);
 }
+
+void PileStatusChart::playIntro()
+{
+    if (std::any_of(slices_.cbegin(), slices_.cend(), [](const auto &slice) { return slice.count > 0; })) intro_->replay();
+}
+
 
 void PileStatusChart::setSlices(QList<PileStatusSlice> slices)
 {
+    intro_->finish();
     slices_ = std::move(slices);
     hoveredSlice_ = -1;
+    QStringList labels;
+    for (const auto &slice : slices_)
+        labels << slice.label + QStringLiteral("：")
+            + QString::number(slice.count / valueDivisor_, 'f', valueDivisor_ == 1 ? 0 : 2) + valueUnit_;
+    setAccessibleDescription(labels.join(QStringLiteral("；")));
+    QToolTip::hideText(); update();
+}
+
+void PileStatusChart::setCaption(const QString &caption, bool interactive)
+{
+    caption_ = caption; interactive_ = interactive;
+    setFocusPolicy(interactive ? Qt::StrongFocus : Qt::NoFocus);
+    setAccessibleName(caption); setCursor(interactive ? Qt::PointingHandCursor : Qt::ArrowCursor);
     update();
+}
+
+void PileStatusChart::setValueFormat(qreal divisor, const QString &unit)
+{
+    valueDivisor_ = qMax(1.0,divisor); valueUnit_ = unit; update();
 }
 
 void PileStatusChart::paintEvent(QPaintEvent *event)
@@ -44,16 +73,17 @@ void PileStatusChart::paintEvent(QPaintEvent *event)
         for (const PileStatusSlice &slice : slices_) value += qMax<qint64>(0, slice.count);
         return value;
     }();
-    // The monitoring card intentionally contains only the chart.  Keep it
-    // anchored to the left so the unused right side remains visually quiet
-    // and available for a future monitoring module.
-    const qreal side = qMax<qreal>(0.0, qMin(width() * 0.58, height() - 34.0));
-    pieRect_ = QRectF(22.0, (height() - side) / 2.0, side, side);
+    const qreal side = qMax<qreal>(0.0, qMin(width() * 0.46, height() - 48.0));
+    pieRect_ = QRectF(8, (height() - side) / 2.0, side, side);
     if (total <= 0.0) {
-        painter.setPen(QColor(QStringLiteral("#8793a7")));
-        painter.drawText(rect(), Qt::AlignCenter, QStringLiteral("暂无电桩数据"));
+        painter.setPen(QColor(QStringLiteral("#64748b")));
+        painter.drawText(rect(), Qt::AlignCenter, QStringLiteral("当前范围暂无数据"));
     } else {
+        painter.setBrush(QColor("#edf2f9"));
+        painter.setPen(Qt::NoPen);
+        painter.drawEllipse(pieRect_);
         int startAngle = 90 * 16;
+        int remaining = qRound(360 * 16 * intro_->progress());
         for (int index = 0; index < slices_.size(); ++index) {
             const PileStatusSlice &slice = slices_.at(index);
             const qreal count = qMax<qint64>(0, slice.count);
@@ -61,37 +91,50 @@ void PileStatusChart::paintEvent(QPaintEvent *event)
             const int spanAngle = qRound(360.0 * 16.0 * count / total);
             painter.setBrush(slice.color.lighter(index == hoveredSlice_ ? 112 : 100));
             painter.setPen(Qt::white);
-            painter.drawPie(pieRect_, startAngle, -spanAngle);
+            const int visibleSpan = qBound(0, remaining, spanAngle);
+            if (visibleSpan > 0) painter.drawPie(pieRect_, startAngle, -visibleSpan);
+            remaining -= spanAngle;
             startAngle -= spanAngle;
         }
-        // Keep the original ring visual while leaving its center free of
-        // permanent labels.  Hovering the ring supplies the contextual data.
+        // The hollow center holds the total; the legend retains every category.
         painter.setBrush(Qt::white);
         painter.setPen(Qt::NoPen);
-        painter.drawEllipse(pieRect_.center(), pieRect_.width() * 0.22,
-                            pieRect_.height() * 0.22);
+        painter.drawEllipse(pieRect_.center(), pieRect_.width() * 0.34,
+                            pieRect_.height() * 0.34);
     }
 
-    // Keep the legend deliberately lightweight: color marker + status only.
-    // Counts and percentages are transient hover information, so the chart
-    // remains readable even when a category has a very small slice.
-    const qreal legendX = qMax(pieRect_.right() + 28.0, width() * 0.60);
-    const qreal rowHeight = 38.0;
-    const qreal legendTop = (height() - slices_.size() * rowHeight) / 2.0;
-    painter.setFont(QFont(font().family(), 13));
-    for (int index = 0; index < slices_.size(); ++index) {
-        const PileStatusSlice &slice = slices_.at(index);
-        const QRectF row(legendX, legendTop + index * rowHeight,
-                         qMax<qreal>(0.0, width() - legendX - 18.0), rowHeight);
-        legendRects_.append(row);
-        painter.setBrush(slice.color);
-        painter.setPen(Qt::NoPen);
-        painter.drawEllipse(QPointF(row.left() + 8.0, row.center().y()), 6.0, 6.0);
-        painter.setPen(QColor(QStringLiteral("#344054")));
-        painter.drawText(QRectF(row.left() + 24.0, row.top(),
-                                qMax<qreal>(0.0, row.width() - 24.0), row.height()),
-                         Qt::AlignVCenter | Qt::AlignLeft, slice.label);
+    if (total > 0) {
+        QFont number = font(); number.setPixelSize(24); number.setWeight(QFont::DemiBold);
+        const QString totalText = QString::number(total/valueDivisor_, 'f', valueDivisor_==1 ? 0 : 2);
+        const qreal textWidth = pieRect_.width() * 0.62;
+        while (number.pixelSize() > 12 && QFontMetrics(number).horizontalAdvance(totalText) > textWidth)
+            number.setPixelSize(number.pixelSize() - 1);
+        painter.setFont(number); painter.setPen(QColor("#243044"));
+        painter.drawText(pieRect_.adjusted(0,-10,0,-10),Qt::AlignCenter,totalText);
+        QFont caption = font(); caption.setPixelSize(12); painter.setFont(caption); painter.setPen(QColor("#64748b"));
+        painter.drawText(pieRect_.adjusted(0,36,0,0),Qt::AlignCenter,caption_);
     }
+    const qreal legendX = pieRect_.right() + 22;
+    const qreal rowHeight = 42;
+    const qreal legendTop = (height() - slices_.size() * rowHeight) / 2;
+    QFont legend = font(); legend.setPixelSize(12); painter.setFont(legend);
+    for (int index = 0; index < slices_.size(); ++index) {
+        const auto &slice = slices_[index];
+        const QRectF row(legendX, legendTop+index*rowHeight, qMax(0.0,width()-legendX-6),rowHeight);
+        legendRects_.append(row);
+        if (hoveredSlice_ == index) {
+            painter.setPen(Qt::NoPen); painter.setBrush(QColor("#f0f5fc"));
+            painter.drawRoundedRect(row.adjusted(-3,0,0,0),4,4);
+        }
+        painter.setBrush(slice.color); painter.setPen(Qt::NoPen);
+        painter.drawRoundedRect(QRectF(row.left(),row.top()+8,8,8),2,2);
+        painter.setPen(QColor("#344054"));
+        painter.drawText(row.adjusted(16,0,0,-20),Qt::AlignLeft|Qt::AlignVCenter,slice.label);
+        painter.setPen(QColor("#64748b"));
+        painter.drawText(row.adjusted(16,20,0,0),Qt::AlignLeft|Qt::AlignVCenter,
+            QStringLiteral("%1%2  %3%").arg(slice.count/valueDivisor_,0,'f',valueDivisor_==1 ? 0 : 2).arg(valueUnit_).arg(total>0 ? 100.0*slice.count/total : 0,0,'f',1));
+    }
+
 }
 
 int PileStatusChart::sliceAt(const QPointF &point) const
@@ -103,7 +146,7 @@ int PileStatusChart::sliceAt(const QPointF &point) const
     const QPointF delta = point - pieRect_.center();
     const qreal radius = std::hypot(delta.x(), delta.y());
     if (radius > pieRect_.width() / 2.0
-        || radius < pieRect_.width() * 0.22) return -1;
+        || radius < pieRect_.width() * 0.34) return -1;
     qreal total = 0.0;
     for (const PileStatusSlice &slice : slices_) total += qMax<qint64>(0, slice.count);
     if (total <= 0.0) return -1;
@@ -120,7 +163,8 @@ int PileStatusChart::sliceAt(const QPointF &point) const
 
 void PileStatusChart::mousePressEvent(QMouseEvent *event)
 {
-    if (event->button() == Qt::LeftButton) {
+    if (interactive_ && event->button() == Qt::LeftButton) {
+        intro_->finish();
         const int index = sliceAt(event->position());
         if (index >= 0) {
             emit statusClicked(slices_.at(index).key);
@@ -147,12 +191,13 @@ void PileStatusChart::mouseMoveEvent(QMouseEvent *event)
     for (const PileStatusSlice &slice : slices_) total += qMax<qint64>(0, slice.count);
     const PileStatusSlice &slice = slices_.at(index);
     const qreal percentage = total <= 0.0 ? 0.0 : 100.0 * slice.count / total;
-    const QString tip = QStringLiteral("%1\n数量：%2 / %3\n占比：%4%")
+    QString tip = QStringLiteral("%1\n数值：%2 / %3 %5\n占比：%4%")
         .arg(slice.label)
-        .arg(slice.count)
-        .arg(static_cast<qint64>(total))
-        .arg(QString::number(percentage, 'f', 1));
-    setCursor(Qt::PointingHandCursor);
+        .arg(slice.count/valueDivisor_,0,'f',valueDivisor_==1 ? 0 : 2)
+        .arg(total/valueDivisor_,0,'f',valueDivisor_==1 ? 0 : 2)
+        .arg(QString::number(percentage, 'f', 1)).arg(valueUnit_);
+    if (interactive_) tip += QStringLiteral("\n点击查看明细");
+    setCursor(interactive_ ? Qt::PointingHandCursor : Qt::ArrowCursor);
     QToolTip::showText(event->globalPosition().toPoint(), tip, this);
     if (hoveredSlice_ != index) {
         hoveredSlice_ = index;
@@ -160,12 +205,25 @@ void PileStatusChart::mouseMoveEvent(QMouseEvent *event)
     }
 }
 
+void PileStatusChart::keyPressEvent(QKeyEvent *event)
+{
+    if (interactive_ && !slices_.isEmpty() && (event->key()==Qt::Key_Down || event->key()==Qt::Key_Up)) {
+        hoveredSlice_ = hoveredSlice_ < 0 ? 0 : (hoveredSlice_ + (event->key()==Qt::Key_Down ? 1 : slices_.size()-1)) % slices_.size();
+        intro_->finish(); update(); event->accept(); return;
+    }
+    if (interactive_ && hoveredSlice_>=0 && hoveredSlice_<slices_.size()
+        && (event->key()==Qt::Key_Return || event->key()==Qt::Key_Enter || event->key()==Qt::Key_Space)) {
+        emit statusClicked(slices_[hoveredSlice_].key); event->accept(); return;
+    }
+    QWidget::keyPressEvent(event);
+}
+
 void PileStatusChart::leaveEvent(QEvent *event)
 {
     Q_UNUSED(event);
     QToolTip::hideText();
     hoveredSlice_ = -1;
-    setCursor(Qt::PointingHandCursor);
+    setCursor(interactive_ ? Qt::PointingHandCursor : Qt::ArrowCursor);
     update();
 }
 
