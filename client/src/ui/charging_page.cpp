@@ -119,11 +119,6 @@ ChargingPage::ChargingPage(QWidget *parent) : QWidget(parent)
     priceRow->addStretch();
     layout->addLayout(priceRow);
 
-    auto *note = new QLabel(QStringLiteral("模拟充电 · 每次约 3 分钟，满进度自动结束"), body);
-    note->setWordWrap(true);
-    note->setAlignment(Qt::AlignCenter);
-    note->setStyleSheet("color:#71806e;font-size:11px;");
-    layout->addWidget(note);
     message_ = new QLabel(body);
     message_->setObjectName("chargingMessage");
     message_->setWordWrap(true);

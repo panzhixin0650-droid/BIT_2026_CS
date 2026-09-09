@@ -390,7 +390,7 @@ void SupportPage::updateControls()
     } else if (turnCount_ >= 24) {
         status_->setText(QStringLiteral("本次对话已达上限，请新建对话。"));
     } else if (mode_->currentIndex() == 0) {
-        status_->setText(QStringLiteral("%1 · 按需连接").arg(service_.config().model));
+        status_->clear();
     } else {
         status_->setText(service_.config().isReady() ? QStringLiteral("离线可用 · 不调用 AI")
                                                     : service_.config().validationError());

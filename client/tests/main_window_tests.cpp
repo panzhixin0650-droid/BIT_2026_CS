@@ -1549,7 +1549,8 @@ void MainWindowTests::profileCanRefreshUpdateNicknameAndRecharge()
     auto *rechargeButton = window.findChild<QPushButton *>(QStringLiteral("rechargeButton"));
 
     navigation->setCurrentIndex(4);
-    QTRY_COMPARE(messageLabel->text(), QStringLiteral("资料已刷新"));
+    QTRY_VERIFY(messageLabel->text().isEmpty());
+    QVERIFY(messageLabel->isHidden());
     QCOMPARE(nicknameLabel->text(), QStringLiteral("演示用户0001"));
     QTRY_VERIFY(nicknameLabel->visibleRegion().contains(nicknameLabel->rect().center()));
     QTRY_VERIFY(phoneLabel->visibleRegion().contains(phoneLabel->rect().center()));
@@ -1558,6 +1559,7 @@ void MainWindowTests::profileCanRefreshUpdateNicknameAndRecharge()
 
     window.findChild<QPushButton *>("profileDetailsButton")->click();
     QVERIFY(window.findChild<QWidget *>("profileDetailPage")->isVisible());
+    QVERIFY(window.findChild<QLabel *>("profileDetailMessage")->isHidden());
     nicknameInput->setText(QStringLiteral("新的昵称"));
     QTest::mouseClick(saveButton, Qt::LeftButton);
     QTRY_COMPARE(messageLabel->text(), QStringLiteral("昵称已更新"));
@@ -1574,7 +1576,8 @@ void MainWindowTests::profileCanRefreshUpdateNicknameAndRecharge()
     navigation->setCurrentIndex(0);
     QCOMPARE(welcomeLabel->text(), QStringLiteral("你好，新的昵称"));
     navigation->setCurrentIndex(4);
-    QTRY_COMPARE(messageLabel->text(), QStringLiteral("资料已刷新"));
+    QTRY_VERIFY(messageLabel->text().isEmpty());
+    QVERIFY(messageLabel->isHidden());
 
     amountInput->setText(QStringLiteral("10"));
     bool rechargeSuccessDialogSeen = false;
@@ -1610,7 +1613,8 @@ void MainWindowTests::profileRejectsInvalidRechargeAmount()
     auto *rechargeButton = window.findChild<QPushButton *>(QStringLiteral("rechargeButton"));
 
     navigation->setCurrentIndex(4);
-    QTRY_COMPARE(messageLabel->text(), QStringLiteral("资料已刷新"));
+    QTRY_VERIFY(messageLabel->text().isEmpty());
+    QVERIFY(messageLabel->isHidden());
 
     amountInput->clear();
     amountInput->setFocus();
@@ -1642,7 +1646,8 @@ void MainWindowTests::logoutReturnsToLoginPage()
     auto *logoutButton = window.findChild<QPushButton *>(QStringLiteral("logoutButton"));
 
     navigation->setCurrentIndex(4);
-    QTRY_COMPARE(messageLabel->text(), QStringLiteral("资料已刷新"));
+    QTRY_VERIFY(messageLabel->text().isEmpty());
+    QVERIFY(messageLabel->isHidden());
     QTest::mouseClick(logoutButton, Qt::LeftButton);
 
     QTRY_COMPARE(pages->currentWidget(), loginPage);
