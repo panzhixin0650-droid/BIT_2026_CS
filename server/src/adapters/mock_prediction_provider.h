@@ -1,3 +1,4 @@
+// 拥堵预测提供者声明：标记未来接真实预测的替换位置
 #pragma once
 
 #include "charging/protocol/dto.h"
@@ -12,6 +13,7 @@ namespace charging::server {
 class MockPredictionProvider final {
 public:
     [[nodiscard]] bool available() const noexcept;
+    // 查询站点拥堵档位，站点非法返回空值
     [[nodiscard]] std::optional<charging::protocol::CongestionLevel>
     congestionForStation(qint64 stationId) const;
 };

@@ -23,6 +23,7 @@ class RouteMapView;
 class StationMapView final : public QWidget {
     Q_OBJECT
 public:
+    // 公开接口：设置地图源、定位、电站集合与视图缩放
     explicit StationMapView(QWidget *parent = nullptr);
     ~StationMapView() override;
     void preload();
@@ -41,12 +42,14 @@ public:
     [[nodiscard]] QPointF pointForLocation(const MapLocation &location) const;
     [[nodiscard]] QRectF usableViewport() const;
 
+// 信号通知选中电站、点击空白、用户交互与地图就绪
 signals:
     void stationSelected(qint64 stationId);
     void backgroundClicked();
     void interactionStarted();
     void mapReady();
 
+// 重写绘制与鼠标事件，实现离线地图的平移缩放
 protected:
     void paintEvent(QPaintEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
@@ -66,6 +69,7 @@ private:
     void activateStation(qint64 stationId);
     void paintOfflineMap(QPainter &painter);
     void updatePreview();
+    // 以下保存电站、标记、视图中心与缩放等内部状态
     QList<protocol::StationDto> stations_;
     QHash<qint64, QAbstractButton *> markers_;
     std::optional<MapLocation> location_;
@@ -82,6 +86,7 @@ private:
     bool preloadStarted_ = false;
     bool receivedStations_ = false;
     DemoMapBackdrop demoBackdrop_;
+    // 离线底图预热线程，只计算几何与图像
     QThread *preloadThread_ = nullptr;
     QUrl scriptUrl_;
     RouteMapView *webMap_ = nullptr;

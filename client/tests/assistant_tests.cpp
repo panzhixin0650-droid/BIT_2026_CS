@@ -1,3 +1,4 @@
+// 本文件测试助理配置校验、知识检索与流式响应解析
 #include "assistant/assistant_service.h"
 #include "assistant_test_network.h"
 
@@ -9,6 +10,7 @@
 
 using namespace charging::client;
 
+// 助理服务测试集合
 class AssistantTests final : public QObject {
     Q_OBJECT
 private slots:
@@ -30,6 +32,7 @@ private slots:
     void liveConfiguredEndpoint();
 };
 
+// 用内置知识条目和改写问法生成检索用例
 void AssistantTests::knowledgePresets_data()
 {
     QTest::addColumn<QString>("question");
@@ -47,6 +50,7 @@ void AssistantTests::knowledgePresets_data()
     QTest::newRow("general-order") << QStringLiteral("我的订单怎么看") << QStringLiteral("orders");
 }
 
+// 检索应命中预期条目，且结果不超过三条
 void AssistantTests::knowledgePresets()
 {
     QFETCH(QString, question);
@@ -61,6 +65,7 @@ void AssistantTests::knowledgePresets()
     QVERIFY(!found.first().source.isEmpty());
 }
 
+// 覆盖无关提问、寒暄与依赖上文的追问
 void AssistantTests::knowledgeFollowUpAndNoHit()
 {
     const auto base = KnowledgeBase::bundled();
@@ -76,6 +81,7 @@ void AssistantTests::knowledgeFollowUpAndNoHit()
     QVERIFY(price.content.contains(QStringLiteral("+ 500")));
 }
 
+// 校验接口地址、密钥换行注入与配置文件加载
 void AssistantTests::configurationValidation()
 {
     auto config = assistant_test::config();
@@ -106,6 +112,7 @@ void AssistantTests::configurationValidation()
     QVERIFY(!AssistantConfig::load(dir.filePath(QStringLiteral("missing.json"))).isReady());
 }
 
+// 本地模式与越界输入都不发起网络请求
 void AssistantTests::localModeNeverConnects()
 {
     assistant_test::Network network;
@@ -136,6 +143,7 @@ void AssistantTests::localModeNeverConnects()
     QCOMPARE(network.requests.size(), 0);
 }
 
+// 请求体限制历史条数，并脱敏手机号与密钥
 void AssistantTests::requestsAreBoundedAndRedacted()
 {
     assistant_test::Network network;
@@ -172,6 +180,7 @@ void AssistantTests::streamingChunks_data()
     for (const int size : {1, 2, 3, 31, 4096}) { QTest::newRow(qPrintable(QString::number(size))) << size; }
 }
 
+// 不同分块大小下都要拼回完整回答文本
 void AssistantTests::streamingChunks()
 {
     QFETCH(int, chunkSize);
@@ -193,6 +202,7 @@ void AssistantTests::streamingChunks()
     QVERIFY(!service.isBusy());
 }
 
+// 各类错误状态码与异常事件的数据集
 void AssistantTests::failurePaths_data()
 {
     QTest::addColumn<int>("status");
@@ -211,6 +221,7 @@ void AssistantTests::failurePaths_data()
     QTest::newRow("invalid-delta") << 200 << assistant_test::event({{"type", "response.output_text.delta"}, {"delta", 42}});
 }
 
+// 失败时给出提示但不泄露服务端错误细节
 void AssistantTests::failurePaths()
 {
     QFETCH(int, status);
@@ -229,6 +240,7 @@ void AssistantTests::failurePaths()
     QVERIFY(!service.isBusy());
 }
 
+// 非流式 JSON 响应也能提取出回答文本
 void AssistantTests::nonStreamingResponse()
 {
     assistant_test::Network network;
@@ -244,6 +256,7 @@ void AssistantTests::nonStreamingResponse()
     QCOMPARE(result.answer, QStringLiteral("预约说明"));
 }
 
+// 取消后旧请求结果被丢弃，只认最新一次
 void AssistantTests::cancellationAndLateLocalCompletion()
 {
     assistant_test::Network network;
@@ -264,6 +277,7 @@ void AssistantTests::cancellationAndLateLocalCompletion()
     QVERIFY(!service.isBusy());
 }
 
+// 超时给出提示，恢复后可重新提问
 void AssistantTests::timesOutAndCanRetry()
 {
     assistant_test::Network network;
@@ -281,6 +295,7 @@ void AssistantTests::timesOutAndCanRetry()
     QVERIFY(qvariant_cast<AssistantResult>(done.first()[1]).success);
 }
 
+// 响应体超过上限直接判为失败
 void AssistantTests::oversizedResponse()
 {
     assistant_test::Network network;
@@ -292,6 +307,7 @@ void AssistantTests::oversizedResponse()
     QVERIFY(!qvariant_cast<AssistantResult>(done.first()[1]).success);
 }
 
+// 用本地样例文件核对请求字段与事件协议
 void AssistantTests::localFixtureMatchesProtocol()
 {
     QFile file(QStringLiteral(ASSISTANT_FIXTURE_PATH));
@@ -315,6 +331,7 @@ void AssistantTests::localFixtureMatchesProtocol()
     QVERIFY(!qvariant_cast<AssistantResult>(done.first()[1]).success);
 }
 
+// 真实接口调用需显式配置，否则跳过
 void AssistantTests::liveConfiguredEndpoint()
 {
     const auto path = qEnvironmentVariable("CHARGING_ASSISTANT_LIVE_CONFIG");

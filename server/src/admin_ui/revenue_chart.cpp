@@ -1,3 +1,4 @@
+// 折线趋势图控件，按日展示营收、订单量或电量
 #include "revenue_chart.h"
 
 #include <QLinearGradient>
@@ -28,6 +29,7 @@ void RevenueChart::playIntro()
 }
 
 
+// 替换数据点并清除悬停状态，动画直接收尾
 void RevenueChart::setPoints(QList<RevenuePoint> points)
 {
     intro_->finish();
@@ -39,6 +41,7 @@ void RevenueChart::setPoints(QList<RevenuePoint> points)
     update();
 }
 
+// 设置指标名称、单位与换算倍数，如分转元
 void RevenueChart::setMetric(const QString &label, const QString &unit, qreal divisor, const QColor &color)
 {
     label_ = label; unit_ = unit; divisor_ = qMax(1.0, divisor); color_ = color;
@@ -50,6 +53,7 @@ const QList<RevenuePoint> &RevenueChart::points() const noexcept
     return points_;
 }
 
+// 绘制网格、折线与填充区，无数据时给出提示
 void RevenueChart::paintEvent(QPaintEvent *event)
 {
     Q_UNUSED(event);
@@ -76,6 +80,7 @@ void RevenueChart::paintEvent(QPaintEvent *event)
         maximum = std::max(maximum, point.revenueCents);
     }
 
+    // 按数量级取整算出纵轴上限，使刻度更整齐
     const double magnitude = std::pow(10.0, std::floor(std::log10(qMax(1.0, maximum / divisor_))));
     maximum = static_cast<qint64>(std::ceil(maximum / divisor_ / magnitude * 1.1) * magnitude * divisor_);
     maximum = qMax<qint64>(maximum, static_cast<qint64>(divisor_));
@@ -102,6 +107,7 @@ void RevenueChart::paintEvent(QPaintEvent *event)
     fillPath.lineTo(screenPoints.constLast().x(), plot.bottom());
     fillPath.closeSubpath();
 
+    // 渐变填充并按动画进度裁剪，实现从左到右的展开效果
     QLinearGradient gradient(plot.topLeft(), plot.bottomLeft());
     gradient.setColorAt(0.0, QColor(color_.red(), color_.green(), color_.blue(), 50));
     gradient.setColorAt(1.0, QColor(color_.red(), color_.green(), color_.blue(), 3));
@@ -129,6 +135,7 @@ void RevenueChart::paintEvent(QPaintEvent *event)
 
     painter.restore();
     painter.setPen(QColor(QStringLiteral("#64748b")));
+    // 横轴按步长抽稀日期标签，纵轴画四档刻度
     const int labelStep = std::max(1, static_cast<int>(std::ceil(points_.size() / 6.0)));
     for (qsizetype index = 0; index < points_.size(); index += labelStep) {
         const qreal x = screenPoints.at(index).x();
@@ -143,6 +150,7 @@ void RevenueChart::paintEvent(QPaintEvent *event)
 
 }
 
+// 根据横坐标定位最近的数据点，高亮并显示提示
 void RevenueChart::mouseMoveEvent(QMouseEvent *event)
 {
     if (points_.isEmpty()) {
@@ -178,6 +186,7 @@ void RevenueChart::mouseMoveEvent(QMouseEvent *event)
                        this);
 }
 
+// 左键点击某日发出信号，页面据此查看当日已支付订单
 void RevenueChart::mouseReleaseEvent(QMouseEvent *event)
 {
     const QRectF plot = QRectF(rect()).adjusted(54,24,-24,-42);
@@ -190,6 +199,7 @@ void RevenueChart::mouseReleaseEvent(QMouseEvent *event)
     QWidget::mouseReleaseEvent(event);
 }
 
+// 左右键切换选中点，回车或空格触发跳转
 void RevenueChart::keyPressEvent(QKeyEvent *event)
 {
     if (!points_.isEmpty() && (event->key()==Qt::Key_Left || event->key()==Qt::Key_Right)) {

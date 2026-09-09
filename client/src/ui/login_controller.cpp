@@ -1,3 +1,4 @@
+// 文件用途：登录页控制器，校验输入并调用登录接口
 #include "ui/login_controller.h"
 
 #include "api/i_charging_api.h"
@@ -10,6 +11,7 @@ namespace charging::client {
 
 namespace {
 
+// 手机号与验证码的格式校验规则
 const QRegularExpression kPhonePattern(QStringLiteral("^\\d{11}$"));
 const QRegularExpression kVerificationCodePattern(QStringLiteral("^[0-9]{6}$"));
 // UI-only course demo: not an SMS service or a server authentication credential.
@@ -17,6 +19,7 @@ const QString kDemoVerificationCode = QStringLiteral("123456");
 
 }  // namespace
 
+// 构造时连接页面操作与登录结果回调
 LoginController::LoginController(LoginPage &page, IChargingApi &api, QObject *parent)
     : QObject(parent)
     , page_(page)
@@ -31,6 +34,7 @@ LoginController::LoginController(LoginPage &page, IChargingApi &api, QObject *pa
             &LoginController::handleLoginCompleted);
 }
 
+// 获取验证码只做格式校验并展示演示码
 void LoginController::requestVerificationCode(const QString &phone)
 {
     if (!pendingRequestId_.isEmpty()) {
@@ -44,6 +48,7 @@ void LoginController::requestVerificationCode(const QString &phone)
     page_.showDemoVerificationCode(kDemoVerificationCode);
 }
 
+// 提交前逐项校验，通过后才发起登录请求
 void LoginController::submitLogin(const QString &phone, const QString &verificationCode)
 {
     if (!pendingRequestId_.isEmpty()) {
@@ -69,6 +74,7 @@ void LoginController::submitLogin(const QString &phone, const QString &verificat
     pendingRequestId_ = api_.loginUser(phone);
 }
 
+// 确认是本次请求的登录响应，成功则发出用户信息
 void LoginController::handleLoginCompleted(const LoginResult &result)
 {
     if (pendingRequestId_.isEmpty()
@@ -96,6 +102,7 @@ void LoginController::handleLoginCompleted(const LoginResult &result)
     emit loginSucceeded(result.payload->user, result.payload->isNewUser);
 }
 
+// 把错误码转成便于用户理解的中文提示
 QString LoginController::errorMessage(const ApiResponse &response) const
 {
     switch (response.code) {

@@ -1,3 +1,4 @@
+<!-- 把演示相册图片打包到资源前缀demo-album下 -->
 <RCC>
   <qresource prefix="/demo-album">
     <file alias="PILE-A-01.png">../demo-album/PILE-A-01.png</file>

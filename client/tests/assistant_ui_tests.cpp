@@ -1,3 +1,4 @@
+// 本文件测试助理界面：预设、发送键、重试、布局与登出清理
 #include "assistant/assistant_service.h"
 #include "assistant_test_network.h"
 #include "api/mock_charging_api.h"
@@ -31,12 +32,14 @@ template<typename T> T *child(QWidget &page, const char *name)
     return page.findChild<T *>(QString::fromLatin1(name));
 }
 
+// 辅助函数：填入问题并点击发送按钮
 void send(QWidget &page, const QString &text)
 {
     child<QPlainTextEdit>(page, "assistantInput")->setPlainText(text);
     child<QPushButton>(page, "assistantSend")->click();
 }
 
+// 按环境变量导出窗口截图供人工核对
 void capture(QWidget &window, const QString &name)
 {
     const auto directory = qEnvironmentVariable("CHARGING_ASSISTANT_SCREENSHOTS");
@@ -46,6 +49,7 @@ void capture(QWidget &window, const QString &name)
 }
 }  // namespace
 
+// 助理界面测试集合
 class AssistantUiTests final : public QObject {
     Q_OBJECT
 private slots:
@@ -60,6 +64,7 @@ private slots:
     void liveFullWindow();
 };
 
+// 预设问题、复制回答、查看来源与新建会话
 void AssistantUiTests::presetsCopySourcesAndReset()
 {
     assistant_test::Network network;
@@ -85,6 +90,7 @@ void AssistantUiTests::presetsCopySourcesAndReset()
     QVERIFY(child<QPlainTextEdit>(page, "assistantInput")->toPlainText().isEmpty());
 }
 
+// 回车发送、Shift 回车换行，输入法预编辑期间不误发
 void AssistantUiTests::enterShiftEnterAndInputMethod()
 {
     AssistantService service;
@@ -111,6 +117,7 @@ void AssistantUiTests::enterShiftEnterAndInputMethod()
     QVERIFY(!child<QPushButton>(page, "assistantSend")->isEnabled());
 }
 
+// 失败后可重试，失败回答不作为上下文；也可停止等待
 void AssistantUiTests::failedRequestsCanRetryOrStop()
 {
     assistant_test::Network network;
@@ -137,6 +144,7 @@ void AssistantUiTests::failedRequestsCanRetryOrStop()
     QVERIFY(child<QComboBox>(page, "assistantMode")->isEnabled());
 }
 
+// 重置会话会取消请求并丢弃迟到结果
 void AssistantUiTests::resetCancelsAndDiscardsLateResults()
 {
     assistant_test::Network network;
@@ -157,6 +165,7 @@ void AssistantUiTests::resetCancelsAndDiscardsLateResults()
     QCOMPARE(page.findChildren<QLabel *>(QStringLiteral("assistantUserText")).size(), 1);
 }
 
+// 长回答保持纯文本换行，不出现横向滚动
 void AssistantUiTests::longMessagesRemainPlainTextAndWrapped()
 {
     assistant_test::Network network;
@@ -183,6 +192,7 @@ void AssistantUiTests::fullWindowAtSmallSizes_data()
     QTest::newRow("420x760") << QSize(420, 760);
 }
 
+// 小窗口下整窗布局：输入区不越界且在导航栏之上
 void AssistantUiTests::fullWindowAtSmallSizes()
 {
     QFETCH(QSize, size);
@@ -216,6 +226,7 @@ void AssistantUiTests::fullWindowAtSmallSizes()
     capture(window, QStringLiteral("assistant-chat-") + suffix);
 }
 
+// 退出登录后助理会话内容被清空
 void AssistantUiTests::logoutClearsConversation()
 {
     MockChargingApi api;
@@ -237,6 +248,7 @@ void AssistantUiTests::logoutClearsConversation()
     QTRY_VERIFY(child<QLabel>(window, "assistantAnswerText") == nullptr);
 }
 
+// 真实接口的界面验证需显式配置才执行
 void AssistantUiTests::liveFullWindow()
 {
     const auto path = qEnvironmentVariable("CHARGING_ASSISTANT_LIVE_CONFIG");

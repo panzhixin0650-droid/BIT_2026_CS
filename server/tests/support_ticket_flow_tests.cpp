@@ -1,3 +1,4 @@
+// 本文件测试工单与报修的创建、权限校验及数据库迁移兼容性
 #include "adapters/mock_pile.h"
 #include "adapters/mock_prediction_provider.h"
 #include "admin_ui/admin_facade.h"
@@ -23,12 +24,14 @@ using namespace charging::server;
 using namespace charging::protocol;
 
 namespace {
+// 构造一份带随机提交号的工单草稿
 SupportTicketDraft draft()
 {
     return {QUuid::createUuid().toString(QUuid::WithoutBraces), QStringLiteral("结算页面问题"),
         QStringLiteral("用户反馈结算后提示异常；实际订单结果待核实。"), QStringLiteral("gpt-5.6-sol")};
 }
 
+// 测试装置：可切换SQLite或内存仓库
 struct Fixture {
     QTemporaryDir temp;
     std::unique_ptr<IRepository> repository;
@@ -39,6 +42,7 @@ struct Fixture {
     QString error;
     QString token;
     QString path() const { return temp.filePath(QStringLiteral("tickets.db")); }
+    // 通过外部sqlite3进程执行SQL脚本
     bool sql(const QByteArray &input)
     {
         QProcess process;
@@ -50,6 +54,7 @@ struct Fixture {
         error = QString::fromUtf8(process.readAll());
         return process.exitStatus() == QProcess::NormalExit && process.exitCode() == 0;
     }
+    // 按需执行各迁移脚本并打开仓库，再登录取用户令牌
     bool initialize(bool sqlite, bool migrate = true, bool adminAccounts = true, bool repairs = false)
     {
         if (sqlite) {
@@ -69,6 +74,7 @@ struct Fixture {
         token = service->loginUser({{"phone", "13800000001"}}).data.value("token").toString();
         return !token.isEmpty();
     }
+    // 抓取用户、站点、桩、订单快照，用于验证业务数据未被改动
     QJsonObject businessSnapshot() const
     {
         QJsonArray users, stations, piles, orders;
@@ -87,6 +93,7 @@ void backends()
 }
 }
 
+// 工单流程测试用例集合
 class SupportTicketFlowTests final : public QObject {
     Q_OBJECT
 private slots:
@@ -117,6 +124,7 @@ private slots:
     void mismatchedSchemaVersionsAreRejected();
 };
 
+// 同一提交号重复创建返回原工单，其他用户不可见
 void SupportTicketFlowTests::lifecycleAndIsolation()
 {
     QFETCH(bool, sqlite);
@@ -142,6 +150,7 @@ void SupportTicketFlowTests::lifecycleAndIsolation()
     QCOMPARE(f.service->createSupportTicket(f.token, input).code, ErrorCode::Forbidden);
     QCOMPARE(f.service->listSupportTickets(f.token, {}).code, ErrorCode::Forbidden);
     user.status = UserStatus::Active; QVERIFY(f.repository->updateUser(user));
+    // 管理员回复内容必填，处理后状态变为已解决
     AdminFacade admin(f.service.get());
     const QJsonObject update{{"ticketId", id}, {"status", "RESOLVED"}, {"reply", ""}};
     QCOMPARE(admin.listSupportTickets().code, ErrorCode::Forbidden);
@@ -158,6 +167,7 @@ void SupportTicketFlowTests::lifecycleAndIsolation()
     QVERIFY(!admin.login("admin", "wrong").ok());
     QCOMPARE(admin.listSupportTickets().code, ErrorCode::Forbidden);
     QCOMPARE(f.businessSnapshot(), baseline); // Ticket actions never touch charging or money.
+    // 用户令牌调用管理端工单路由会被拒绝
     RequestRouter router(f.service.get());
     RequestEnvelope request;
     request.type = "support.ticket.admin.update"; request.requestId = "forbidden-route";
@@ -165,6 +175,7 @@ void SupportTicketFlowTests::lifecycleAndIsolation()
     QCOMPARE(router.route(request).code, ErrorCode::InvalidRequest);
 }
 
+// 校验字段长度、越权userId与分页游标参数
 void SupportTicketFlowTests::validationAndPagination()
 {
     QFETCH(bool, sqlite);
@@ -187,6 +198,7 @@ void SupportTicketFlowTests::validationAndPagination()
     QCOMPARE(f.service->getSupportTicket(f.token, {{"ticketId", 999}}).code, ErrorCode::NotFound);
 }
 
+// 回滚后工单与提交号都不留痕，主键可继续复用
 void SupportTicketFlowTests::rollback()
 {
     QFETCH(bool, sqlite);
@@ -204,6 +216,7 @@ void SupportTicketFlowTests::rollback()
     QCOMPARE(saved.ticketId, qint64(1));
 }
 
+// 旧库缺工单表时返回服务不可用，业务照常且不自动升级
 void SupportTicketFlowTests::legacySchemaKeepsBusinessWorking()
 {
     Fixture f; QVERIFY2(f.initialize(true, false), qPrintable(f.error));
@@ -217,6 +230,7 @@ void SupportTicketFlowTests::legacySchemaKeepsBusinessWorking()
     QVERIFY(f.sql("PRAGMA user_version;")); QCOMPARE(f.error.trimmed(), QStringLiteral("1"));
 }
 
+// 重开库验证持久化，用触发器模拟写入失败返回内部错误
 void SupportTicketFlowTests::persistentAndStorageFailure()
 {
     Fixture f; QVERIFY2(f.initialize(true), qPrintable(f.error));
@@ -237,6 +251,7 @@ void SupportTicketFlowTests::persistentAndStorageFailure()
     QVERIFY(f.service->createSupportTicket(f.token, toJson(draft())).ok());
 }
 
+// 真实客户端经TCP提交工单或报修，管理员回复后可查看
 void SupportTicketFlowTests::realClientTcpToSqliteAndAdmin()
 {
     QFETCH(bool, repair);
@@ -285,6 +300,7 @@ void SupportTicketFlowTests::realClientTcpToSqliteAndAdmin()
     QVERIFY(!api.getProfile().isEmpty());
     QTRY_COMPARE(profile.size(), 1);
     QVERIFY(qvariant_cast<client::UserResult>(profile.takeFirst().first()).ok());
+    // 换成另一个用户登录后查不到他人工单
     QVERIFY(!api.loginUser("13800000005").isEmpty());
     QTRY_COMPARE(login.size(), 1);
     QVERIFY(!api.getSupportTicket(id).isEmpty());
@@ -295,6 +311,7 @@ void SupportTicketFlowTests::realClientTcpToSqliteAndAdmin()
     QVERIFY(qvariant_cast<client::TicketListResult>(list.takeFirst().first()).payload->items.isEmpty());
 }
 
+// 覆盖旧版schema1与含工单表的schema2两种库
 void SupportTicketFlowTests::legacyAdminLoginKeepsSchema_data()
 {
     QTest::addColumn<bool>("tickets");
@@ -302,6 +319,7 @@ void SupportTicketFlowTests::legacyAdminLoginKeepsSchema_data()
     QTest::newRow("schema-2-tickets") << true;
 }
 
+// 缺管理员账号表时登录仍可用，账号管理提示需迁移
 void SupportTicketFlowTests::legacyAdminLoginKeepsSchema()
 {
     QFETCH(bool, tickets);
@@ -337,6 +355,7 @@ void SupportTicketFlowTests::legacyAdminLoginKeepsSchema()
     QCOMPARE(f.error.trimmed(), tickets ? QStringLiteral("2") : QStringLiteral("1"));
 }
 
+// 各角色权限逐次复核：需改密、角色变更与停用后失效
 void SupportTicketFlowTests::adminAuthorizationIsRechecked()
 {
     QFETCH(bool, sqlite);
@@ -383,6 +402,7 @@ void SupportTicketFlowTests::adminAuthorizationIsRechecked()
     QVERIFY(!system.listOrders().ok());
 }
 
+// 混合修改管理员与工单后回滚，全部恢复原样
 void SupportTicketFlowTests::mixedAdminAndTicketRollback()
 {
     QFETCH(bool, sqlite);
@@ -414,6 +434,7 @@ void SupportTicketFlowTests::mixedAdminAndTicketRollback()
     QCOMPARE(f.repository->createSupportTicket(ticket).ticketId, pendingTicket.ticketId);
 }
 
+// 执行管理员迁移后旧工单与登录凭据仍然可用
 void SupportTicketFlowTests::upgradePreservesTickets()
 {
     Fixture f; QVERIFY2(f.initialize(true, true, false), qPrintable(f.error));
@@ -441,6 +462,7 @@ void SupportTicketFlowTests::upgradePreservesTickets()
     QVERIFY(admin.listAdmins().ok());
 }
 
+// user_version与实际表结构不符时拒绝打开
 void SupportTicketFlowTests::mismatchedSchemaVersionsAreRejected()
 {
     Fixture f; QVERIFY2(f.initialize(true), qPrintable(f.error));
@@ -457,6 +479,7 @@ void SupportTicketFlowTests::mismatchedSchemaVersionsAreRejected()
     QVERIFY(!storage->supportsAdminAccounts() && !storage->supportsSupportTickets());
 }
 
+// 报修单校验故障类型与桩编码，处理过程不改业务数据
 void SupportTicketFlowTests::repairLifecycle()
 {
     QFETCH(bool, sqlite);
@@ -490,6 +513,7 @@ void SupportTicketFlowTests::repairLifecycle()
     }
     // Reporting and handling change no account, pile, or order state.
     QCOMPARE(f.businessSnapshot(), business);
+    // 有报修记录的桩不允许删除或修改编码
     auto extraPile = f.repository->listPiles().first();
     extraPile.pileCode = "REPAIR-ONLY"; extraPile.status = PileStatus::Idle;
     extraPile = f.repository->createPile(extraPile);
@@ -504,6 +528,7 @@ void SupportTicketFlowTests::repairLifecycle()
     QCOMPARE(f.service->createSupportTicket(f.token, toJson(input)).code, ErrorCode::Forbidden);
 }
 
+// 缺报修迁移时提示需迁移，迁移后旧工单保留且脚本不可重复执行
 void SupportTicketFlowTests::repairMigrationPreservesExistingTickets()
 {
     Fixture f; QVERIFY2(f.initialize(true), qPrintable(f.error));

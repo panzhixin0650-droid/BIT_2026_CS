@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 本地演示用模拟器：周期生成不断变化的 Dashboard 快照
 """Generate a changing Dashboard V1 snapshot for local Web demonstrations."""
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 
+# 默认输入契约样例，输出到 web/dashboard.json
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPOSITORY_ROOT = SCRIPT_DIR.parent
 DEFAULT_SOURCE = REPOSITORY_ROOT / "contracts/examples/dashboard.sample.json"
@@ -24,6 +26,7 @@ DEFAULT_OUTPUT = SCRIPT_DIR / "dashboard.json"
 BUSINESS_ZONE = ZoneInfo("Asia/Shanghai")
 
 
+# 限制刷新间隔下限，避免写文件过于频繁
 def positive_interval(value: str) -> float:
     interval = float(value)
     if interval < 0.2:
@@ -38,6 +41,7 @@ def non_negative_steps(value: str) -> int:
     return steps
 
 
+# 解析命令行参数：间隔、次数、随机种子与文件路径
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="周期性生成 web/dashboard.json，模拟大屏实时数据变化。",
@@ -75,6 +79,7 @@ def parse_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
+# 模拟器类：在模板基础上按 tick 推进各项指标
 class DashboardSimulator:
     def __init__(self, template: dict[str, Any], seed: int) -> None:
         self.dashboard = copy.deepcopy(template)
@@ -83,6 +88,7 @@ class DashboardSimulator:
         self.total_revenue_cents = int(template["summary"]["totalRevenueCents"])
         self._prepare_revenue_window()
 
+    # 把营收序列补齐到北京时间最近30天
     def _prepare_revenue_window(self) -> None:
         points = self.dashboard.get("revenuePoints", [])
         amounts = [max(0, int(point.get("revenueCents", 0))) for point in points]
@@ -99,6 +105,7 @@ class DashboardSimulator:
             for index, amount in enumerate(amounts)
         ]
 
+    # 生成下一份快照：营收累加、状态波动、预测刷新
     def next_snapshot(self) -> dict[str, Any]:
         self.tick += 1
         now = datetime.now(timezone.utc).replace(microsecond=0)
@@ -110,6 +117,7 @@ class DashboardSimulator:
             points.append({"date": business_today.isoformat(), "revenueCents": 0})
             del points[:-30]
 
+        # 约八成概率产生一笔新增营收，单位为分
         revenue_increment = self.random.randint(35, 260) if self.random.random() < 0.84 else 0
         points[-1]["revenueCents"] += revenue_increment
         self.total_revenue_cents += revenue_increment
@@ -122,6 +130,7 @@ class DashboardSimulator:
         )
         summary["totalRevenueCents"] = self.total_revenue_cents
 
+        # 用正弦波模拟在用电桩数，偶尔出现一个故障桩
         pile_count = max(1, int(summary["pileCount"]))
         wave = (math.sin(self.tick / 2.2) + 1) / 2
         in_use = round(pile_count * (0.18 + wave * 0.43))
@@ -133,6 +142,7 @@ class DashboardSimulator:
             "fault": fault,
         }
 
+        # 预测点由当前波形推算，来源固定标记为 MOCK
         forecast_available = min(4, idle)
         forecast_load = round(16 + 38 * wave + self.random.uniform(-2.2, 2.2), 1)
         congestion = self._congestion_level(forecast_load, forecast_available)
@@ -160,6 +170,7 @@ class DashboardSimulator:
         self.dashboard["generatedAt"] = self._iso_utc(now)
         return copy.deepcopy(self.dashboard)
 
+    # 取样例中的站点编号作为代表站点
     def _representative_station_id(self) -> int:
         predictions = self.dashboard.get("predictions", [])
         if predictions:
@@ -174,6 +185,7 @@ class DashboardSimulator:
             return False
         return candidate.year == expected.year and candidate.month == expected.month
 
+    # 按负荷和可用桩数划分拥堵等级
     @staticmethod
     def _congestion_level(load_kw: float, available_piles: int) -> str:
         if available_piles <= 1 or load_kw >= 48:
@@ -187,6 +199,7 @@ class DashboardSimulator:
         return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+# 载入模板 JSON 并检查必需字段是否齐全
 def load_template(path: Path) -> dict[str, Any]:
     with path.expanduser().resolve().open("r", encoding="utf-8") as source:
         dashboard = json.load(source)
@@ -197,6 +210,7 @@ def load_template(path: Path) -> dict[str, Any]:
     return dashboard
 
 
+# 先写临时文件再原子替换，避免大屏读到半份 JSON
 def write_atomically(path: Path, dashboard: dict[str, Any]) -> None:
     target = path.expanduser().resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -221,6 +235,7 @@ def write_atomically(path: Path, dashboard: dict[str, Any]) -> None:
             Path(temporary_name).unlink(missing_ok=True)
 
 
+# 控制台打印本轮快照的关键数字，便于观察
 def print_snapshot(sequence: int, dashboard: dict[str, Any], output: Path) -> None:
     summary = dashboard["summary"]
     piles = dashboard["pileStates"]
@@ -235,6 +250,7 @@ def print_snapshot(sequence: int, dashboard: dict[str, Any], output: Path) -> No
     )
 
 
+# 主流程：按间隔循环生成，Ctrl+C 可随时停止
 def main() -> int:
     arguments = parse_arguments()
     template = load_template(arguments.source)
@@ -244,6 +260,7 @@ def main() -> int:
     print(f"模拟器已启动：每 {arguments.interval:g} 秒更新 {output}", flush=True)
     print("按 Ctrl+C 停止；大屏会保留最后一份快照。", flush=True)
     sequence = 0
+    # 减去本轮耗时再休眠，尽量贴近设定间隔
     try:
         while arguments.steps == 0 or sequence < arguments.steps:
             started_at = time.monotonic()

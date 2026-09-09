@@ -1,3 +1,4 @@
+// 用代码绘制头像图片，不依赖外部图片资源
 #include "ui/avatar_art.h"
 
 #include <QPainter>
@@ -6,6 +7,7 @@
 namespace charging::client {
 namespace {
 
+// 按变体号画出四种风格的头像底图
 QImage drawAvatar(int variant)
 {
     QImage image(512, 512, QImage::Format_ARGB32_Premultiplied);
@@ -25,6 +27,7 @@ QImage drawAvatar(int variant)
     p.drawEllipse(QRectF(24, 89, 80, 60));
     const QColor face(variant == 2 ? "#c29b75" : "#fff5e3");
     p.setBrush(face);
+    // 不同变体画耳朵或发饰，形成各自造型
     if (variant == 1) {
         p.drawPolygon(QPolygonF{QPointF(29, 54), QPointF(27, 22), QPointF(53, 40)});
         p.drawPolygon(QPolygonF{QPointF(75, 40), QPointF(101, 22), QPointF(99, 54)});
@@ -40,6 +43,7 @@ QImage drawAvatar(int variant)
         p.setBrush(face);
     }
     p.drawRoundedRect(QRectF(28, 36, 72, 67), 31, 31);
+    // 变体 0 额外画一株嫩芽装饰
     if (variant == 0) {
         p.setPen(QPen(QColor("#527b64"), 4, Qt::SolidLine, Qt::RoundCap));
         p.drawLine(QPointF(64, 38), QPointF(64, 23));
@@ -54,6 +58,7 @@ QImage drawAvatar(int variant)
         leaves.cubicTo(83, 25, 75, 28, 64, 24);
         p.drawPath(leaves);
     }
+    // 绘制腮红、眼睛和微笑等五官
     p.setBrush(QColor("#dfb5a2"));
     p.drawEllipse(QRectF(35, 74, 14, 8));
     p.drawEllipse(QRectF(79, 74, 14, 8));
@@ -74,6 +79,7 @@ QImage drawAvatar(int variant)
 
 }  // namespace
 
+// 四个基础头像只绘制一次并静态缓存
 const std::array<BasicAvatar, 4> &basicAvatars()
 {
     static const std::array<BasicAvatar, 4> avatars{{
@@ -85,6 +91,7 @@ const std::array<BasicAvatar, 4> &basicAvatars()
     return avatars;
 }
 
+// 未设置头像时的灰色占位图
 QImage defaultAvatar()
 {
     QImage image(128, 128, QImage::Format_ARGB32_Premultiplied);
@@ -98,6 +105,7 @@ QImage defaultAvatar()
     return image;
 }
 
+// 居中裁成圆形头像，并按设备像素比适配高分屏
 QPixmap circularAvatar(const QImage &image, int size, qreal devicePixelRatio)
 {
     const int pixels = qRound(size * devicePixelRatio);

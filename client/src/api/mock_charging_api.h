@@ -1,3 +1,4 @@
+// 文件用途：声明客户端Mock充电接口，用内存数据模拟服务端
 #pragma once
 
 #include "api/i_charging_api.h"
@@ -10,14 +11,17 @@
 
 namespace charging::client {
 
+// MockChargingApi：以内存表实现IChargingApi，供无服务端Demo使用
 class MockChargingApi final : public IChargingApi {
     Q_OBJECT
 
 public:
+    // 时钟可注入，便于测试控制当前时间
     using Clock = std::function<QDateTime()>;
     explicit MockChargingApi(QObject *parent = nullptr,
                              Clock clock = QDateTime::currentDateTimeUtc);
 
+    // 以下重写各接口，均立即返回请求ID再异步发完成信号
     [[nodiscard]] QString loginUser(const QString &phone) override;
     [[nodiscard]] QString logout() override;
     [[nodiscard]] QString getProfile() override;
@@ -40,7 +44,9 @@ public:
     [[nodiscard]] QString getSupportTicket(qint64 ticketId) override;
 
 private:
+    // 统一取UTC时间，保证时间口径一致
     [[nodiscard]] QDateTime nowUtc() const { return clock_().toUTC(); }
+    // 结算充电与处理到期预约的内部辅助
     ChargingStopPayload finishCharge(qint64 orderId, const QDateTime &endedAt);
     void expireDueReservations(const QDateTime &now);
     [[nodiscard]] QString nextRequestId();
@@ -55,12 +61,14 @@ private:
     [[nodiscard]] protocol::OrderDto orderWithProgress(
         const protocol::OrderDto &order) const;
 
+    // 内存数据表：用户、充电桩、订单与模拟计时
     QHash<QString, protocol::UserDto> usersByPhone_;
     QHash<QString, protocol::PileDto> pilesByCode_;
     QHash<qint64, protocol::OrderDto> ordersById_;
     QHash<qint64, qint64> simulatedDurationByOrder_;
     QString authenticatedPhone_;
     QString token_;
+    // 自增编号与请求序号，仅在本进程内有效
     qint64 nextUserId_ = 2;
     qint64 nextOrderId_ = 1001;
     quint64 requestSequence_ = 0;

@@ -1,3 +1,4 @@
+// 服务端管理台主窗口声明：登录、各业务页面与导航历史
 #pragma once
 
 #include <QMainWindow>
@@ -28,6 +29,7 @@ class RevenueChart;
 class AnalysisBarChart;
 class PileStatusChart;
 
+// 管理端主窗口，聚合仪表盘、站桩、用户、订单等页面
 class AdminWindow final : public QMainWindow {
     Q_OBJECT
 
@@ -39,6 +41,7 @@ public:
                          QWidget *parent = nullptr);
 
 private:
+    // PageState 保存某一页的筛选与选中项，用于前进后退还原
     struct PageState {
         int pageIndex = 0;
         int analysisScroll = 0;
@@ -80,6 +83,7 @@ private:
         qint64 selectedAdminId = 0;
     };
 
+    // 以下为各页面的构建函数，分别返回对应的页面控件
     QWidget *buildLoginPage();
     QWidget *buildApplicationPage();
     QWidget *buildDashboardPage();
@@ -90,6 +94,7 @@ private:
     QWidget *buildOrdersPage();
     QWidget *buildAdminsPage();
 
+    // 登录、切页与整体刷新的入口
     void attemptLogin();
     void setLoginError(const QString &message);
     void selectPage(int index);
@@ -107,6 +112,7 @@ private:
     void openAnalysisPiles(qint64 stationId = 0, const QSet<QString> &statuses = {}, bool activeOnly = false);
     QWidget *refreshFeedback_ = nullptr;
     QSet<int> visitedAnalysisPages_;
+    // 各业务页的数据刷新函数，按当前筛选条件重新加载
     void refreshOperations();
     void refreshStations();
     void refreshPiles();
@@ -121,6 +127,7 @@ private:
     void showAdminDetails(qint64 adminId);
     void showCreateAdminDialog();
     void showEditAdminDialog(qint64 adminId);
+    // 新增/编辑对话框与跨页跳转，用于定位到具体站或桩
     void showCreateStationDialog();
     void showEditStationDialog(qint64 stationId);
     void showCreatePileDialog(qint64 fixedStationId = 0);
@@ -132,6 +139,7 @@ private:
     void navigateToPileStatus(const QString &statusKey);
     void navigateBack();
     void navigateForward();
+    // 记录并还原页面状态，实现浏览器式的前进后退
     [[nodiscard]] PageState capturePageState() const;
     void restorePageState(const PageState &state);
     void pushNavigationHistory();
@@ -151,6 +159,7 @@ private:
     static void prepareTable(QTableWidget *table, const QStringList &headers);
     static QString moneyText(qint64 cents);
 
+    // 以下为窗口持有的门面指针与各控件成员
     AdminFacade *facade_ = nullptr;
     bool tcpListening_ = false;
     quint16 tcpPort_ = 0;
@@ -264,6 +273,7 @@ private:
     QSet<QString> selectedOrderModes_;
     QSet<QString> selectedAdminStatuses_;
     QSet<QString> selectedAdminRoles_;
+    // 当前登录管理员的身份信息，用于按角色控制可用操作
     qint64 currentAdminId_ = 0;
     QString currentAdminRole_;
     bool currentAdminAccountsAvailable_ = false;
@@ -272,6 +282,7 @@ private:
     qint64 focusPileAfterRefresh_ = 0;
     QTimer *stationClickTimer_ = nullptr;
     QTreeWidgetItem *pendingStationClick_ = nullptr;
+    // 前进后退历史栈及其还原过程中的标志位
     QList<PageState> backHistory_;
     QList<PageState> forwardHistory_;
     bool historyReady_ = false;

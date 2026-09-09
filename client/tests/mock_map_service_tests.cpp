@@ -1,3 +1,4 @@
+// 本文件测试地图服务：Mock 离线路线与腾讯适配器的请求解析
 #include "local/mock_map_service.h"
 #include "local/tencent_map_service.h"
 
@@ -16,6 +17,7 @@ using namespace charging;
 
 namespace {
 
+// 内存版网络应答，可注入响应体、错误码与延时
 class MemoryReply final : public QNetworkReply {
 public:
     MemoryReply(const QNetworkRequest &request, QByteArray body,
@@ -47,6 +49,7 @@ private:
     int *abortCount_;
 };
 
+// 替身网络管理器，记录请求 URL 并返回内存应答
 class MemoryNetwork final : public QNetworkAccessManager {
 public:
     QByteArray body;
@@ -63,6 +66,7 @@ protected:
 
 }  // namespace
 
+// 地图服务测试类，逐项覆盖地理编码与各出行方式
 class MockMapServiceTests final : public QObject {
     Q_OBJECT
 
@@ -88,6 +92,7 @@ void MockMapServiceTests::initTestCase()
     qRegisterMetaType<client::RouteResult>();
 }
 
+// 预置地址应解析出固定经纬度
 void MockMapServiceTests::geocodesPresetAndManualAddresses()
 {
     client::MockMapService service;
@@ -107,6 +112,7 @@ void MockMapServiceTests::geocodesPresetAndManualAddresses()
 
 }
 
+// 空地址、无法解析、超出示例范围都要给出提示
 void MockMapServiceTests::rejectsEmptyAndUnresolvableAddresses()
 {
     client::MockMapService service;
@@ -132,6 +138,7 @@ void MockMapServiceTests::rejectsEmptyAndUnresolvableAddresses()
     QVERIFY(result.message.contains(QStringLiteral("需接入腾讯地图")));
 }
 
+// Mock 各出行方式返回离线摘要，缺起点则失败
 void MockMapServiceTests::opensDrivingAndWalkingRoutes()
 {
     client::MockMapService service;
@@ -172,6 +179,7 @@ void MockMapServiceTests::opensDrivingAndWalkingRoutes()
     QVERIFY(!result.success);
 }
 
+// 校验腾讯驾车接口路径、起终点参数与 Key 拼接
 void MockMapServiceTests::tencentRouteUsesEditableEndpoints()
 {
     MemoryNetwork network;
@@ -200,6 +208,7 @@ void MockMapServiceTests::tencentRouteUsesEditableEndpoints()
              QStringLiteral("test-browser-key"));
 }
 
+// 未配置或带引号的 Key 应直接失败并提示
 void MockMapServiceTests::tencentAdapterRejectsMissingConfiguration()
 {
     client::TencentMapService service({});
@@ -236,6 +245,7 @@ void MockMapServiceTests::tencentAdapterRejectsMissingConfiguration()
     QVERIFY(quotedResult.message.contains(QStringLiteral("不要包含引号")));
 }
 
+// 用契约示例夹具核对公交路线的解析结果
 void MockMapServiceTests::transitMatchesLocalFixture()
 {
     QFile fixture(QFINDTESTDATA("../../contracts/examples/map-route.transit.local.json"));
@@ -271,6 +281,7 @@ void MockMapServiceTests::transitMatchesLocalFixture()
     QCOMPARE(result.summary, QStringLiteral("公共交通约 1.2 公里 · 9 分钟"));
 }
 
+// 无可达公交线路时给出可操作的中文提示
 void MockMapServiceTests::transitNoRouteStatusIsActionable()
 {
     MemoryNetwork network;
@@ -295,6 +306,7 @@ void MockMapServiceTests::transitNoRouteStatusIsActionable()
     QVERIFY(result.mapScriptUrl.isEmpty());
 }
 
+// 非法经纬度和未知出行方式都要被拒绝
 void MockMapServiceTests::rejectsInvalidTransitInputs()
 {
     const client::MapLocation start{QStringLiteral("和平区"), 123.4, 41.79};
@@ -325,6 +337,7 @@ void MockMapServiceTests::rejectsInvalidTransitInputs()
     }
 }
 
+// 为骑行/步行准备成功、错误 JSON、超时等用例数据
 void MockMapServiceTests::cyclingAndWalkingResponses_data()
 {
     QTest::addColumn<QByteArray>("body");
@@ -345,6 +358,7 @@ void MockMapServiceTests::cyclingAndWalkingResponses_data()
     QTest::newRow("timeout") << QByteArray() << int(QNetworkReply::TimeoutError) << false << true;
 }
 
+// 按用例校验请求路径与成功或失败后的输出
 void MockMapServiceTests::cyclingAndWalkingResponses()
 {
     QFETCH(QByteArray, body);
@@ -386,6 +400,7 @@ void MockMapServiceTests::cyclingAndWalkingResponses()
 }
 
 
+// 取消请求：未发出的不发，已在途的调用 abort 且不再回调
 void MockMapServiceTests::cancelsPendingRequests()
 {
     MemoryNetwork network;
@@ -412,6 +427,7 @@ void MockMapServiceTests::cancelsPendingRequests()
     QVERIFY(geocodeSpy.isEmpty());
 }
 
+// 驾车与公交的各类异常响应都应失败且不返回路径
 void MockMapServiceTests::drivingAndTransitFailures()
 {
     const QList<QByteArray> invalid = {

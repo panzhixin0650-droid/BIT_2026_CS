@@ -1,8 +1,10 @@
+-- 校验扩展种子的数量与引用完整性
 .bail on
 PRAGMA foreign_keys = ON;
 BEGIN;
 CREATE TEMP TABLE expansion_assertion(name TEXT NOT NULL, passed INTEGER NOT NULL CHECK(passed=1));
 INSERT INTO expansion_assertion VALUES ('foreign keys enabled', (SELECT foreign_keys=1 FROM pragma_foreign_keys));
+-- 逐项断言新增用户、站点、桩、订单的条数
 INSERT INTO expansion_assertion VALUES ('20 additional users', (SELECT count(*)=20 FROM users WHERE user_id BETWEEN 6 AND 25));
 INSERT INTO expansion_assertion VALUES ('20 additional stations', (SELECT count(*)=20 FROM charging_stations WHERE station_id BETWEEN 4 AND 23));
 INSERT INTO expansion_assertion VALUES ('100 additional piles', (SELECT count(*)=100 FROM charging_piles WHERE pile_id BETWEEN 13 AND 112));
@@ -14,6 +16,7 @@ INSERT INTO expansion_assertion VALUES ('all expansion orders reference valid us
     LEFT JOIN charging_piles p ON p.pile_id=o.pile_id
     WHERE o.order_id BETWEEN 1101 AND 1300 AND (u.user_id IS NULL OR p.pile_id IS NULL)
 ));
+-- 扩展订单金额同样符合分的四舍五入公式
 INSERT INTO expansion_assertion VALUES ('amount formula', NOT EXISTS (
     SELECT 1 FROM charging_orders
     WHERE order_id BETWEEN 1101 AND 1300

@@ -1,3 +1,4 @@
+// 用代码绘制的充电场景插画，仅作装饰
 #include "ui/charging_art.h"
 
 #include <QLinearGradient>
@@ -7,6 +8,7 @@
 namespace charging::client {
 namespace {
 
+// 在固定坐标系内画出充电站与汽车场景
 void drawStation(QPainter &p)
 {
     // A small architectural scene, drawn in a 360 x 170 coordinate space.
@@ -47,6 +49,7 @@ void drawStation(QPainter &p)
     p.setPen(QPen(QColor("#96ae90"), 3, Qt::SolidLine, Qt::RoundCap));
     p.drawPath(cable);
 
+    // 车身与车窗用渐变填充，突出立体感
     QPainterPath body;
     body.moveTo(42, 111); body.quadTo(41, 96, 61, 91);
     body.lineTo(90, 85); body.lineTo(117, 60);
@@ -75,6 +78,7 @@ void drawStation(QPainter &p)
     p.setBrush(Qt::NoBrush); p.drawRoundedRect(QRectF(250, 106, 11, 10), 3, 3);
     p.setPen(QPen(QColor("#c8e99a"), 2, Qt::SolidLine, Qt::RoundCap));
     p.drawLine(QPointF(257, 111), QPointF(263, 111));
+    // 两个车轮用三层同心圆表现轮毂
     for (qreal x : {88.0, 214.0}) {
         p.setBrush(QColor("#112e29")); p.drawEllipse(QPointF(x, 125), 18, 18);
         p.setBrush(QColor("#9eb3a2")); p.drawEllipse(QPointF(x, 125), 10, 10);
@@ -84,6 +88,7 @@ void drawStation(QPainter &p)
 
 }  // namespace
 
+// 构造时按场景设定固定高度与无障碍名称
 ChargingArt::ChargingArt(Scene scene, QWidget *parent)
     : QWidget(parent), scene_(scene)
 {
@@ -95,6 +100,7 @@ ChargingArt::ChargingArt(Scene scene, QWidget *parent)
                                           : QStringLiteral("电动汽车在绿色充电站补能的插画"));
 }
 
+// 绘制入口：圆角裁剪加渐变背景与装饰圆环
 void ChargingArt::paintEvent(QPaintEvent *)
 {
     QPainter p(this);
@@ -112,6 +118,7 @@ void ChargingArt::paintEvent(QPaintEvent *)
         p.drawEllipse(QPointF(width() - 30, 4), radius, radius);
     }
 
+    // 扫码场景：画取景框、闪电与提示文字
     if (scene_ == Scene::Scan) {
         const qreal x = width() / 2.0 - 45;
         p.setPen(QPen(QColor("#c8e99a"), 3, Qt::SolidLine, Qt::RoundCap));
@@ -134,6 +141,7 @@ void ChargingArt::paintEvent(QPaintEvent *)
         return;
     }
 
+    // 旅程场景：左侧标语，右侧按比例缩放场景
     if (scene_ == Scene::Journey) {
         QFont title = font(); title.setPixelSize(27); title.setBold(true); p.setFont(title);
         p.setPen(QColor("#fbfbed"));
@@ -146,6 +154,7 @@ void ChargingArt::paintEvent(QPaintEvent *)
         const qreal scale = qMin((width() - 95) / 360.0, 0.86);
         p.translate(width() - 350 * scale, height() - 163 * scale);
         p.scale(scale, scale); drawStation(p); p.restore();
+    // 其他场景把场景插画居中显示
     } else {
         p.save();
         const qreal scale = qMin((width() - 32) / 360.0, 1.0);

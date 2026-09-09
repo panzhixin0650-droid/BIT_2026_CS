@@ -1,10 +1,12 @@
 -- Idempotent development data for the current five-table Demo.
 -- Relative order dates are evaluated when this seed is first applied.
 
+-- 开发用演示数据种子，可重复执行不产生重复行
 PRAGMA foreign_keys = ON;
 
 BEGIN IMMEDIATE;
 
+-- 预置一个演示管理员账号
 INSERT OR IGNORE INTO admins (
     admin_id,
     username,
@@ -17,6 +19,7 @@ INSERT OR IGNORE INTO admins (
     '演示管理员'
 );
 
+-- 五个演示用户，含冻结与余额不足的场景
 INSERT OR IGNORE INTO users (
     user_id,
     phone,
@@ -66,6 +69,7 @@ INSERT OR IGNORE INTO users (
         strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-50 days')
     );
 
+-- 三个演示站点，其中一个为已停用
 INSERT OR IGNORE INTO charging_stations (
     station_id,
     name,
@@ -111,6 +115,7 @@ INSERT OR IGNORE INTO charging_stations (
         strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-100 days')
     );
 
+-- 十二个演示桩，覆盖空闲、占用、故障、离线
 INSERT OR IGNORE INTO charging_piles (
     pile_id,
     station_id,
@@ -135,6 +140,7 @@ INSERT OR IGNORE INTO charging_piles (
 -- Nine completed orders. Their paid_at values cover several of the latest 30
 -- Asia/Shanghai business days. A-01 and A-02 totals also match the shared
 -- station-detail fixture: 4 / 14400 seconds and 2 / 7200 seconds.
+-- 九条已完成订单，付款时间分布在近30个业务日
 INSERT OR IGNORE INTO charging_orders (
     order_id,
     order_no,
@@ -308,6 +314,7 @@ INSERT OR IGNORE INTO charging_orders (
 
 -- Independent current-order scenarios for Repository and ApplicationService
 -- development. Occupied pile states match their current order states.
+-- 再造三条互不冲突的当前订单场景
 INSERT OR IGNORE INTO charging_orders (
     order_id,
     order_no,
@@ -325,6 +332,7 @@ INSERT OR IGNORE INTO charging_orders (
     amount_cents,
     created_at
 ) VALUES
+    -- 充电中订单：已锁定单价，时长电量暂为0
     (
         201,
         'DEMO-CHARGING-001',
@@ -355,10 +363,12 @@ INSERT OR IGNORE INTO charging_orders (
         NULL,
         0,
         0,
+        -- 预约单不锁价，所以单价为空
         NULL,
         0,
         strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-10 minutes')
     ),
+    -- 待支付订单：已结束充电但尚未付款
     (
         203,
         'DEMO-PENDING-001',

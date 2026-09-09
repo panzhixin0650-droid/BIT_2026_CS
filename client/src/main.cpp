@@ -1,3 +1,4 @@
+// 客户端入口：解析命令行，装配接口与地图适配器后启动主窗口
 #include "api/mock_charging_api.h"
 #include "api/tcp_charging_api.h"
 #include "assistant/assistant_config.h"
@@ -14,6 +15,7 @@
 
 #include <memory>
 
+// 程序入口，先配置输入法再创建应用对象
 int main(int argc, char *argv[])
 {
     (void)charging::client::configureInputMethodForQt();
@@ -21,6 +23,7 @@ int main(int argc, char *argv[])
     QApplication::setOrganizationName(QStringLiteral("BIT"));
     QApplication::setApplicationName(QStringLiteral("ChargingClient"));
 
+    // 定义 api、主机端口、超时、地图与助手配置等命令行选项
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("BIT_2026_CS Qt 用户端"));
     parser.addHelpOption();
@@ -57,6 +60,7 @@ int main(int argc, char *argv[])
                        assistantConfigOption});
     parser.process(application);
 
+    // 超时必须是不小于 1 的整数，否则直接退出
     bool timeoutOk = false;
     const int timeoutMs = parser.value(timeoutOption).toInt(&timeoutOk);
     if (!timeoutOk || timeoutMs < 1) {
@@ -65,6 +69,7 @@ int main(int argc, char *argv[])
         return 2;
     }
 
+    // 按 --api 选择 Mock 内存替身或 TCP 服务端适配器
     std::unique_ptr<charging::client::IChargingApi> api;
     const QString adapter = parser.value(apiOption).trimmed().toLower();
     if (adapter == QStringLiteral("mock")) {
@@ -89,6 +94,7 @@ int main(int argc, char *argv[])
         return 2;
     }
 
+    // 按 --map 选择离线 Mock 或在线腾讯地图
     std::unique_ptr<charging::client::IMapService> mapService;
     const QString mapAdapter = parser.value(mapOption).trimmed().toLower();
     if (mapAdapter == QStringLiteral("mock")) {
@@ -100,6 +106,7 @@ int main(int argc, char *argv[])
                               "-DCHARGING_CLIENT_ENABLE_WEBENGINE=ON.");
         return 2;
 #else
+        // Key 只从环境变量读取，避免出现在命令行里
         const QString apiKey =
             qEnvironmentVariable("TENCENT_MAP_KEY").trimmed();
         if (apiKey.isEmpty()) {
@@ -123,6 +130,7 @@ int main(int argc, char *argv[])
         return 2;
     }
 
+    // 加载本地助手配置，注入主窗口并进入事件循环
     const auto assistantConfig = charging::client::AssistantConfig::load(
         parser.value(assistantConfigOption));
     charging::client::MainWindow window(*api, *mapService, assistantConfig);

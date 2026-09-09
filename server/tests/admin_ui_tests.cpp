@@ -1,3 +1,4 @@
+// 本文件是管理端界面的自动化测试，覆盖登录、图表与工单等流程
 #include "admin_ui/admin_facade.h"
 #include "admin_ui/admin_window.h"
 #include "admin_ui/admin_analytics.h"
@@ -45,6 +46,7 @@ using namespace charging::server;
 
 namespace {
 
+// 测试夹具：用内存仓储搭起服务并直接拿到登录页控件
 struct LoginFixture {
     InMemoryRepository repository;
     SessionStore sessions;
@@ -75,6 +77,7 @@ QImage screenImage(QWidget &window, const QString &name)
                                     Qt::FastTransformation);
 }
 
+// 逐像素比对指定区域颜色，返回首个不符的描述
 QString unexpectedColor(const QImage &image, const QRect &area, const QColor &expected)
 {
     if (area.isEmpty() || !image.rect().contains(area)) {
@@ -101,6 +104,7 @@ QRect formGapArea(const QWidget *above, const QWidget *below, const QWidget &win
                  bottom.y() - top.y() - above->height() - 4);
 }
 
+// 计算错误提示行的采样矩形，避开文字与圆角
 QRect errorArea(const LoginFixture &fixture)
 {
     const QPoint error = fixture.error->mapTo(&fixture.window, QPoint());
@@ -108,6 +112,7 @@ QRect errorArea(const LoginFixture &fixture)
                  40, fixture.error->height() - 16);
 }
 
+// 检查表单空隙与提示行的背景色是否被背景图透出
 QString unexpectedSurfacePixels(const LoginFixture &fixture, const QImage &image,
                                 const QColor &errorColor)
 {
@@ -127,6 +132,7 @@ QString unexpectedSurfacePixels(const LoginFixture &fixture, const QImage &image
 
 } // namespace
 
+// 测试类：每个私有槽是一个界面用例
 class AdminUiTests final : public QObject {
     Q_OBJECT
 
@@ -160,6 +166,7 @@ private slots:
     void revokedTicketAccessClearsCachedPage();
 };
 
+// 用例：折线、柱状、饼图都能用鼠标和键盘触发数据信号
 void AdminUiTests::chartsActivateActualDataWithMouseAndKeyboard()
 {
     RevenueChart line;
@@ -188,6 +195,7 @@ void AdminUiTests::chartsActivateActualDataWithMouseAndKeyboard()
     QCOMPARE(slices.takeFirst().first().toString(),QStringLiteral("LOW"));
 }
 
+// 用例：占用率分档与分析页跳转的明细需与源数据一致
 void AdminUiTests::occupancyBandsAndAnalysisDrillThroughMatchSourceData()
 {
     QCOMPARE(stationOccupancyBand(0,0),-1);
@@ -216,6 +224,7 @@ void AdminUiTests::occupancyBandsAndAnalysisDrillThroughMatchSourceData()
         });
         QTest::mouseClick(card,Qt::LeftButton); QVERIFY(chosen);
     };
+    // 通过指标卡片菜单跳转到对应页面并可返回
     chooseMetric("operatingStations",QStringLiteral("运营中站点"));
     QCOMPARE(nav->currentRow(),2); back->click();
     chooseMetric("occupiedPiles",QStringLiteral("充电中电桩"));
@@ -257,6 +266,7 @@ void AdminUiTests::occupancyBandsAndAnalysisDrillThroughMatchSourceData()
     const auto source=fixture.repository.listOrders();
     const QTimeZone zone("Asia/Shanghai");
     const QDate today=QDateTime::currentDateTimeUtc().toTimeZone(zone).date();
+    // 辅助函数：按筛选条件重算期望订单集合再与表格比对
     const auto verifyRows = [&](const QDate &from,const QDate &to,qint64 stationId,const QString &mode,int period) {
         QSet<qint64> expected,actual;
         for (const auto &order : source) {
@@ -271,6 +281,7 @@ void AdminUiTests::occupancyBandsAndAnalysisDrillThroughMatchSourceData()
         for (int row=0;row<orders->rowCount();++row) actual.insert(orders->item(row,0)->data(Qt::UserRole).toLongLong());
         QCOMPARE(actual,expected);
     };
+    // 逐个营收指标卡验证打开的订单范围
     for (const QString &key : {"todayRevenue","monthRevenue","totalRevenue","rangeRevenue","rangeOrders","rangeEnergy","rangeAverage"}) {
         auto *card=metric(key); QVERIFY(card);
         card->setFocus(); QTest::keyClick(card,Qt::Key_Return);
@@ -300,6 +311,7 @@ void AdminUiTests::occupancyBandsAndAnalysisDrillThroughMatchSourceData()
     QCOMPARE(orders->rowCount(),source.size());
 }
 
+// 用例：订单列表按时间倒序，且只保留一个时间筛选入口
 void AdminUiTests::ordersSortNewestFirstAndUseSingleTimeFilter()
 {
     LoginFixture fixture;
@@ -314,6 +326,7 @@ void AdminUiTests::ordersSortNewestFirstAndUseSingleTimeFilter()
         {"twoMonths",now.addSecs(-60*86400+60)}, {"threeMonths",now.addSecs(-90*86400+60)},
         {"older",now.addSecs(-90*86400-60)}, {"future",now.addSecs(3600)}
     };
+    // 造出落在各时间区间内的历史订单作为样本
     QVERIFY(fixture.repository.beginTransaction());
     for (const auto &sample : samples) {
         charging::protocol::OrderDto order;
@@ -340,6 +353,7 @@ void AdminUiTests::ordersSortNewestFirstAndUseSingleTimeFilter()
     QCOMPARE(table->item(0,1)->text(),QStringLiteral("DATE-future"));
     for (int row=1; row<table->rowCount(); ++row)
         QVERIFY(table->item(row-1,8)->text() >= table->item(row,8)->text());
+    // 辅助函数：在时间筛选弹窗弹出后执行操作并兜底关闭
     const auto inPopup = [&](const std::function<void(QDialog *)> &operation) {
         bool entered = false;
         QTimer::singleShot(30,&fixture.window,[&] {
@@ -360,6 +374,7 @@ void AdminUiTests::ordersSortNewestFirstAndUseSingleTimeFilter()
         for (auto *radio : radios) checked += radio->isChecked();
         QCOMPARE(checked,1);
     };
+    // 逐个预设区间验证过滤后的条数与首行
     for (const auto &rangeCount : {QPair<int,int>{24,1}, {7*24,3}, {30*24,4}, {60*24,5}, {90*24,6}}) {
         inPopup([&](QDialog *dialog) {
             choose(dialog,24);
@@ -377,6 +392,7 @@ void AdminUiTests::ordersSortNewestFirstAndUseSingleTimeFilter()
     const auto startTime = samples[1].second;
     const auto endTime = samples[0].second;
     const auto tableTop = table->mapTo(&fixture.window,QPoint()).y();
+    // 自定义区间：起止颠倒应提示错误且不关闭弹窗
     inPopup([&](QDialog *dialog) {
         choose(dialog,-1);
         auto *start = dialog->findChild<QDateTimeEdit *>("orderStartTime");
@@ -407,6 +423,7 @@ void AdminUiTests::ordersSortNewestFirstAndUseSingleTimeFilter()
     });
     QCOMPARE(table->rowCount(),2);
     screenImage(fixture.window,"orders-date-filter");
+    // 点击重置后恢复全部记录，刷新则清空搜索
     inPopup([&](QDialog *dialog) {
         dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Reset)->click();
     });
@@ -416,6 +433,7 @@ void AdminUiTests::ordersSortNewestFirstAndUseSingleTimeFilter()
     QCOMPARE(table->rowCount(),allRows);
 }
 
+// 用例：指标动画过程中文本与尺寸仍以权威值为准
 void AdminUiTests::metricAnimationKeepsAuthoritativeValuesAndUnits()
 {
     AnimatedMetricLabel label(QStringLiteral("¥ 125.50"), nullptr);
@@ -448,6 +466,7 @@ void AdminUiTests::metricAnimationKeepsAuthoritativeValuesAndUnits()
     QCOMPARE(label.displayedText(), QStringLiteral("—"));
 }
 
+// 用例：时间戳统一按北京时间显示，非法值显示占位符
 void AdminUiTests::timestampsUseBeijingTimeAcrossDateBoundaries()
 {
     QCOMPARE(adminTimeText("2026-09-08T18:30:45Z"), QStringLiteral("2026-09-09 02:30:45"));
@@ -458,6 +477,7 @@ void AdminUiTests::timestampsUseBeijingTimeAcrossDateBoundaries()
     QCOMPARE(adminTimeText({}, QStringLiteral("从未登录")), QStringLiteral("从未登录"));
 }
 
+// 用例：工单页可保存回复，退出登录后缓存被清空
 void AdminUiTests::supportTicketPageSavesAndLogoutClears()
 {
     QFETCH(bool, repair);
@@ -481,6 +501,7 @@ void AdminUiTests::supportTicketPageSavesAndLogoutClears()
     QVERIFY(page && page->isVisible());
     auto *list = page->findChild<QListWidget *>("adminTicketList");
     QCOMPARE(list->count(), 1);
+    // 报修工单需展示桩号与故障类型
     if (repair) {
         QVERIFY(list->item(0)->text().contains(QStringLiteral("报修")));
         QVERIFY(page->findChild<QPlainTextEdit *>("adminTicketSummary")->toPlainText().contains("PILE-A-01"));
@@ -506,6 +527,7 @@ void AdminUiTests::supportTicketPageSavesAndLogoutClears()
     QVERIFY(!fixture.facade.listSupportTickets().ok());
 }
 
+// 用例：营收按支付日期归集，未支付金额单列为应收
 void AdminUiTests::analyticsUsesPaidDatesAndKeepsReceivablesSeparate()
 {
     using namespace charging::protocol;
@@ -537,6 +559,7 @@ void AdminUiTests::analyticsUsesPaidDatesAndKeepsReceivablesSeparate()
     QVERIFY(!analyzeRevenue({},QDate(2026,9,9),QDate(2026,9,8)).valid);
 }
 
+// 用例：不同窗口尺寸下各分析页与侧边栏仍可用
 void AdminUiTests::analysisPagesAndSidebarRemainUsable()
 {
     LoginFixture fixture;
@@ -583,6 +606,7 @@ void AdminUiTests::analysisPagesAndSidebarRemainUsable()
     QVERIFY(!fixture.window.findChild<QLabel *>("rangeReceivedRevenue")->text().contains(QStringLiteral("—")));
 }
 
+// 用例：非法自定义区间会清空旧分析结果并可恢复
 void AdminUiTests::invalidRevenueRangeClearsStaleAnalysisAndCanRecover()
 {
     LoginFixture fixture;
@@ -615,6 +639,7 @@ void AdminUiTests::invalidRevenueRangeClearsStaleAnalysisAndCanRecover()
     for (auto *chart : page->findChildren<RevenueChart *>()) QCOMPARE(chart->points().size(), 7);
 }
 
+// 用例：密码显隐切换与空账号登录的提示
 void AdminUiTests::passwordVisibilityAndEmptyLogin()
 {
     LoginFixture fixture;
@@ -642,6 +667,7 @@ void AdminUiTests::passwordVisibilityAndEmptyLogin()
     QVERIFY(brand->geometry().right() < surface->geometry().left());
 }
 
+// 用例：登录失败保留输入、布局不跳动且可重试
 void AdminUiTests::loginFailurePreservesInputAndAllowsRetry()
 {
     LoginFixture fixture;
@@ -685,6 +711,7 @@ void AdminUiTests::loginSurfaceSurvivesPartialRepaints_data()
     QTest::newRow("wrong-password") << true;
 }
 
+// 用例：反复聚焦与改变窗口大小不应露出登录卡背景
 void AdminUiTests::loginSurfaceSurvivesPartialRepaints()
 {
     QFETCH(bool, submitWrongPassword);
@@ -723,6 +750,7 @@ void AdminUiTests::loginSurfaceSurvivesPartialRepaints()
     }
 }
 
+// 用例：系统管理员可进入管理员管理页并看到全部导航
 void AdminUiTests::systemAdminCanOpenAdminManagementPage()
 {
     LoginFixture fixture;
@@ -761,6 +789,7 @@ void AdminUiTests::systemAdminCanOpenAdminManagementPage()
     QCOMPARE(table->rowCount(), 1);
 }
 
+// 用例：详情只读展示，新增与编辑走表单校验流程
 void AdminUiTests::adminDetailsAndAccountFormsFollowManagementFlow()
 {
     LoginFixture fixture;
@@ -793,6 +822,7 @@ void AdminUiTests::adminDetailsAndAccountFormsFollowManagementFlow()
                       table->visualItemRect(table->item(0,1)).center());
     QVERIFY(detailsOpened);
 
+    // 点击新增按钮打开账号表单并填写各字段
     auto *create = fixture.window.findChild<QPushButton *>("createAdminButton");
     QVERIFY(create->property("primary").toBool());
     bool createChecked = false;
@@ -833,6 +863,7 @@ void AdminUiTests::adminDetailsAndAccountFormsFollowManagementFlow()
     QVERIFY(row >= 0);
     const auto adminId = table->item(row,0)->data(Qt::UserRole).toLongLong();
     QCOMPARE(fixture.repository.findAdminById(adminId)->stationIds.size(), 1);
+    // 右键菜单只提供查看详情与修改信息两项
     bool menuChecked = false, editChecked = false;
     QTimer::singleShot(30, &fixture.window, [&] {
         auto *menu = fixture.window.findChild<QMenu *>("adminContextMenu");
@@ -863,6 +894,7 @@ void AdminUiTests::adminDetailsAndAccountFormsFollowManagementFlow()
     QCOMPARE(fixture.repository.findAdminById(adminId)->displayName, QStringLiteral("已修改的管理员"));
 }
 
+// 用例：导航前进后退恢复页面，刷新只影响当前页
 void AdminUiTests::navigationRestoresViewsAndRefreshIsLocal()
 {
     LoginFixture fixture;
@@ -878,6 +910,7 @@ void AdminUiTests::navigationRestoresViewsAndRefreshIsLocal()
     for (int page = 1; page < 8; ++page) { forward->click(); QCOMPARE(nav->currentRow(), page); }
     QVERIFY(!forward->isEnabled());
 
+    // 返回时搜索词与选中行原样恢复，刷新才清空
     auto *admins = fixture.window.findChild<QTableWidget *>("adminsTable");
     auto *adminSearch = fixture.window.findChild<QLineEdit *>("adminSearch");
     adminSearch->setText("admin"); admins->selectRow(0);
@@ -890,6 +923,7 @@ void AdminUiTests::navigationRestoresViewsAndRefreshIsLocal()
     forward->click(); QCOMPARE(nav->currentRow(), 6);
     back->click(); nav->setCurrentRow(0); QVERIFY(!forward->isEnabled());
 
+    // 收益页的区间与自定义日期同样随历史记录恢复
     nav->setCurrentRow(1);
     auto *revenue = fixture.window.findChild<QScrollArea *>("revenueAnalysisScroll");
     auto *range = revenue->findChild<QComboBox *>();
@@ -910,6 +944,7 @@ void AdminUiTests::navigationRestoresViewsAndRefreshIsLocal()
     QVERIFY(forward->isEnabled()); forward->click(); QCOMPARE(nav->currentRow(), 7);
 
     // Consecutive history entries can refer to different filters on one page.
+    // 同一页面上不同筛选条件也各自记入历史
     auto *status = fixture.window.findChild<QScrollArea *>("operationsAnalysisScroll")->findChild<PileStatusChart *>();
     status->statusClicked("CHARGING");
     QTableWidget *piles = nullptr;
@@ -925,6 +960,7 @@ void AdminUiTests::navigationRestoresViewsAndRefreshIsLocal()
     forward->click(); QCOMPARE(piles->item(0,0)->data(Qt::UserRole).toLongLong(), faultId);
     refresh->click(); QCOMPARE(piles->rowCount(),6);
 
+    // 站点树的展开与选中状态按历史还原，刷新后全部收起
     nav->setCurrentRow(2);
     auto *stations = fixture.window.findChild<QTreeWidget *>();
     QVERIFY(stations); stations->topLevelItem(0)->setExpanded(true);
@@ -939,6 +975,7 @@ void AdminUiTests::navigationRestoresViewsAndRefreshIsLocal()
     refresh->click();
     for (int i=0;i<stations->topLevelItemCount();++i) QVERIFY(!stations->topLevelItem(i)->isExpanded());
 
+    // 退出再登录后回到首页，历史记录被清空
     nav->setCurrentRow(7);
     for (auto *button : fixture.window.findChildren<QPushButton *>())
         if (button->text() == QStringLiteral("退出登录")) { button->click(); break; }
@@ -947,6 +984,7 @@ void AdminUiTests::navigationRestoresViewsAndRefreshIsLocal()
     QVERIFY(!back->isEnabled() && !forward->isEnabled());
 }
 
+// 用例：图表入场动画只在首次进入和刷新时播放
 void AdminUiTests::chartAnimationsFollowNavigationAndRefreshRules()
 {
     LoginFixture fixture;
@@ -983,6 +1021,7 @@ void AdminUiTests::chartAnimationsFollowNavigationAndRefreshRules()
     QCOMPARE(refreshAnimation->state(), QAbstractAnimation::Running);
     QTRY_COMPARE(refreshAnimation->state(), QAbstractAnimation::Stopped);
 
+    // 切换收益区间会重播动画，离开页面则中断
     nav->setCurrentRow(1);
     for (auto *intro : animations(revenue)) QCOMPARE(intro->state(), QAbstractAnimation::Running);
     auto *line = animations(revenue).first();
@@ -1022,6 +1061,7 @@ void AdminUiTests::chartAnimationsFollowNavigationAndRefreshRules()
     QCOMPARE(line->state(), QAbstractAnimation::Running);
     QTRY_COMPARE(line->state(), QAbstractAnimation::Stopped);
     QCOMPARE(line->currentValue().toReal(), 1.0);
+    // 刷新反馈浮层短暂显示且不拦截鼠标事件
     nav->setCurrentRow(6);
     QVERIFY(!fixture.window.findChild<QPushButton *>("adminTicketRefresh"));
     refresh->click();
@@ -1034,6 +1074,7 @@ void AdminUiTests::chartAnimationsFollowNavigationAndRefreshRules()
     QVERIFY(!feedback->isVisible());
 }
 
+// 用例：订单右键定位所属站点或电桩，返回后恢复来源页
 void AdminUiTests::ordersLocateAssociatedAssetsAndRestoreSource()
 {
     LoginFixture fixture;
@@ -1059,6 +1100,7 @@ void AdminUiTests::ordersLocateAssociatedAssetsAndRestoreSource()
     const auto stationId = orders->item(row,3)->data(Qt::UserRole).toLongLong();
     const auto pileId = orders->item(row,4)->data(Qt::UserRole).toLongLong();
     QVERIFY(stationId>0 && pileId>0);
+    // 辅助函数：弹出订单右键菜单并触发指定文本的动作
     const auto activate = [&](const QString &label) {
         bool found = false;
         QTimer::singleShot(30,&fixture.window,[&] {
@@ -1096,6 +1138,7 @@ void AdminUiTests::ordersLocateAssociatedAssetsAndRestoreSource()
     QCOMPARE(piles->item(piles->currentRow(),0)->data(Qt::UserRole).toLongLong(),pileId);
 }
 
+// 用例：报修工单可定位电桩，再由电桩定位到所属站点
 void AdminUiTests::repairTicketsLocatePilesAndExpandedStationsWithHistory()
 {
     LoginFixture fixture;
@@ -1131,6 +1174,7 @@ void AdminUiTests::repairTicketsLocatePilesAndExpandedStationsWithHistory()
     QCOMPARE(list->count(),10);
     // A code mentioned in an ordinary ticket's title is not a device association.
     QVERIFY(!locate->isVisible());
+    // 展开更多后选中报修工单，定位按钮才出现并可用
     tickets->findChild<QPushButton *>("adminTicketMore")->click();
     QCOMPARE(list->count(),13);
     list->setCurrentRow(12);
@@ -1144,6 +1188,7 @@ void AdminUiTests::repairTicketsLocatePilesAndExpandedStationsWithHistory()
     const qint64 pileId = piles->item(piles->currentRow(),0)->data(Qt::UserRole).toLongLong();
     QVERIFY(piles->item(piles->currentRow(),1)->isSelected());
     screenImage(fixture.window,"repair-selected-pile");
+    // 在电桩表格右键选择定位到充电站
     bool actionFound = false;
     QTimer::singleShot(30, &fixture.window, [&] {
         auto *menu = fixture.window.findChild<QMenu *>("pileContextMenu");
@@ -1182,6 +1227,7 @@ void AdminUiTests::repairTicketsLocatePilesAndExpandedStationsWithHistory()
     QVERIFY(selected->isSelected());
 }
 
+// 用例：筛选弹窗包含新增区域且不超出屏幕范围
 void AdminUiTests::filtersIncludeNewRegionsAndStayWithinScreen()
 {
     LoginFixture fixture;
@@ -1208,6 +1254,7 @@ void AdminUiTests::filtersIncludeNewRegionsAndStayWithinScreen()
         if (button->property("filterTitle").toString() == QStringLiteral("区域")) regionButton = button;
     QVERIFY(regionButton);
     bool regionFound = false;
+    // 区域选项去重，且与当前搜索结果无关
     QTimer::singleShot(30, &fixture.window, [&] {
         auto *dialog = fixture.window.findChild<QDialog *>("managementFilterPopup");
         QVERIFY(dialog); QTimer::singleShot(2000, dialog, &QDialog::reject);
@@ -1244,6 +1291,7 @@ void AdminUiTests::filtersIncludeNewRegionsAndStayWithinScreen()
         if (button->property("filterTitle").toString() == QStringLiteral("站点")) stationButton = button;
     QVERIFY(stationButton);
     bool scrollChecked = false;
+    // 选项过多时可滚动，全选与确认按钮仍在弹窗内
     QTimer::singleShot(30, &fixture.window, [&] {
         auto *dialog = fixture.window.findChild<QDialog *>("managementFilterPopup");
         QVERIFY(dialog); QTimer::singleShot(2000, dialog, &QDialog::reject);
@@ -1273,6 +1321,7 @@ void AdminUiTests::filtersIncludeNewRegionsAndStayWithinScreen()
     QCOMPARE(table->item(0,1)->text(),QStringLiteral("PILE-FILTER-END"));
 }
 
+// 用例：用户管理员只显示被授权的导航页面
 void AdminUiTests::userAdminOnlySeesAuthorizedPages()
 {
     LoginFixture fixture;
@@ -1314,6 +1363,7 @@ void AdminUiTests::userAdminOnlySeesAuthorizedPages()
     auto *orders = fixture.window.findChild<QTableWidget *>("ordersTable");
     QVERIFY(orders->rowCount()>0);
     bool inspected = false;
+    // 无站点权限时订单右键菜单不含管理站点或电桩项
     QTimer::singleShot(30,&fixture.window,[&] {
         auto *menu = fixture.window.findChild<QMenu *>("orderContextMenu");
         QVERIFY(menu);
@@ -1329,6 +1379,7 @@ void AdminUiTests::userAdminOnlySeesAuthorizedPages()
     QVERIFY(!fixture.window.findChild<QWidget *>(QStringLiteral("supportTicketsPage"))->isVisible());
 }
 
+// 用例：管理员被停用后工单页缓存清空且回复不落库
 void AdminUiTests::revokedTicketAccessClearsCachedPage()
 {
     LoginFixture fixture;

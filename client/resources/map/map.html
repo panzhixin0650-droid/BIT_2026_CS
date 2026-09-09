@@ -9,6 +9,7 @@
   </style>
 </head>
 <body>
+<!-- 内嵌地图页面：承载腾讯地图SDK并与Qt侧通信 -->
 <div id="map" aria-label="充电地图，可拖动和缩放"></div>
 <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
 <script>
@@ -29,6 +30,7 @@ window.bitMap = (() => {
     state.error = false;
     return true;
   }
+  // 按当前边界自适应缩放，留出边距
   function fit() {
     if (!map || !bounds) return false;
     autoFit = true;
@@ -56,6 +58,7 @@ window.bitMap = (() => {
       src: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg) });
   }
   let ignoreBlankUntil = 0;
+  // 把同一帧内的地图与标记点击合并成一次选中
   function queueSelection(id) {
     if (!id && performance.now() < ignoreBlankUntil) return;
     // SDK marker/map click events may both fire, in either order. Coalesce that
@@ -69,6 +72,7 @@ window.bitMap = (() => {
       if (bridge && scene) bridge.selectStation(selected);
     });
   }
+  // 首次创建站点标记层与当前位置标记，并绑定点击
   function initStations() {
     if (stationMarkers) return;
     // The native station page provides overview and nearby controls. Keep SDK attribution/scale.
@@ -85,6 +89,7 @@ window.bitMap = (() => {
     stationMarkers.on('click', event => { if (event.geometry) queueSelection(String(event.geometry.id)); });
     map.on('click', () => queueSelection(''));
   }
+  // 创建地图实例、路线层与起终点标记
   function init() {
     if (state.ready) return true;
     if (!state.sdkReady || typeof TMap === 'undefined') return false;
@@ -121,6 +126,7 @@ window.bitMap = (() => {
     if (markers) markers.setGeometries([]);
     return true;
   }
+  // 绘制多段路线并标出起点终点，再自适应视野
   function setRoute(paths) {
     try {
       if ((!state.ready && !init()) || !paths.length) return false;
@@ -141,6 +147,7 @@ window.bitMap = (() => {
       return fit();
     } catch (_) { fail(); return false; }
   }
+  // 按选中状态和空闲数量刷新站点标记样式
   function selectStation(id) {
     if (!scene || !stationMarkers) return false;
     scene.selected = id;
@@ -159,6 +166,7 @@ window.bitMap = (() => {
   function unprojected(x, y) {
     return new TMap.LatLng(Math.atan(Math.sinh(Math.PI * (1 - 2 * y))) * 180 / Math.PI, x * 360 - 180);
   }
+  // 扣除原生浮动控件占位后的可视区域
   function viewport() {
     const p = scene.padding || {};
     return { left: p.left || 24, top: p.top || 24,
@@ -179,6 +187,7 @@ window.bitMap = (() => {
     });
     return true;
   }
+  // 根据站点范围调整视野，相同视野不重复调整相机
   function fitStationsNow() {
     if (!state.ready || !scene) return false;
     autoFit = true;
@@ -212,6 +221,7 @@ window.bitMap = (() => {
     if (autoFit) fitStations();
     return true;
   }
+  // 手动居中：关闭自动适配并按内边距修正中心
   function setCenter(point) {
     if (!state.ready || !scene) return false;
     autoFit = false;
@@ -222,6 +232,7 @@ window.bitMap = (() => {
                               p.y - (area.top + area.height / 2 - innerHeight / 2) / scale));
     return true;
   }
+  // 接收站点数据快照并刷新标记与定位点
   function setStations(data) {
     try {
       if (!state.ready && !init()) return false;
@@ -240,6 +251,7 @@ window.bitMap = (() => {
     map.setZoom(Math.max(3, Math.min(20, map.getZoom() + delta)));
     return true;
   }
+  // 页面重新显示时重算尺寸并恢复视野
   function resume() {
     if (!state.ready || !map) return false;
     if (typeof map.resize === 'function') map.resize();
@@ -277,6 +289,7 @@ window.bitMap = (() => {
   window.addEventListener('pointerup', endPointer, { passive: true, capture: true });
   window.addEventListener('pointercancel', endPointer, { passive: true, capture: true });
   let resizeFrame;
+  // 监听容器尺寸变化，下一帧统一重算地图
   new ResizeObserver(() => {
     cancelAnimationFrame(resizeFrame);
     resizeFrame = requestAnimationFrame(() => {
@@ -285,6 +298,7 @@ window.bitMap = (() => {
       if (autoFit) { if (scene) fitStations(); else if (bounds) fit(); }
     });
   }).observe(document.getElementById('map'));
+  // 对外暴露给Qt调用的地图操作集合
   return { state, sdkLoaded, init, fail, setRoute, clear, zoom, fit, resume,
     setStations, selectStation, fitStations, setCenter, setStationPadding };
 })();

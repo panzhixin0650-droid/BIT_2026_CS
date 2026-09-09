@@ -1,3 +1,4 @@
+// 本文件测试导航页与地图画布：布局、状态保持与 WebEngine 预加载
 #include "api/mock_charging_api.h"
 #include "navigation_paint_helpers.h"
 #include "local/i_map_service.h"
@@ -31,6 +32,7 @@
 using namespace charging::client;
 
 namespace {
+// 延迟型地图替身：只发号不回调，便于测试取消与过期结果
 class DeferredMap final : public IMapService {
 public:
     QUrl mapScriptUrl() const override { return preloadUrl; }
@@ -43,6 +45,7 @@ public:
     QUrl preloadUrl;
 };
 
+// 构造测试用站点数据
 charging::protocol::StationDto station(const QString &name = QStringLiteral("演示站"))
 {
     charging::protocol::StationDto result;
@@ -54,6 +57,7 @@ charging::protocol::StationDto station(const QString &name = QStringLiteral("演
     return result;
 }
 
+// 用固定手机号与演示验证码完成登录
 void login(MainWindow &window)
 {
     window.findChild<QLineEdit *>(QStringLiteral("phoneInput"))->setText(QStringLiteral("13800000001"));
@@ -64,6 +68,7 @@ void login(MainWindow &window)
 
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
 // Offline SDK double: exercise our real HTML and QWebEngine bridge, not Tencent or a paid Key.
+// 本地 HTTP 服务返回自写的 SDK 替身脚本，不依赖真实腾讯地图
 class ScriptServer final : public QTcpServer {
 public:
     bool respond = true;
@@ -117,6 +122,7 @@ public:
     QUrl url() const { return QUrl(QStringLiteral("http://127.0.0.1:%1/sdk.js").arg(serverPort())); }
 };
 
+// 同步等待页面 JavaScript 求值结果
 QVariant evaluate(QWebEngineView *view, const QString &script)
 {
     auto result = std::make_shared<QVariant>();
@@ -128,6 +134,7 @@ QVariant evaluate(QWebEngineView *view, const QString &script)
     return *result;
 }
 
+// 构造一条含折线与说明的成功路线结果
 RouteResult realRoute(const QUrl &sdk)
 {
     RouteResult result;
@@ -143,6 +150,7 @@ RouteResult realRoute(const QUrl &sdk)
 #endif
 }  // namespace
 
+// 导航相关测试用例集合，WebEngine 部分按编译开关启用
 class NavigationTests final : public QObject {
     Q_OBJECT
 private slots:
@@ -174,6 +182,7 @@ void NavigationTests::smallWindowFitsWithDetails_data()
     QTest::newRow("landscape") << QSize(1000, 700);
 }
 
+// 小窗口下地图与详情都要放进可视区且不遮挡底部导航
 void NavigationTests::smallWindowFitsWithDetails()
 {
     QFETCH(QSize, size);
@@ -207,6 +216,7 @@ void NavigationTests::smallWindowFitsWithDetails()
     QVERIFY(!window.findChild<QPushButton *>(QStringLiteral("mapZoomInButton"))->isEnabled());
 }
 
+// 离开导航页要取消在途请求，过期结果不得覆盖界面
 void NavigationTests::leavingRejectsStaleRoutesAndGeocodes()
 {
     DeferredMap service;
@@ -236,6 +246,7 @@ void NavigationTests::leavingRejectsStaleRoutesAndGeocodes()
     QVERIFY(plan->isEnabled());
 }
 
+// 切换主标签不取消请求，返回后路线结果仍在
 void NavigationTests::switchingMainTabsKeepsNavigationState()
 {
     MockChargingApi api;
@@ -274,6 +285,7 @@ void NavigationTests::switchingMainTabsKeepsNavigationState()
 }
 
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
+// 嵌入地图重绘后，悬浮导航栏的图标文字不能消失
 void NavigationTests::floatingNavigationSurvivesEmbeddedMapRepaints()
 {
     ScriptServer server;
@@ -317,6 +329,7 @@ void NavigationTests::floatingNavigationSurvivesEmbeddedMapRepaints()
     }
 }
 
+// 启动预加载的地图画布应被首条路线复用，不重新加载
 void NavigationTests::startupPreloadReusesMapForFirstRoute()
 {
     ScriptServer server;
@@ -368,6 +381,7 @@ void NavigationTests::startupPreloadReusesMapForFirstRoute()
     QCOMPARE(evaluate(view, QStringLiteral("sdkCounts.initializations")).toInt(), 1);
 }
 
+// 登录前预热首页地图，登录后立刻复用并显示站点标记
 void NavigationTests::startupPreloadsHomeBeforeLogin()
 {
     ScriptServer server;
@@ -432,6 +446,7 @@ void NavigationTests::startupPreloadsHomeBeforeLogin()
     QVERIFY(!window.findChild<QLabel *>(QStringLiteral("stationMapStatus"))->isVisible());
 }
 
+// 瓦片未就绪时保留离线预览，超时后显示重试
 void NavigationTests::slowTilesKeepPreviewUntilReady()
 {
     ScriptServer server;
@@ -471,6 +486,7 @@ void NavigationTests::slowTilesKeepPreviewUntilReady()
     QVERIFY(window.findChild<QLabel *>(QStringLiteral("stationMapStatus"))->text().contains(QStringLiteral("加载超时")));
 }
 
+// 两个画布共享 HTTP 缓存，SDK 只请求一次
 void NavigationTests::sdkHttpCacheIsShared()
 {
     ScriptServer server;
@@ -487,6 +503,7 @@ void NavigationTests::sdkHttpCacheIsShared()
              second.findChild<QWebEngineView *>()->page()->profile());
 }
 
+// 预加载失败时静默，登录后再重试加载
 void NavigationTests::failedHomePreloadRetriesAfterLogin()
 {
     ScriptServer server;
@@ -512,6 +529,7 @@ void NavigationTests::failedHomePreloadRetriesAfterLogin()
     QVERIFY(!window.findChild<QLabel *>(QStringLiteral("stationMapStatus"))->isVisible());
 }
 
+// 预加载失败不弹提示，后续规划路线时重新请求
 void NavigationTests::failedPreloadIsSilentAndRetries()
 {
     ScriptServer server;
@@ -536,6 +554,7 @@ void NavigationTests::failedPreloadIsSilentAndRetries()
     QCOMPARE(server.sdkRequestCount, 2);
 }
 
+// Mock 模式不创建 WebEngine 视图，只用离线地图
 void NavigationTests::mockModeDoesNotPreloadMap()
 {
     MockChargingApi api;
@@ -548,6 +567,7 @@ void NavigationTests::mockModeDoesNotPreloadMap()
     QVERIFY(!window.findChild<QWebEngineView *>(QStringLiteral("stationWebView")));
 }
 
+// 缩放、适配与重复规划都复用同一地图实例
 void NavigationTests::zoomFitAndRepeatedRoutesReuseMap()
 {
     ScriptServer server;
@@ -595,6 +615,7 @@ void NavigationTests::zoomFitAndRepeatedRoutesReuseMap()
     QTRY_COMPARE(evaluate(view, QStringLiteral("document.getElementById('map').clientWidth")).toInt(), view->width());
 }
 
+// SDK 不可用时解除忙碌状态并提供重试按钮
 void NavigationTests::failedSdkReleasesBusyState()
 {
     ScriptServer server;
@@ -622,6 +643,7 @@ void NavigationTests::failedSdkReleasesBusyState()
     QCOMPARE(server.sdkRequestCount, 2);
 }
 
+// 地图加载超时后释放忙碌状态并给出超时提示
 void NavigationTests::mapTimeoutReleasesBusyState()
 {
     ScriptServer server;
@@ -644,6 +666,7 @@ void NavigationTests::mapTimeoutReleasesBusyState()
 #endif
 
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
+// 首页地图标记与网页桥接共用同一画布，验证点击与筛选联动
 void NavigationTests::stationMarkersAndBridgeUseSharedCanvas()
 {
     ScriptServer server;

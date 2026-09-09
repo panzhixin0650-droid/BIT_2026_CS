@@ -2,10 +2,12 @@
 -- Apply once to a new SQLite database. This migration intentionally creates
 -- only the five business tables defined by the current Demo baseline.
 
+-- Demo数据库初始建表脚本：创建五张业务表并开启外键约束
 PRAGMA foreign_keys = ON;
 
 BEGIN IMMEDIATE;
 
+-- 用户表：手机号唯一，余额用整数分存储
 CREATE TABLE users (
     user_id INTEGER PRIMARY KEY,
     phone TEXT NOT NULL UNIQUE,
@@ -14,6 +16,7 @@ CREATE TABLE users (
     status TEXT NOT NULL DEFAULT 'ACTIVE',
     created_at TEXT NOT NULL,
 
+    -- 手机号必须是11位纯数字
     CONSTRAINT ck_users_phone CHECK (
         length(phone) = 11
         AND phone NOT GLOB '*[^0-9]*'
@@ -31,6 +34,7 @@ CREATE TABLE users (
     )
 );
 
+-- 管理员表：口令保存为64位小写十六进制哈希
 CREATE TABLE admins (
     admin_id INTEGER PRIMARY KEY,
     username TEXT NOT NULL UNIQUE,
@@ -46,6 +50,7 @@ CREATE TABLE admins (
     CONSTRAINT ck_admins_display_name CHECK (length(display_name) BETWEEN 1 AND 64)
 );
 
+-- 充电站表：含经纬度与每度电价（分）
 CREATE TABLE charging_stations (
     station_id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
@@ -80,6 +85,7 @@ CREATE TABLE charging_stations (
     )
 );
 
+-- 充电桩表：外键指向站点，状态涵盖空闲到离线
 CREATE TABLE charging_piles (
     pile_id INTEGER PRIMARY KEY,
     station_id INTEGER NOT NULL,
@@ -103,6 +109,7 @@ CREATE TABLE charging_piles (
     )
 );
 
+-- 订单表：金额用分、电量用Wh、时间为UTC字符串
 CREATE TABLE charging_orders (
     order_id INTEGER PRIMARY KEY,
     order_no TEXT NOT NULL UNIQUE,
@@ -129,6 +136,7 @@ CREATE TABLE charging_orders (
         ON UPDATE RESTRICT
         ON DELETE RESTRICT,
     CONSTRAINT ck_orders_number CHECK (length(order_no) BETWEEN 1 AND 64),
+    -- 订单分预约与直充两种模式，状态限定五种
     CONSTRAINT ck_orders_mode CHECK (mode IN ('RESERVATION', 'DIRECT')),
     CONSTRAINT ck_orders_status CHECK (
         status IN (
@@ -195,6 +203,7 @@ CREATE TABLE charging_orders (
         typeof(amount_cents) = 'integer'
         AND amount_cents >= 0
     ),
+    -- 预约单必须有预约时间，直充单不能有
     CONSTRAINT ck_orders_mode_timestamps CHECK (
         (mode = 'RESERVATION' AND reserved_at IS NOT NULL)
         OR (mode = 'DIRECT' AND reserved_at IS NULL)
@@ -206,6 +215,7 @@ CREATE TABLE charging_orders (
         AND (ended_at IS NULL OR (started_at IS NOT NULL AND started_at <= ended_at))
         AND (paid_at IS NULL OR (ended_at IS NOT NULL AND ended_at <= paid_at))
     ),
+    -- 按状态约束字段组合，如充电中必须已锁定单价
     CONSTRAINT ck_orders_state_shape CHECK (
         (
             status = 'RESERVED'
@@ -251,6 +261,7 @@ CREATE TABLE charging_orders (
             AND amount_cents = 0
         )
     ),
+    -- 金额必须等于电量乘单价再四舍五入到分
     CONSTRAINT ck_orders_amount_formula CHECK (
         unit_price_cents_per_kwh IS NULL
         OR amount_cents = ((energy_wh * unit_price_cents_per_kwh + 500) / 1000)
@@ -258,6 +269,7 @@ CREATE TABLE charging_orders (
 );
 
 -- Repository read paths and foreign-key lookups.
+-- 为常用读取路径和外键查找建立索引
 CREATE INDEX idx_stations_status_region
     ON charging_stations(status, region, station_id);
 
@@ -275,14 +287,17 @@ CREATE INDEX idx_orders_status_paid_at
 
 -- Last-line defenses for the two current-order invariants. ApplicationService
 -- still owns validation and transaction orchestration.
+-- 部分唯一索引：一个用户最多一条进行中订单
 CREATE UNIQUE INDEX ux_orders_one_current_per_user
     ON charging_orders(user_id)
     WHERE status IN ('RESERVED', 'CHARGING', 'PENDING_PAYMENT');
 
+-- 部分唯一索引：一个桩最多一条占用订单
 CREATE UNIQUE INDEX ux_orders_one_occupied_per_pile
     ON charging_orders(pile_id)
     WHERE status IN ('RESERVED', 'CHARGING');
 
+-- 标记数据库schema版本为1
 PRAGMA user_version = 1;
 
 COMMIT;

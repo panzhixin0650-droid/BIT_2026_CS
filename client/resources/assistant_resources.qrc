@@ -1,3 +1,4 @@
+<!-- 把助理知识库JSON打包进资源，运行时可直接读取 -->
 <RCC>
   <qresource prefix="/assistant">
     <file alias="knowledge.json">assistant_knowledge.json</file>

@@ -1,3 +1,4 @@
+// 本文件声明应用服务层，集中用户与管理员的业务入口
 #pragma once
 
 #include "service_result.h"
@@ -22,6 +23,7 @@ class SessionStore;
 
 // Shared user/admin business boundary; it owns validation, order states,
 // billing and transactions without exposing SQL to UI or TCP classes.
+// 服务类持有仓储、会话、桩网关与预测组件，UI和TCP都经它调用
 class ApplicationService final : public QObject {
     Q_OBJECT
 
@@ -34,6 +36,7 @@ public:
                        QObject *parent = nullptr,
                        Clock clock = QDateTime::currentDateTimeUtc);
 
+    // 用户侧接口：登录、资料、充值与站点查询
     [[nodiscard]] ServiceResult ping(const QJsonObject &input) const;
     [[nodiscard]] ServiceResult loginUser(const QJsonObject &input);
     [[nodiscard]] ServiceResult logout(const QString &token);
@@ -47,6 +50,7 @@ public:
     [[nodiscard]] ServiceResult getStation(const QString &token,
                                            const QJsonObject &input) const;
 
+    // 订单接口：查询、预约、开始、进度与停止
     [[nodiscard]] ServiceResult getCurrentOrder(const QString &token,
                                                const QJsonObject &input = {}) const;
     [[nodiscard]] ServiceResult listUserOrders(const QString &token,
@@ -57,6 +61,7 @@ public:
     [[nodiscard]] ServiceResult getOrderProgress(const QString &token,
                                                 const QJsonObject &input) const;
     [[nodiscard]] ServiceResult stopOrder(const QString &token, const QJsonObject &input);
+    // Demo定时任务开关：自动结束充电、预约到期作废
     void enableDemoAutomaticStop();
     int completeDueDemoCharges(const QDateTime &now);
     void enableReservationExpiry();
@@ -65,6 +70,7 @@ public:
     int expireDueReservations(const QDateTime &now) const;
     [[nodiscard]] ServiceResult payOrder(const QString &token, const QJsonObject &input);
 
+    // 用户工单接口：创建、列表与详情
     [[nodiscard]] ServiceResult createSupportTicket(const QString &token, const QJsonObject &input);
     [[nodiscard]] ServiceResult listSupportTickets(const QString &token, const QJsonObject &input) const;
     [[nodiscard]] ServiceResult getSupportTicket(const QString &token, const QJsonObject &input) const;
@@ -72,6 +78,7 @@ public:
     [[nodiscard]] ServiceResult listAdminSupportTickets(qint64 actorAdminId, std::optional<qint64> beforeId = {}) const;
     [[nodiscard]] ServiceResult updateAdminSupportTicket(qint64 actorAdminId, const QJsonObject &input);
 
+    // 管理员接口，由本机管理端直接调用而非网络令牌
     [[nodiscard]] ServiceResult loginAdmin(const QString &username,
                                            const QString &password);
     [[nodiscard]] ServiceResult getAdminProfile(qint64 actorAdminId) const;
@@ -125,6 +132,7 @@ public:
         charging::protocol::UserStatus status);
     [[nodiscard]] ServiceResult listAdminOrders(qint64 actorAdminId) const;
 
+// 私有辅助：取当前时间、结算充电单、校验令牌与刷新读数
 private:
     [[nodiscard]] QDateTime nowUtc() const { return clock_().toUTC(); }
     ServiceResult settleChargingOrder(qint64 orderId, qint64 userId, const QDateTime &now);
@@ -137,6 +145,7 @@ private:
     [[nodiscard]] bool refreshOrderReading(charging::protocol::OrderDto *order,
                                            const QDateTime &now, bool stop = false) const;
 
+    // 依赖均为外部注入的指针，本类不负责其生命周期
     IRepository *repository_ = nullptr;
     SessionStore *sessions_ = nullptr;
     IPileGateway *pileGateway_ = nullptr;

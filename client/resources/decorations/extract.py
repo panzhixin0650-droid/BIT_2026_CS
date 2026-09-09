@@ -10,6 +10,7 @@ from pathlib import Path
 
 from PIL import Image, ImageFilter, ImageDraw
 
+# 每个装饰图在原图中的裁剪坐标框
 BOXES = {
     "clover": (70, 35, 328, 334),
     "avocado": (675, 80, 900, 327),
@@ -22,17 +23,20 @@ BOXES = {
 }
 
 
+# 依次找到上下左右相邻像素，供后续逐步遍历
 def neighbors(x, y, w, h):
     for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
         if 0 <= nx < w and 0 <= ny < h:
             yield nx, ny
 
 
+# 从原图裁一块并抠出透明背景的装饰图
 def cutout(source, box):
     crop = source.crop(box).convert("RGB")
     w, h = crop.size
     pixels = crop.load()
     exterior = set()
+    # 从图像边缘逐步向内查找，只去掉与外界连通的白底
     queue = deque([(x, y) for x in range(w) for y in (0, h - 1)]
                   + [(x, y) for y in range(h) for x in (0, w - 1)])
     while queue:
@@ -45,6 +49,7 @@ def cutout(source, box):
         exterior.add((x, y))
         queue.extend(p for p in neighbors(x, y, w, h) if p not in exterior)
 
+    # 在非外部像素中保留面积最大的连通图形
     remaining = {(x, y) for y in range(h) for x in range(w)} - exterior
     largest = set()
     while remaining:
@@ -60,6 +65,7 @@ def cutout(source, box):
         if len(component) > len(largest):
             largest = component
 
+    # 生成蒙版并对边缘像素反推白底叠加的透明度
     mask = Image.new("L", crop.size)
     for p in largest:
         mask.putpixel(p, 255)
@@ -88,6 +94,7 @@ def cutout(source, box):
     return padded
 
 
+# 命令行入口：读取原图并输出所有切图
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("source", type=Path)
@@ -99,6 +106,7 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     preview = Image.new("RGB", (1120, 600), "#f6f7f2")
     draw = ImageDraw.Draw(preview)
+    # 逐个裁剪保存，同时拼一张缩略预览图
     for i, (name, box) in enumerate(BOXES.items()):
         asset = cutout(source, box)
         asset.save(args.output / (name + ".png"))

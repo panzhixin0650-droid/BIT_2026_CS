@@ -1,15 +1,19 @@
+// 集中定义协议版本、消息类型与错误码常量
 #pragma once
 
 #include <QtGlobal>
 
 namespace charging::protocol {
+// Demo 参数：充电会话 180 秒、预约 30 分钟过期与高峰规则标识
 inline constexpr int DemoChargingDurationSeconds = 180;
 inline constexpr int DemoReservationDurationSeconds = 30 * 60;
 inline constexpr auto DemoPeakPricingRule = "DEMO_PEAK_START_V1";
 
+// 当前协议版本号与单帧消息体的字节上限
 inline constexpr int kProtocolVersion = 1;
 inline constexpr quint32 kMaxFrameBodyBytes = 256U * 1024U;
 
+// 双方约定的消息类型字符串，用于路由请求
 namespace MessageType {
 
 inline constexpr auto SystemPing = "system.ping";
@@ -35,6 +39,7 @@ inline constexpr auto SupportTicketDetail = "support.ticket.detail";
 
 }  // namespace MessageType
 
+// 统一错误码，0 表示成功，其余按业务分类
 namespace ErrorCode {
 
 inline constexpr int Ok = 0;

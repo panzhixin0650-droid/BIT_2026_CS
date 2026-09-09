@@ -11,11 +11,13 @@
 
 namespace charging::client {
 
+// 充电站浏览控制器：串联站点列表、详情与预约充电流程
 StationBrowserController::StationBrowserController(StationBrowserPage &page,
                                                    IChargingApi &api,
                                                    QObject *parent)
     : QObject(parent), page_(page), api_(api)
 {
+    // 把页面操作与API回调逐个连接起来
     connect(&page_, &StationBrowserPage::refreshRequested,
             this, &StationBrowserController::refreshStations);
     connect(&page_, &StationBrowserPage::stationSelected,
@@ -35,6 +37,7 @@ StationBrowserController::StationBrowserController(StationBrowserPage &page,
         selectedStationId_ = 0;
         page_.showListPage();
     });
+    // 订单列表用于展示到访历史
     connect(&api_, &IChargingApi::orderListCompleted, this, [this](const OrderListResult &result) {
         if (pendingHistoryRequestId_.isEmpty() || result.response.requestId != pendingHistoryRequestId_
             || result.response.type != QString::fromLatin1(protocol::MessageType::OrderList)) return;
@@ -59,6 +62,7 @@ StationBrowserController::StationBrowserController(StationBrowserPage &page,
             this, &StationBrowserController::handleStop);
 }
 
+// 刷新站点：拉全量目录供地图和本地搜索使用
 void StationBrowserController::refreshStations()
 {
     page_.setListLoading(true);
@@ -88,6 +92,7 @@ void StationBrowserController::navigateToStation(qint64 stationId)
     pendingNavigationRequestId_ = api_.getStation(stationId);
 }
 
+// 预约前先查当前订单，避免重复占用
 void StationBrowserController::requestReservation(const QString &pileCode)
 {
     if (!pendingReservationRequestId_.isEmpty()
@@ -104,6 +109,7 @@ void StationBrowserController::requestReservation(const QString &pileCode)
     }
 }
 
+// 取消预约由服务端确认结果，客户端只发请求
 void StationBrowserController::requestCancellation(qint64 orderId)
 {
     if (!pendingCancellationRequestId_.isEmpty()
@@ -140,6 +146,7 @@ void StationBrowserController::requestStop(qint64 orderId)
     pendingStopRequestId_ = api_.stopCharging(orderId);
 }
 
+// 当前订单只允许一个在途查询
 void StationBrowserController::refreshCurrentOrder()
 {
     if (!pendingCurrentOrderRequestId_.isEmpty()) {
@@ -149,6 +156,7 @@ void StationBrowserController::refreshCurrentOrder()
     pendingCurrentOrderRequestId_ = api_.getCurrentOrder();
 }
 
+// 校验请求ID与类型后再更新站点列表
 void StationBrowserController::handleStationList(const StationListResult &result)
 {
     if (pendingListRequestId_.isEmpty()
@@ -168,6 +176,7 @@ void StationBrowserController::handleStationList(const StationListResult &result
     page_.showStations(result.payload->items);
 }
 
+// 详情响应需区分是普通查看还是导航准备
 void StationBrowserController::handleStationDetail(const StationDetailResult &result)
 {
     const bool navigationResponse =
@@ -212,6 +221,7 @@ void StationBrowserController::handleStationDetail(const StationDetailResult &re
     }
 }
 
+// 当前订单回调按用途分流：刷新展示或继续预约
 void StationBrowserController::handleCurrentOrder(const CurrentOrderResult &result)
 {
     if (pendingCurrentOrderRequestId_.isEmpty()
@@ -242,6 +252,7 @@ void StationBrowserController::handleCurrentOrder(const CurrentOrderResult &resu
     if (purpose != CurrentOrderPurpose::BeforeReservation) {
         return;
     }
+    // 已有进行中订单时提示先处理，不发起预约
     if (result.payload->order.has_value()) {
         page_.setReservationBusy(false);
         const protocol::OrderStatus status = result.payload->order->status;
@@ -257,11 +268,13 @@ void StationBrowserController::handleCurrentOrder(const CurrentOrderResult &resu
         return;
     }
 
+    // 确认无在途订单后才真正发出预约请求
     page_.showDetailMessage(QStringLiteral("正在预约…"));
     pendingReservationRequestId_ = api_.reserve(pendingReservationPileCode_);
     pendingReservationPileCode_.clear();
 }
 
+// 预约结果处理：区分订单冲突与电桩不可用
 void StationBrowserController::handleReservation(const OrderResult &result)
 {
     if (pendingReservationRequestId_.isEmpty()
@@ -291,6 +304,7 @@ void StationBrowserController::handleReservation(const OrderResult &result)
         return;
     }
 
+    // 弹窗提示预约成功并显示30分钟保留提示
     QMessageBox confirmation(QMessageBox::Information,
                              QStringLiteral("预约成功"),
                              QStringLiteral("已成功预约充电桩 %1。\n%2")
@@ -331,6 +345,7 @@ void StationBrowserController::handleCancellation(const OrderResult &result)
     refreshStations();
 }
 
+// 刷新充电进度，失败时回查当前订单兜底
 void StationBrowserController::handleProgress(const ChargingProgressResult &result)
 {
     if (pendingProgressRequestId_.isEmpty()
@@ -355,6 +370,7 @@ void StationBrowserController::handleProgress(const ChargingProgressResult &resu
     page_.showListMessage(QStringLiteral("充电进度已刷新"));
 }
 
+// 结束充电由服务端结算，客户端只展示结果
 void StationBrowserController::handleStop(const ChargingStopResult &result)
 {
     if (pendingStopRequestId_.isEmpty()
@@ -379,6 +395,7 @@ void StationBrowserController::handleStop(const ChargingStopResult &result)
     emit chargingStopped(*result.payload);
 }
 
+// 按是否已支付显示实付或欠款，并刷新站点状态
 void StationBrowserController::synchronizeChargingStop(
     const ChargingStopPayload &result)
 {
@@ -409,6 +426,7 @@ void StationBrowserController::synchronizePendingOrderSettlement(
     refreshStations();
 }
 
+// 会话失效则清空状态并请求重新登录
 bool StationBrowserController::handleAuthenticationFailure(int code)
 {
     if (code != protocol::ErrorCode::InvalidSession) {
@@ -419,6 +437,7 @@ bool StationBrowserController::handleAuthenticationFailure(int code)
     return true;
 }
 
+// 重置所有在途请求，切换账号时避免串数据
 void StationBrowserController::reset()
 {
     pendingListRequestId_.clear();

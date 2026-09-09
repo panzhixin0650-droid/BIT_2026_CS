@@ -1,3 +1,4 @@
+// 更换头像对话框：可选基础头像或本地图片，仅存本机
 #include "ui/avatar_picker_dialog.h"
 
 #include "ui/avatar_art.h"
@@ -13,6 +14,7 @@
 
 namespace charging::client {
 
+// 构造对话框：设置标题、模态与选中态样式
 AvatarPickerDialog::AvatarPickerDialog(const QImage &currentAvatar, QWidget *parent)
     : QDialog(parent)
 {
@@ -31,6 +33,7 @@ AvatarPickerDialog::AvatarPickerDialog(const QImage &currentAvatar, QWidget *par
     auto *title = new QLabel(QStringLiteral("选一个喜欢的头像"), this);
     title->setProperty("role", "sectionTitle");
     layout->addWidget(title);
+    // 预览区先显示当前头像，没有则显示占位图
     preview_ = new QLabel(this);
     preview_->setObjectName(QStringLiteral("avatarPreview"));
     preview_->setFixedSize(88, 88);
@@ -44,6 +47,7 @@ AvatarPickerDialog::AvatarPickerDialog(const QImage &currentAvatar, QWidget *par
     selectionLabel_->setWordWrap(true);
     layout->addWidget(selectionLabel_);
 
+    // 生成四个基础头像按钮，点击即更新预览
     auto *grid = new QGridLayout();
     grid->setSpacing(10);
     avatarGroup_ = new QButtonGroup(this);
@@ -67,6 +71,7 @@ AvatarPickerDialog::AvatarPickerDialog(const QImage &currentAvatar, QWidget *par
     }
     layout->addLayout(grid);
 
+    // 本地图片按钮打开文件对话框选择图片
     auto *localButton = new QPushButton(QStringLiteral("从本地选择图片…"), this);
     localButton->setObjectName(QStringLiteral("localAvatarButton"));
     localButton->setAutoDefault(false);
@@ -93,6 +98,7 @@ AvatarPickerDialog::AvatarPickerDialog(const QImage &currentAvatar, QWidget *par
     layout->addWidget(hint);
     layout->addStretch();
 
+    // 底部取消与确认按钮，未选择前确认不可用
     auto *actions = new QHBoxLayout();
     auto *cancel = new QPushButton(QStringLiteral("取消"), this);
     cancel->setObjectName(QStringLiteral("cancelAvatarButton"));
@@ -109,6 +115,7 @@ AvatarPickerDialog::AvatarPickerDialog(const QImage &currentAvatar, QWidget *par
     connect(confirmButton_, &QPushButton::clicked, this, &QDialog::accept);
 }
 
+// 读取本地图片，失败则显示错误并保持原选择
 void AvatarPickerDialog::selectLocalImage(const QString &path)
 {
     if (path.isEmpty()) {
@@ -130,6 +137,7 @@ void AvatarPickerDialog::selectLocalImage(const QString &path)
     selectImage(image, QStringLiteral("已选择：本地图片"));
 }
 
+// 选定后超过 512 像素等比缩小，更新预览并允许确认
 void AvatarPickerDialog::selectImage(const QImage &image, const QString &description)
 {
     selectedImage_ = image;

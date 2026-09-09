@@ -1,3 +1,4 @@
+// Mock充电接口：用内存数据模拟服务端，便于离线演示
 #include "api/mock_charging_api.h"
 
 #include "charging/protocol/protocol_constants.h"
@@ -20,6 +21,7 @@ const QRegularExpression kPhonePattern(QStringLiteral("^\\d{11}$"));
 
 // The Mock adapter implements the same bounded Demo policy as the server.
 // UI and shared/protocol contain no billing algorithm. Contract fixtures test parity.
+// 按东八区小时判断高峰，高峰单价上浮两成并防溢出
 std::optional<qint64> chargingUnitPriceCents(qint64 basePrice, const QDateTime &now)
 {
     if (basePrice <= 0 || !now.isValid()) return std::nullopt;
@@ -32,6 +34,7 @@ std::optional<qint64> chargingUnitPriceCents(qint64 basePrice, const QDateTime &
     return (basePrice * permille + 500) / 1000;
 }
 
+// 判断订单是否属于进行中：预约、充电或待支付
 bool isCurrentOrderStatus(protocol::OrderStatus status)
 {
     return status == protocol::OrderStatus::Reserved
@@ -39,6 +42,7 @@ bool isCurrentOrderStatus(protocol::OrderStatus status)
         || status == protocol::OrderStatus::PendingPayment;
 }
 
+// 用haversine公式估算两点间球面距离，单位公里
 double distanceKm(double longitudeA,
                   double latitudeA,
                   double longitudeB,
@@ -59,6 +63,7 @@ double distanceKm(double longitudeA,
 
 }  // namespace
 
+// 构造：预置演示用户、充电桩与历史订单数据
 MockChargingApi::MockChargingApi(QObject *parent, Clock clock)
     : IChargingApi(parent)
     , clock_(clock ? std::move(clock) : Clock{QDateTime::currentDateTimeUtc})
@@ -92,6 +97,7 @@ MockChargingApi::MockChargingApi(QObject *parent, Clock clock)
         pilesByCode_.insert(pile.pileCode, pile);
     }
 
+    // 辅助函数：按天数偏移造一条已完成订单
     const auto addCompletedOrder = [this, userId = fixtureUser.userId](qint64 orderId,
                                           const QString &pileCode,
                                           int daysAgo,
@@ -141,6 +147,7 @@ MockChargingApi::MockChargingApi(QObject *parent, Clock clock)
                       protocol::OrderMode::Reservation);
     addCompletedOrder(109, QStringLiteral("PILE-A-01"), 28, 3600, 9000, 1215,
                       protocol::OrderMode::Direct);
+    // 每秒轮询：处理过期预约并结束到时的充电会话
     auto *timer = new QTimer(this);
     connect(timer, &QTimer::timeout, this, [this] {
         const auto now = nowUtc();
@@ -157,6 +164,7 @@ MockChargingApi::MockChargingApi(QObject *parent, Clock clock)
 
 }
 
+// 预约超过规定时长则置为取消并把桩释放为空闲
 void MockChargingApi::expireDueReservations(const QDateTime &now)
 {
     if (!now.isValid()) return;
@@ -173,6 +181,7 @@ void MockChargingApi::expireDueReservations(const QDateTime &now)
     }
 }
 
+// 登录：校验11位手机号，号码不存在就新建用户
 QString MockChargingApi::loginUser(const QString &phone)
 {
     const QString requestId = nextRequestId();
@@ -213,6 +222,7 @@ QString MockChargingApi::loginUser(const QString &phone)
     return requestId;
 }
 
+// 退出登录：清空手机号与令牌
 QString MockChargingApi::logout()
 {
     const QString requestId = nextRequestId();
@@ -241,6 +251,7 @@ QString MockChargingApi::logout()
     return requestId;
 }
 
+// 查询资料：未登录返回会话失效并清理登录态
 QString MockChargingApi::getProfile()
 {
     const QString requestId = nextRequestId();
@@ -270,6 +281,7 @@ QString MockChargingApi::getProfile()
     return requestId;
 }
 
+// 改昵称：长度需为1到32个字符
 QString MockChargingApi::updateNickname(const QString &nickname)
 {
     const QString requestId = nextRequestId();
@@ -311,6 +323,7 @@ QString MockChargingApi::updateNickname(const QString &nickname)
     return requestId;
 }
 
+// 充值：金额限制在1分到一万元之间，累加到余额
 QString MockChargingApi::recharge(qint64 amountCents)
 {
     const QString requestId = nextRequestId();
@@ -352,6 +365,7 @@ QString MockChargingApi::recharge(qint64 amountCents)
     return requestId;
 }
 
+// 站点列表：先校验经纬度，再按条件筛选并计价
 QString MockChargingApi::listStations(const StationQuery &query)
 {
     const QString requestId = nextRequestId();
@@ -416,6 +430,7 @@ QString MockChargingApi::listStations(const StationQuery &query)
             items.append(item);
         }
 
+        // 有定位时按距离排序，否则按站点ID排序
         std::sort(items.begin(), items.end(), [hasLongitude](const auto &left,
                                                              const auto &right) {
             if (hasLongitude) {
@@ -445,6 +460,7 @@ QString MockChargingApi::listStations(const StationQuery &query)
     return requestId;
 }
 
+// 站点详情：返回当前计价的站点与其充电桩列表
 QString MockChargingApi::getStation(qint64 stationId)
 {
     const QString requestId = nextRequestId();
@@ -492,6 +508,7 @@ QString MockChargingApi::getStation(qint64 stationId)
     return requestId;
 }
 
+// 当前订单：附带模拟进度返回进行中的那一单
 QString MockChargingApi::getCurrentOrder()
 {
     const QString requestId = nextRequestId();
@@ -524,6 +541,7 @@ QString MockChargingApi::getCurrentOrder()
     return requestId;
 }
 
+// 订单列表：只取本人订单并按创建时间倒序
 QString MockChargingApi::listOrders()
 {
     const QString requestId = nextRequestId();
@@ -565,6 +583,7 @@ QString MockChargingApi::listOrders()
     return requestId;
 }
 
+// 预约：需无进行中订单且桩为空闲
 QString MockChargingApi::reserve(const QString &pileCode)
 {
     const QString requestId = nextRequestId();
@@ -618,6 +637,7 @@ QString MockChargingApi::reserve(const QString &pileCode)
             return;
         }
 
+        // 生成预约订单并占用充电桩，此时不锁定单价
         const protocol::StationDto selectedStation = station(pile.stationId);
         const QString now = nowUtc().toString(Qt::ISODate);
         protocol::OrderDto order;
@@ -652,6 +672,7 @@ QString MockChargingApi::reserve(const QString &pileCode)
     return requestId;
 }
 
+// 取消：仅本人的预约订单可取消，同时释放充电桩
 QString MockChargingApi::cancel(qint64 orderId)
 {
     const QString requestId = nextRequestId();
@@ -712,6 +733,7 @@ QString MockChargingApi::cancel(qint64 orderId)
     return requestId;
 }
 
+// 开始充电：支持直接扫码启动或凭预约订单启动
 QString MockChargingApi::startCharging(
     const QString &pileCode,
     std::optional<qint64> reservationOrderId)
@@ -762,6 +784,7 @@ QString MockChargingApi::startCharging(
                 emit chargingStartCompleted(result);
                 return;
             }
+            // 预约启动需校验订单归属、桩编号与状态是否匹配
             if (reservationOrderId.has_value()) {
                 if (!ordersById_.contains(*reservationOrderId)) {
                     result.response = response(requestId,
@@ -823,6 +846,7 @@ QString MockChargingApi::startCharging(
                 order.amountCents = 0;
             }
 
+            // 进入充电态时锁定当前单价，并把桩标为充电中
             order.status = protocol::OrderStatus::Charging;
             order.startedAt = now;
             order.unitPriceCentsPerKwh = *price;
@@ -842,12 +866,14 @@ QString MockChargingApi::startCharging(
     return requestId;
 }
 
+// 查询充电进度：返回按时间推算的模拟数据
 QString MockChargingApi::getChargingProgress(qint64 orderId)
 {
     const QString requestId = nextRequestId();
 
     QTimer::singleShot(0, this, [this, requestId, orderId]() {
         ChargingProgressResult result;
+        // 查询前先检查登录状态和订单归属
         const auto user = authenticatedUser();
         if (!user.has_value()) {
             result.response = response(requestId,
@@ -883,6 +909,7 @@ QString MockChargingApi::getChargingProgress(qint64 orderId)
             return;
         }
 
+        // 每次查询把模拟时长加60秒，让进度看起来在推进
         simulatedDurationByOrder_[orderId] =
             simulatedDurationByOrder_.value(orderId) + 60;
         const protocol::OrderDto order = orderWithProgress(storedOrder);
@@ -900,6 +927,7 @@ QString MockChargingApi::getChargingProgress(qint64 orderId)
     return requestId;
 }
 
+// 停止充电：校验订单状态后按当前进度结算
 QString MockChargingApi::stopCharging(qint64 orderId)
 {
     const QString requestId = nextRequestId();
@@ -949,6 +977,7 @@ QString MockChargingApi::stopCharging(qint64 orderId)
     return requestId;
 }
 
+// 结算充电：算出最终电量金额，余额够则直接扣款完成
 ChargingStopPayload MockChargingApi::finishCharge(qint64 orderId, const QDateTime &endedAt)
 {
     auto order = orderWithProgress(ordersById_.value(orderId));
@@ -959,12 +988,14 @@ ChargingStopPayload MockChargingApi::finishCharge(qint64 orderId, const QDateTim
     const bool paid = userIt->balanceCents >= order.amountCents;
     if (paid) { userIt->balanceCents -= order.amountCents; order.paidAt = order.endedAt; }
     order.status = paid ? protocol::OrderStatus::Completed : protocol::OrderStatus::PendingPayment;
+    // 结算后把该充电桩恢复为空闲状态
     pilesByCode_[order.pileCode].status = protocol::PileStatus::Idle;
     ordersById_[orderId] = order;
     simulatedDurationByOrder_.remove(orderId);
     return {order, paid, userIt->balanceCents, paid ? std::nullopt : std::optional<qint64>(order.amountCents-userIt->balanceCents)};
 }
 
+// 支付待付款订单：依次校验归属、状态和余额
 QString MockChargingApi::payOrder(qint64 orderId)
 {
     const QString requestId = nextRequestId();
@@ -1018,6 +1049,7 @@ QString MockChargingApi::payOrder(qint64 orderId)
             return;
         }
 
+        // 扣余额并把订单标记为已完成，写回内存表
         protocol::UserDto updatedUser = *user;
         updatedUser.balanceCents -= order.amountCents;
         order.status = protocol::OrderStatus::Completed;
@@ -1039,6 +1071,7 @@ QString MockChargingApi::payOrder(qint64 orderId)
     return requestId;
 }
 
+// 请求ID只在本地自增，用于回调对号
 QString MockChargingApi::nextRequestId()
 {
     return QStringLiteral("mock-%1").arg(++requestSequence_);
@@ -1052,6 +1085,7 @@ ApiResponse MockChargingApi::response(const QString &requestId,
     return ApiResponse{requestId, QString::fromLatin1(type), code, message};
 }
 
+// 凭token与手机号从内存表取出当前登录用户
 std::optional<protocol::UserDto> MockChargingApi::authenticatedUser() const
 {
     if (token_.isEmpty() || authenticatedPhone_.isEmpty()
@@ -1062,6 +1096,7 @@ std::optional<protocol::UserDto> MockChargingApi::authenticatedUser() const
     return usersByPhone_.value(authenticatedPhone_);
 }
 
+// 提供两个演示充电站的固定资料
 protocol::StationDto MockChargingApi::station(qint64 stationId) const
 {
     protocol::StationDto item;
@@ -1086,6 +1121,7 @@ protocol::StationDto MockChargingApi::station(qint64 stationId) const
         item.priceCentsPerKwh = 120;
         item.predictedCongestion = protocol::CongestionLevel::Medium;
     }
+    // 统计空闲桩数量与在线率，供列表展示
     const QList<protocol::PileDto> stationPiles = piles(stationId);
     item.totalPileCount = stationPiles.size();
     qint64 onlinePileCount = 0;
@@ -1103,6 +1139,7 @@ protocol::StationDto MockChargingApi::station(qint64 stationId) const
     return item;
 }
 
+// 按站点筛出充电桩并按ID排序
 QList<protocol::PileDto> MockChargingApi::piles(qint64 stationId) const
 {
     QList<protocol::PileDto> stationPiles;
@@ -1118,6 +1155,7 @@ QList<protocol::PileDto> MockChargingApi::piles(qint64 stationId) const
     return stationPiles;
 }
 
+// 查找该用户处于进行中状态的订单
 std::optional<protocol::OrderDto> MockChargingApi::currentOrder(qint64 userId) const
 {
     for (const auto &order : ordersById_) {
@@ -1128,6 +1166,7 @@ std::optional<protocol::OrderDto> MockChargingApi::currentOrder(qint64 userId) c
     return std::nullopt;
 }
 
+// 根据已充时长推算电量与金额，只对充电中订单生效
 protocol::OrderDto MockChargingApi::orderWithProgress(
     const protocol::OrderDto &source) const
 {
@@ -1143,6 +1182,7 @@ protocol::OrderDto MockChargingApi::orderWithProgress(
     if (!startedAt.isValid()) {
         return order;
     }
+    // 取几个时长来源的最大值，再截到Demo的180秒上限
     const qint64 elapsedSeconds = qMin<qint64>(protocol::DemoChargingDurationSeconds, std::max({
         order.durationSeconds,
         simulatedDurationByOrder_.value(order.orderId),
@@ -1153,11 +1193,13 @@ protocol::OrderDto MockChargingApi::orderWithProgress(
         7.2 * 1000.0 * elapsedSeconds / 3600.0);
     order.durationSeconds = elapsedSeconds;
     order.energyWh = std::max(order.energyWh, measuredEnergyWh);
+    // 金额按电量乘单价再除1000，四舍五入到整数分
     order.amountCents =
         (order.energyWh * *order.unitPriceCentsPerKwh + 500) / 1000;
     return order;
 }
 
+// 检查登录与账号状态，用提交编号避免重复创建工单
 QString MockChargingApi::createSupportTicket(const protocol::SupportTicketDraft &draft)
 {
     const auto id = nextRequestId();
@@ -1179,6 +1221,7 @@ QString MockChargingApi::createSupportTicket(const protocol::SupportTicketDraft 
         if (result.ok() && !result.payload && !draft.pileCode.isEmpty()
             && !pilesByCode_.contains(draft.pileCode))
             result.response.code = protocol::ErrorCode::NotFound;
+        // 新工单编号自增，记录创建与更新时间
         if (result.ok() && !result.payload) {
             protocol::SupportTicketDto ticket;
             static_cast<protocol::SupportTicketDraft &>(ticket) = draft;
@@ -1195,6 +1238,7 @@ QString MockChargingApi::createSupportTicket(const protocol::SupportTicketDraft 
     return id;
 }
 
+// 分页列出本人工单，倒序每页10条并给出hasMore
 QString MockChargingApi::listSupportTickets(std::optional<qint64> beforeId)
 {
     const auto id = nextRequestId();
@@ -1219,6 +1263,7 @@ QString MockChargingApi::listSupportTickets(std::optional<qint64> beforeId)
     return id;
 }
 
+// 查工单详情，只允许读取属于自己的工单
 QString MockChargingApi::getSupportTicket(qint64 ticketId)
 {
     const auto id = nextRequestId();

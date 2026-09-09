@@ -1,6 +1,8 @@
+// 运营大屏前端脚本：读取 Dashboard JSON 快照并渲染各图表
 const BUSINESS_TIME_ZONE = "Asia/Shanghai";
 const REFRESH_INTERVAL_MS = 2000;
 
+// 图表统一配色常量，保持各面板视觉一致
 const COLORS = {
   blue: "#2168e8",
   cyan: "#08afd0",
@@ -13,6 +15,7 @@ const COLORS = {
   text: "#496680",
 };
 
+// 金额格式化器，源数据是整数分，显示前除以 100
 const moneyFormatter = new Intl.NumberFormat("zh-CN", {
   style: "currency",
   currency: "CNY",
@@ -24,6 +27,7 @@ const integerFormatter = new Intl.NumberFormat("zh-CN", {
   maximumFractionDigits: 0,
 });
 
+// 时间统一按 Asia/Shanghai 业务时区展示
 const dateTimeFormatter = new Intl.DateTimeFormat("zh-CN", {
   timeZone: BUSINESS_TIME_ZONE,
   year: "numeric",
@@ -44,6 +48,7 @@ const forecastTimeFormatter = new Intl.DateTimeFormat("zh-CN", {
   hour12: false,
 });
 
+// 全局状态：当前快照、天数选择、图表实例与刷新定时器
 const state = {
   dashboard: null,
   revenueDays: 30,
@@ -53,11 +58,13 @@ const state = {
   refreshTimer: null,
 };
 
+// 页面加载完成后绑定交互，首次拉取数据再开启自动刷新
 document.addEventListener("DOMContentLoaded", () => {
   bindControls();
   loadDashboard().finally(startAutoRefresh);
 });
 
+// 绑定天数切换、全屏按钮与窗口缩放重绘
 function bindControls() {
   document.querySelectorAll("[data-days]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -87,6 +94,7 @@ function bindControls() {
   document.addEventListener("fullscreenchange", () => window.setTimeout(resizeCharts, 120));
 }
 
+// 每 2 秒轮询一次，页面隐藏时跳过刷新
 function startAutoRefresh() {
   if (state.refreshTimer !== null) return;
   state.refreshTimer = window.setInterval(() => {
@@ -97,6 +105,7 @@ function startAutoRefresh() {
   });
 }
 
+// 按指定地址加载；未指定时依次尝试实时快照和契约样例
 async function loadDashboard({ silent = false } = {}) {
   if (state.loadInProgress) return false;
   state.loadInProgress = true;
@@ -115,6 +124,7 @@ async function loadDashboard({ silent = false } = {}) {
         }
         const dashboard = await response.json();
         validateDashboard(dashboard);
+        // 比较选定关键字段的指纹，指纹相同则跳过重绘
         const snapshotKey = [
           url,
           dashboard.generatedAt,
@@ -138,6 +148,7 @@ async function loadDashboard({ silent = false } = {}) {
     }
 
     hideLoading();
+    // 静默刷新失败不打扰用户，除非从未加载成功过
     if (!silent || state.dashboard === null) {
       showError(`无法读取 Dashboard JSON。${failures.join("；")}`);
     }
@@ -147,6 +158,7 @@ async function loadDashboard({ silent = false } = {}) {
   }
 }
 
+// 渲染前校验 JSON 必需字段，缺失直接抛错
 function validateDashboard(dashboard) {
   if (!dashboard || typeof dashboard !== "object") {
     throw new Error("根节点必须是 JSON 对象");
@@ -177,6 +189,7 @@ function validateDashboard(dashboard) {
   }
 }
 
+// 把快照数据分发到顶部指标卡与各图表面板
 function renderDashboard(dashboard, sourceUrl) {
   const { summary, pileStates, revenuePoints, predictions } = dashboard;
 
@@ -193,6 +206,7 @@ function renderDashboard(dashboard, sourceUrl) {
   const dates = revenuePoints.map((point) => point.date);
   setText("revenue-date-range", `${shortDate(dates[0])} — ${shortDate(dates.at(-1))}`);
 
+  // 根据数据来源标注实时快照还是契约样例
   const isFixture = sourceUrl.includes("dashboard.sample.json");
   const sourceBadge = document.getElementById("data-source-badge");
   sourceBadge.textContent = isFixture ? "契约样例" : "实时快照";
@@ -206,6 +220,7 @@ function renderDashboard(dashboard, sourceUrl) {
   renderRevenueBars(summary);
 }
 
+// 电桩状态环形图，中心显示电桩总数并生成图例
 function renderPileState(pileStates, pileCount) {
   const items = [
     { name: "闲置", value: pileStates.idle, color: COLORS.green },
@@ -260,6 +275,7 @@ function renderPileState(pileStates, pileCount) {
     .join("");
 }
 
+// 计算可用率、故障率与平均每站电桩数
 function renderResourceUtilization(pileStates, summary) {
   const total = summary.pileCount || 0;
   const availableRate = percentage(pileStates.idle, total);
@@ -289,6 +305,7 @@ function renderResourceUtilization(pileStates, summary) {
     .join("");
 }
 
+// 按选定天数绘制营收柱状图与趋势线
 function renderRevenue(allPoints) {
   const count = Math.min(state.revenueDays, allPoints.length);
   const points = allPoints.slice(-count);
@@ -374,6 +391,7 @@ function renderRevenue(allPoints) {
   );
   chart.getDom().setAttribute("aria-label", `近${count}日营收趋势图`);
 
+  // 汇总区间营收、日均金额与峰值日期
   const totalCents = points.reduce((sum, point) => sum + point.revenueCents, 0);
   const peakPoint = points.reduce(
     (peak, point) => (point.revenueCents > peak.revenueCents ? point : peak),
@@ -385,6 +403,7 @@ function renderRevenue(allPoints) {
   setText("peak-revenue", formatMoney(peakPoint.revenueCents));
 }
 
+// 负荷预测面板，无预测数据时显示空状态
 function renderForecast(predictions) {
   const prediction = predictions[0];
   const content = document.querySelector(".forecast-content");
@@ -415,6 +434,7 @@ function renderForecast(predictions) {
   if (prediction.congestionLevel === "HIGH") status.classList.add("is-high");
   status.querySelector("strong").textContent = congestion.label;
 
+  // 预测图双 Y 轴：折线为负荷 kW，柱状为可用电桩数
   const chart = chartFor("forecast-chart");
   chart.setOption({
     animationDuration: 650,
@@ -493,6 +513,7 @@ function renderForecast(predictions) {
   });
 }
 
+// 按可用率分三档给出健康度文案并绘制仪表盘
 function renderHealthGauge(pileStates, pileCount) {
   const availability = percentage(pileStates.idle, pileCount);
   const health = availability >= 50
@@ -536,6 +557,7 @@ function renderHealthGauge(pileStates, pileCount) {
   });
 }
 
+// 今日、本月与累计营收的横向条形对照
 function renderRevenueBars(summary) {
   const items = [
     { label: "今日", value: summary.todayRevenueCents, color: COLORS.green },
@@ -555,6 +577,7 @@ function renderRevenueBars(summary) {
     .join("");
 }
 
+// 按容器 id 惰性创建并缓存 ECharts 实例
 function chartFor(id) {
   if (!window.echarts) {
     throw new Error("ECharts 未加载，请检查网络或改用本地 ECharts 文件");
@@ -570,6 +593,7 @@ function resizeCharts() {
   state.charts.forEach((chart) => chart.resize());
 }
 
+// 整数分转元后格式化为人民币金额
 function formatMoney(cents) {
   return moneyFormatter.format((Number(cents) || 0) / 100);
 }
@@ -584,6 +608,7 @@ function formatForecastTime(value) {
   return Number.isNaN(date.getTime()) ? "--" : forecastTimeFormatter.format(date).replaceAll("/", "-");
 }
 
+// 从日期字符串截取月-日，用作坐标轴短标签
 function shortDate(value) {
   if (typeof value !== "string") return "--";
   const [, month = "--", day = "--"] = value.split("-");
@@ -594,10 +619,12 @@ function formatDecimal(value) {
   return Number.isFinite(value) ? new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 }).format(value) : "--";
 }
 
+// 计算百分比，总数为 0 时返回 0 避免除零
 function percentage(value, total) {
   return total > 0 ? (Number(value) / Number(total)) * 100 : 0;
 }
 
+// 拥堵等级枚举转中文标签，未知值兜底
 function congestionMeta(level) {
   return {
     LOW: { label: "低拥堵" },
@@ -614,6 +641,7 @@ function hideLoading() {
   document.getElementById("loading-overlay").classList.add("is-hidden");
 }
 
+// 显示或隐藏数据加载失败的提示条
 function showError(message) {
   const banner = document.getElementById("error-banner");
   setText("error-message", message);

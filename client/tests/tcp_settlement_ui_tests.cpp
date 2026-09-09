@@ -1,3 +1,4 @@
+// 本文件用真实 TCP 与主窗口，测试结算提示后会话与界面仍正常
 #include "api/tcp_charging_api.h"
 #include "charging/protocol/envelope.h"
 #include "charging/protocol/frame_codec.h"
@@ -27,6 +28,7 @@ using namespace charging;
 
 namespace {
 
+// 读取协议样例文件里的 data 字段作为响应数据
 QJsonObject fixtureData(const QString &fileName)
 {
     QFile file(QString::fromUtf8(SETTLEMENT_FIXTURE_DIR) + QLatin1Char('/') + fileName);
@@ -39,6 +41,7 @@ QJsonObject fixtureData(const QString &fileName)
 
 } // namespace
 
+// 结算界面测试类
 class TcpSettlementUiTests final : public QObject {
     Q_OBJECT
 
@@ -47,6 +50,7 @@ private slots:
     void settlementNoticePreservesSession();
 };
 
+// 数据驱动：入口页面、是否已支付、是否服务端自动结束
 void TcpSettlementUiTests::settlementNoticePreservesSession_data()
 {
     QTest::addColumn<bool>("fromOrders");
@@ -60,6 +64,7 @@ void TcpSettlementUiTests::settlementNoticePreservesSession_data()
     QTest::newRow("automatic-pending-payment") << false << false << true;
 }
 
+// 主流程：登录后结束充电，检查会话与界面状态
 void TcpSettlementUiTests::settlementNoticePreservesSession()
 {
     QFETCH(bool, fromOrders);
@@ -84,6 +89,7 @@ void TcpSettlementUiTests::settlementNoticePreservesSession()
     QString serverError;
     bool stopped = false;
     int connectionCount = 0;
+    // 服务端按消息类型返回样例数据，并校验令牌
     connect(&server, &QTcpServer::newConnection, &server, [&]() {
         while (server.hasPendingConnections()) {
             auto *socket = server.nextPendingConnection();
@@ -113,6 +119,7 @@ void TcpSettlementUiTests::settlementNoticePreservesSession()
                     } else if (request.type == QString::fromLatin1(protocol::MessageType::StationList)) {
                         response.data = stations;
                     } else if (request.type == QString::fromLatin1(protocol::MessageType::OrderCurrent)) {
+                        // 已结算且已支付时当前订单返回空
                         response.data = {{QStringLiteral("order"), stopped && paid
                             ? QJsonValue(QJsonValue::Null)
                             : (stopped ? settlement : charging).value(QStringLiteral("order"))}};
@@ -144,6 +151,7 @@ void TcpSettlementUiTests::settlementNoticePreservesSession()
         }
     });
 
+    // 使用生产适配器与主窗口，只有服务端数据来自样例
     constexpr int timeoutMs = 250;
     client::TcpChargingApi api(QStringLiteral("127.0.0.1"), server.serverPort(), timeoutMs);
     client::MainWindow window(api);
@@ -168,6 +176,7 @@ void TcpSettlementUiTests::settlementNoticePreservesSession()
     QTRY_VERIFY(currentCard->isVisible());
     QTRY_VERIFY(refresh->isEnabled());
 
+    // 校验登录请求只携带手机号
     const auto loginRequest = std::find_if(requests.cbegin(), requests.cend(), [](const auto &request) {
         return request.type == QString::fromLatin1(protocol::MessageType::AuthUserLogin);
     });
@@ -187,6 +196,7 @@ void TcpSettlementUiTests::settlementNoticePreservesSession()
     QTRY_VERIFY(stopButton->isVisible() && stopButton->isEnabled());
     window.findChild<QWidget *>("chargingPage")->findChild<QScrollArea *>()->ensureWidgetVisible(stopButton);
     QTRY_VERIFY(stopButton->visibleRegion().contains(stopButton->rect().center()));
+    // 自动结束场景不发停止请求，靠轮询发现结果
     if (automatic) {
         // The server completes without a client stop request. Polling recovers
         // both a remaining unpaid current order and a completed history entry.
@@ -205,12 +215,14 @@ void TcpSettlementUiTests::settlementNoticePreservesSession()
     }
     QTRY_VERIFY(window.findChild<QLabel *>("chargingState")->text().contains(QStringLiteral("已结束")));
     QCOMPARE(navigation->currentIndex(),1);
+    // 待支付时提示跳到充值页面
     if(!paid){
         auto *recharge=window.findChild<QPushButton *>("chargingRechargeButton");
         QTRY_VERIFY(recharge->isVisible());recharge->click();
         QCOMPARE(navigation->currentIndex(),4);
     }
 
+    // 关闭提示后回首页刷新仍应成功
     navigation->setCurrentIndex(0);
     QTRY_VERIFY(refresh->isEnabled());
     const auto beforeRefresh = stationSpy.count();
@@ -229,6 +241,7 @@ void TcpSettlementUiTests::settlementNoticePreservesSession()
                  ->text().contains(QStringLiteral("服务暂不可用")));
     QCOMPARE(connectionCount, 1);
     QCOMPARE(serverError, QString{});
+    // 统计停止请求次数并确认令牌始终一致
     int stopRequests = 0;
     for (const auto &request : requests) {
         if (request.type == QString::fromLatin1(protocol::MessageType::OrderStop)) {
@@ -241,6 +254,7 @@ void TcpSettlementUiTests::settlementNoticePreservesSession()
     QCOMPARE(stopRequests, automatic ? 0 : 1);
 }
 
+// 测试程序入口
 QTEST_MAIN(TcpSettlementUiTests)
 
 #include "tcp_settlement_ui_tests.moc"

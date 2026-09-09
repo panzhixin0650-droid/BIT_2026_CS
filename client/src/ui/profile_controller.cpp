@@ -10,6 +10,7 @@
 
 namespace charging::client {
 
+// 个人中心控制器：连接资料页与API，处理刷新、改昵称、充值和退出
 ProfileController::ProfileController(ProfilePage &page,
                                      IChargingApi &api,
                                      AvatarStorage &avatarStorage,
@@ -19,6 +20,7 @@ ProfileController::ProfileController(ProfilePage &page,
     , api_(api)
     , avatarStorage_(avatarStorage)
 {
+    // 把页面按钮请求与API回调信号一一接上
     connect(&page_, &ProfilePage::refreshRequested, this, &ProfileController::refreshProfile);
     connect(&page_,
             &ProfilePage::nicknameUpdateRequested,
@@ -56,6 +58,7 @@ ProfileController::ProfileController(ProfilePage &page,
             &ProfileController::handleLogoutCompleted);
 }
 
+// 登录后设置初始资料，头像按用户ID加手机号做本机key
 void ProfileController::setInitialUser(const protocol::UserDto &user)
 {
     currentAvatarKey_ = QStringLiteral("%1:%2").arg(user.userId).arg(user.phone);
@@ -64,6 +67,7 @@ void ProfileController::setInitialUser(const protocol::UserDto &user)
     page_.showMessage({});
 }
 
+// 同一时刻只处理一个资料请求，避免响应混淆
 void ProfileController::refreshProfile()
 {
     if (pendingAction_ != PendingAction::None) {
@@ -82,6 +86,7 @@ void ProfileController::updateNickname(const QString &nickname)
         return;
     }
 
+    // 昵称先去空白，长度限制1到32字符
     const QString normalizedNickname = nickname.trimmed();
     if (normalizedNickname.isEmpty() || normalizedNickname.size() > 32) {
         page_.showMessage(QStringLiteral("昵称长度必须为1到32个字符"), true);
@@ -100,6 +105,7 @@ void ProfileController::recharge(const QString &amountYuan)
         return;
     }
 
+    // 把元字符串换算成整数分，非法金额直接提示
     const auto amountCents = parseAmountCents(amountYuan.trimmed());
     if (!amountCents.has_value()) {
         page_.showMessage(QStringLiteral("请输入0.01元到10000元之间的有效金额"), true);
@@ -113,6 +119,7 @@ void ProfileController::recharge(const QString &amountYuan)
     pendingRequestId_ = api_.recharge(*amountCents);
 }
 
+// 头像只保存在本机，不上传服务端
 void ProfileController::saveAvatar(const QString &sourcePath)
 {
     QString savedPath;
@@ -155,6 +162,7 @@ void ProfileController::logout()
     pendingRequestId_ = api_.logout();
 }
 
+// 资料返回后更新页面并广播用户变化
 void ProfileController::handleProfileCompleted(const UserResult &result)
 {
     if (!acceptResult(result.response,
@@ -197,6 +205,7 @@ void ProfileController::handleProfileUpdateCompleted(const UserResult &result)
     emit profileChanged(result.payload->user);
 }
 
+// 充值成功后接着查当前订单，看是否有待支付
 void ProfileController::handleRechargeCompleted(const RechargeResult &result)
 {
     if (!acceptResult(result.response,
@@ -219,6 +228,7 @@ void ProfileController::handleRechargeCompleted(const RechargeResult &result)
     pendingRequestId_ = api_.getCurrentOrder();
 }
 
+// 仅当订单处于待支付时才自动发起支付
 void ProfileController::handleRechargeCurrentOrder(const CurrentOrderResult &result)
 {
     if (!acceptResult(result.response,
@@ -246,6 +256,7 @@ void ProfileController::handleRechargeCurrentOrder(const CurrentOrderResult &res
         return;
     }
 
+    // 没有待支付订单则直接报充值成功
     if (!result.payload->order.has_value()
         || result.payload->order->status != protocol::OrderStatus::PendingPayment) {
         pendingPaymentAmountCents_ = 0;
@@ -261,6 +272,7 @@ void ProfileController::handleRechargeCurrentOrder(const CurrentOrderResult &res
     pendingRequestId_ = api_.payOrder(result.payload->order->orderId);
 }
 
+// 自动结算失败时区分余额仍不足与其他错误提示
 void ProfileController::handleRechargePayment(const PaymentResult &result)
 {
     if (!acceptResult(result.response,
@@ -301,6 +313,7 @@ void ProfileController::handleRechargePayment(const PaymentResult &result)
         return;
     }
 
+    // 结算成功刷新余额，并通知其他页面同步订单
     page_.setBalance(result.payload->balanceCents);
     page_.showMessage(QStringLiteral("充值成功，待支付订单已自动结算"));
     emit pendingOrderSettled(*result.payload);
@@ -323,6 +336,7 @@ void ProfileController::handleLogoutCompleted(const LogoutResult &result)
     emit loggedOut();
 }
 
+// 校验请求ID与消息类型，丢弃过期或不匹配的响应
 bool ProfileController::acceptResult(const ApiResponse &response,
                                      PendingAction action,
                                      const char *type)
@@ -332,6 +346,7 @@ bool ProfileController::acceptResult(const ApiResponse &response,
         && response.type == QString::fromLatin1(type);
 }
 
+// 正则限制最多两位小数，总额需在1分到100万分之间
 std::optional<qint64> ProfileController::parseAmountCents(const QString &amountYuan) const
 {
     static const QRegularExpression amountPattern(
@@ -354,6 +369,7 @@ std::optional<qint64> ProfileController::parseAmountCents(const QString &amountY
     return totalCents;
 }
 
+// 会话失效走重新登录，其他错误在页面提示
 void ProfileController::showFailure(const ApiResponse &response)
 {
     if (response.code == protocol::ErrorCode::InvalidSession) {
@@ -372,6 +388,7 @@ void ProfileController::finishRequest()
     page_.setBusy(false);
 }
 
+// 退出登录后清空待办状态与页面显示
 void ProfileController::reset()
 {
     finishRequest();

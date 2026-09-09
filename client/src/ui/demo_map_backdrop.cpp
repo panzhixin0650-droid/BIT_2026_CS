@@ -1,3 +1,4 @@
+// 文件用途：用内置离线数据绘制示例地图底图
 #include "ui/demo_map_backdrop.h"
 
 #include <QFile>
@@ -12,12 +13,14 @@
 #include <algorithm>
 #include <cmath>
 
+// 注册内置地图资源文件
 static void initializeOfflineMapResources() { Q_INIT_RESOURCE(map_resources); }
 
 namespace charging::client {
 namespace {
 constexpr double pi = 3.14159265358979323846;
 constexpr double designScale = 1048576.0;
+// 经纬度转墨卡托归一化坐标，便于统一缩放
 QPointF projected(double longitude, double latitude)
 {
     return {(longitude + 180) / 360,
@@ -27,6 +30,7 @@ const QPointF origin = projected(123.42, 41.75);
 enum Layer { Urban, Industrial, Park, Water, River, Rail, Local, Street, Major, Highway };
 }
 
+// 解析内置 JSON，把各图层要素转成绘制路径
 void DemoMapBackdrop::buildGeometry()
 {
     if (built_) return;
@@ -59,11 +63,13 @@ void DemoMapBackdrop::buildGeometry()
         feature.bounds = feature.path.boundingRect();
         features_.append(std::move(feature));
     }
+    // 按图层排序，保证面在下、道路在上
     std::stable_sort(features_.begin(), features_.end(), [](const auto &a, const auto &b) {
         return a.layer < b.layer;
     });
 }
 
+// prepare 只在尺寸或视角变化时重绘并缓存
 void DemoMapBackdrop::prepare(const QSize &size, const QPointF &center,
                               double scale, qreal pixelRatio)
 {
@@ -79,6 +85,7 @@ void DemoMapBackdrop::prepare(const QSize &size, const QPointF &center,
     cache_.fill(QColor(QStringLiteral("#f4f3ec")));
     QPainter painter(&cache_);
     painter.setRenderHint(QPainter::Antialiasing);
+    // 算出缩放平移矩阵，只处理可见范围内的要素
     const double factor = scale / designScale;
     const QPointF offset = QPointF(size.width()/2.0, size.height()/2.0) + (origin-center)*scale;
     const QTransform transform(factor, 0, 0, factor, offset.x(), offset.y());
@@ -94,6 +101,7 @@ void DemoMapBackdrop::prepare(const QSize &size, const QPointF &center,
     for (const auto &feature : features_) {
         if (!feature.bounds.adjusted(-1,-1,1,1).intersects(visible)) continue;
         visibleFeatures.append(&feature);
+        // 按图层分别填充面块或描边道路水系
         switch (feature.layer) {
         case Urban: painter.fillPath(feature.path, QColor("#e9e9e1")); break;
         case Industrial: painter.fillPath(feature.path, QColor("#e7e5df")); break;
@@ -113,6 +121,7 @@ void DemoMapBackdrop::prepare(const QSize &size, const QPointF &center,
     QVector<QRectF> occupied;
     QSet<QString> names;
     // Actual OSM names, not invented streets or district placement.
+    // 按优先级放置地名标签，越界或重叠的跳过
     for (int priority : {River, Park, Major, Highway, Street}) {
         for (const auto *feature : visibleFeatures) {
             if (feature->layer != priority || feature->name.isEmpty() || names.contains(feature->name)) continue;
@@ -152,6 +161,7 @@ void DemoMapBackdrop::prepare(const QSize &size, const QPointF &center,
             painter.restore();
         }
     }
+    // 没有可见要素时提示超出离线地图范围
     if (visibleFeatures.isEmpty()) {
         painter.setPen(QColor("#708478"));
         painter.drawText(QRectF(QPointF{}, size), Qt::AlignCenter,
@@ -159,6 +169,7 @@ void DemoMapBackdrop::prepare(const QSize &size, const QPointF &center,
     }
 }
 
+// paint 直接贴出已缓存的底图图像
 void DemoMapBackdrop::paint(QPainter &painter, const QSize &size, const QPointF &center,
                             double scale, qreal pixelRatio)
 {

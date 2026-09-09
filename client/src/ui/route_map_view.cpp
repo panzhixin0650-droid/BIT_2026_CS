@@ -18,6 +18,7 @@
 
 static void initializeMapResources() { Q_INIT_RESOURCE(map_resources); }
 
+// 地图视图：用WebEngine加载腾讯地图，绘制路线或充电站
 namespace charging::client {
 
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
@@ -43,6 +44,7 @@ QWebEngineProfile *mapProfile()
 }
 #endif
 
+// 构造：布局占位并设置加载与瓦片超时看门狗
 RouteMapView::RouteMapView(QWidget *parent) : QWidget(parent)
 {
     initializeMapResources();
@@ -65,6 +67,7 @@ RouteMapView::RouteMapView(QWidget *parent) : QWidget(parent)
     });
 }
 
+// 析构先递增代号并释放视图，防止回调访问已销毁成员
 RouteMapView::~RouteMapView()
 {
     ++generation_;
@@ -81,6 +84,7 @@ RouteMapView::~RouteMapView()
 #endif
 }
 
+// 预热：登录阶段提前加载SDK，失败不打扰用户
 void RouteMapView::preload(const QUrl &scriptUrl)
 {
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
@@ -111,6 +115,7 @@ void RouteMapView::prepareMap()
 #endif
 }
 
+// 设置路线：无WebEngine构建时直接提示不支持
 void RouteMapView::setRoute(const RouteResult &route)
 {
     stationMode_ = false;
@@ -150,6 +155,7 @@ void RouteMapView::setRoute(const RouteResult &route)
 #endif
 }
 
+// 重建WebEngine视图并注入内置地图页面与事件桥
 void RouteMapView::initialize(const QUrl &scriptUrl, bool reportFailure)
 {
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
@@ -245,6 +251,7 @@ void RouteMapView::initialize(const QUrl &scriptUrl, bool reportFailure)
 #endif
 }
 
+// 页面与通道都就绪后，用脚本探测SDK是否可用
 void RouteMapView::checkInitialization()
 {
 #ifdef CHARGING_CLIENT_HAS_WEBENGINE
@@ -294,6 +301,7 @@ void RouteMapView::checkInitialization()
 #endif
 }
 
+// 把路线JSON交给页面绘制，并按返回值区分失败原因
 void RouteMapView::applyRoute()
 {
     if (stationMode_) { applyStations(); return; }
@@ -333,6 +341,7 @@ void RouteMapView::applyRoute()
 #endif
 }
 
+// 清空路线并停止相关加载状态
 void RouteMapView::clearRoute()
 {
     ++generation_;
@@ -365,6 +374,7 @@ void RouteMapView::retry()
 #endif
 }
 
+// 统一失败处理：重置状态、释放视图，必要时报错
 void RouteMapView::fail(FailureReason reason, bool reportFailure,
                         const QString &detail)
 {
@@ -394,6 +404,7 @@ void RouteMapView::fail(FailureReason reason, bool reportFailure,
     emit statusChanged(failureMessage(reason, detail), true);
 }
 
+// 把失败原因翻译成面向用户的中文提示
 QString RouteMapView::failureMessage(FailureReason reason,
                                      const QString &detail) const
 {
@@ -451,6 +462,7 @@ QString RouteMapView::failureMessage(FailureReason reason,
     return message;
 }
 
+// 缺少脚本地址或内置页面时不提供重试
 bool RouteMapView::canRetry(FailureReason reason) const
 {
     return reason != FailureReason::MissingScriptUrl
@@ -471,6 +483,7 @@ void RouteMapView::zoomIn() { command(QStringLiteral("bitMap.zoom(1)")); }
 void RouteMapView::zoomOut() { command(QStringLiteral("bitMap.zoom(-1)")); }
 void RouteMapView::fitRoute() { command(QStringLiteral("bitMap.fit()")); }
 
+// 充电站模式：传入站点场景数据并渲染标记
 void RouteMapView::setStationScene(const QUrl &scriptUrl, const QJsonObject &scene)
 {
     stationMode_ = true;
@@ -511,6 +524,7 @@ void RouteMapView::applyStations()
 #endif
 }
 
+// 选中站点、移动中心与调整可视边距的地图指令
 void RouteMapView::selectStation(const QString &stationId)
 {
     stationScene_.insert(QStringLiteral("selected"), stationId);
@@ -535,6 +549,7 @@ void RouteMapView::setStationViewport(const QMargins &margins)
 
 void RouteMapView::fitStations() { command(QStringLiteral("bitMap.fitStations()")); }
 
+// 页面隐藏时冻结WebEngine以省资源，显示时恢复
 void RouteMapView::hideEvent(QHideEvent *event)
 {
     QWidget::hideEvent(event);

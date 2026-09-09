@@ -1,3 +1,4 @@
+// SQLite仓储：校验已有表结构并执行读写，不自动建表或迁移
 #include "repository.h"
 
 #include <QDateTime>
@@ -15,6 +16,7 @@ namespace {
 
 using namespace charging::protocol;
 
+// 按schema版本拼管理员查询，旧库用固定占位列
 QString adminSelectSql(bool accountsAvailable, const QString &whereClause = {})
 {
     if (!accountsAvailable) {
@@ -30,6 +32,7 @@ QString adminSelectSql(bool accountsAvailable, const QString &whereClause = {})
         + whereClause;
 }
 
+// 读取管理员行并校验角色与状态取值合法
 bool readAdmin(const QSqlQuery &query, AdminRecord *admin)
 {
     admin->adminId = query.value(0).toLongLong();
@@ -52,6 +55,7 @@ bool readAdmin(const QSqlQuery &query, AdminRecord *admin)
             || admin->status == QStringLiteral("DISABLED"));
 }
 
+// 以下几个函数把数据库字符串解析为枚举
 bool parseUserStatus(const QString &text, UserStatus *status)
 {
     if (text == QStringLiteral("ACTIVE")) {
@@ -154,6 +158,7 @@ bool parseOrderStatus(const QString &text, OrderStatus *status)
     return false;
 }
 
+// 把查询结果行读成用户DTO
 bool readUser(const QSqlQuery &query, UserDto *user)
 {
     user->userId = query.value(0).toLongLong();
@@ -164,6 +169,7 @@ bool readUser(const QSqlQuery &query, UserDto *user)
     return parseUserStatus(query.value(4).toString(), &user->status);
 }
 
+// 读站点行，含桩数量统计，距离与推荐字段置空
 bool readStation(const QSqlQuery &query, StationDto *station)
 {
     station->stationId = query.value(0).toLongLong();
@@ -200,6 +206,7 @@ std::optional<QString> optionalString(const QVariant &value)
                           : std::optional<QString>(value.toString());
 }
 
+// 读订单行，时间与单价可为空
 bool readOrder(const QSqlQuery &query, OrderDto *order)
 {
     order->orderId = query.value(0).toLongLong();
@@ -224,6 +231,7 @@ bool readOrder(const QSqlQuery &query, OrderDto *order)
         && parseOrderStatus(query.value(9).toString(), &order->status);
 }
 
+// 用户查询语句模板，条件由调用方拼接
 QString userSelectSql(const QString &whereClause = {})
 {
     return QStringLiteral(
@@ -232,6 +240,7 @@ QString userSelectSql(const QString &whereClause = {})
         + whereClause;
 }
 
+// 站点查询联表统计总桩数、可用桩数与在线率
 QString stationSelectSql(const QString &whereClause = {})
 {
     return QStringLiteral(
@@ -253,6 +262,7 @@ QString stationSelectSql(const QString &whereClause = {})
               "ORDER BY s.station_id");
 }
 
+// 桩查询按已完成订单聚合充电次数与总时长
 QString pileSelectSql(const QString &whereClause = {})
 {
     return QStringLiteral(
@@ -268,6 +278,7 @@ QString pileSelectSql(const QString &whereClause = {})
               "p.rated_power_kw, p.status ORDER BY p.pile_id");
 }
 
+// 订单查询联表取站点名与桩编号，按时间倒序
 QString orderSelectSql(const QString &whereClause = {})
 {
     return QStringLiteral(
@@ -282,6 +293,7 @@ QString orderSelectSql(const QString &whereClause = {})
         + QStringLiteral(" ORDER BY o.created_at DESC, o.order_id DESC");
 }
 
+// 绑定订单更新用的状态、时间与金额字段
 void bindOrderValues(QSqlQuery &query, const OrderDto &order)
 {
     const auto optionalText = [](const std::optional<QString> &value) {
@@ -310,6 +322,7 @@ Repository::~Repository()
     close();
 }
 
+// 打开数据库并逐项校验驱动、外键、版本与必需表
 bool Repository::open(const QString &databasePath, QString *error)
 {
     beginOperation();
@@ -351,6 +364,7 @@ bool Repository::open(const QString &databasePath, QString *error)
         return reject(database_.lastError().text());
     }
 
+    // 显式打开外键约束并回读确认生效
     QSqlQuery foreignKeys(database_);
     if (!foreignKeys.exec(QStringLiteral("PRAGMA foreign_keys = ON"))) {
         return reject(foreignKeys.lastError().text());
@@ -360,6 +374,7 @@ bool Repository::open(const QString &databasePath, QString *error)
         return reject(QStringLiteral("failed to enable foreign keys"));
     }
 
+    // 仅支持1到4版schema，其余直接拒绝启动
     QSqlQuery version(database_);
     if (!version.exec(QStringLiteral("PRAGMA user_version")) || !version.next()) {
         return reject(version.lastError().text());
@@ -382,6 +397,7 @@ bool Repository::open(const QString &databasePath, QString *error)
         return reject(QStringLiteral("required Demo tables are missing"));
     }
 
+    // 探测工单与报修列的存在，决定可选能力开关
     supportTicketsAvailable_ = false;
     if (schemaVersion >= 2) {
         QSqlQuery tickets(database_);
@@ -399,6 +415,7 @@ bool Repository::open(const QString &databasePath, QString *error)
             return reject(QStringLiteral("repair ticket schema is missing or invalid"));
         repairTicketsAvailable_ = true;
     }
+    // 校验管理员相关表结构，旧版布局不猜测也不自动迁移
     adminAccountsAvailable_ = false;
     QSqlQuery adminSchema(database_);
     if (!adminSchema.exec(adminSelectSql(schemaVersion >= 3, QStringLiteral("LIMIT 0"))))
@@ -425,6 +442,7 @@ bool Repository::open(const QString &databasePath, QString *error)
     return true;
 }
 
+// 关闭时清空能力标志、回滚事务并移除连接
 void Repository::close()
 {
     repairTicketsAvailable_ = false;
@@ -445,6 +463,7 @@ bool Repository::isOpen() const noexcept
     return database_.isValid() && database_.isOpen();
 }
 
+// 上一次操作是否成功，用来区分空结果与故障
 bool Repository::lastOperationSucceeded() const noexcept
 {
     return lastOperationSucceeded_;
@@ -455,6 +474,7 @@ void Repository::beginOperation() const noexcept
     lastOperationSucceeded_ = true;
 }
 
+// 记录失败标志并输出告警，不向上暴露SQL细节
 void Repository::failOperation(const QString &operation,
                                const QString &detail) const
 {
@@ -463,6 +483,7 @@ void Repository::failOperation(const QString &operation,
         << QStringLiteral("Repository %1 failed: %2").arg(operation, detail);
 }
 
+// 所有操作前检查数据库已打开
 bool Repository::requireOpen(const QString &operation) const
 {
     if (isOpen()) {
@@ -472,6 +493,7 @@ bool Repository::requireOpen(const QString &operation) const
     return false;
 }
 
+// 按用户名查管理员，并加载其站点授权列表
 std::optional<AdminRecord> Repository::findAdminByUsername(
     const QString &username) const
 {
@@ -517,6 +539,7 @@ std::optional<AdminRecord> Repository::findAdminByUsername(
     return admin;
 }
 
+// 按ID查管理员，同样附带授权站点
 std::optional<AdminRecord> Repository::findAdminById(qint64 adminId) const
 {
     beginOperation();
@@ -555,6 +578,7 @@ std::optional<AdminRecord> Repository::findAdminById(qint64 adminId) const
     return admin;
 }
 
+// 列出全部管理员，再一次性回填各自授权站点
 QList<AdminRecord> Repository::listAdmins() const
 {
     beginOperation();
@@ -594,6 +618,7 @@ QList<AdminRecord> Repository::listAdmins() const
     return result;
 }
 
+// 新增管理员，旧schema下拒绝该操作
 AdminRecord Repository::createAdmin(AdminRecord admin)
 {
     beginOperation();
@@ -630,6 +655,7 @@ AdminRecord Repository::createAdmin(AdminRecord admin)
     return admin;
 }
 
+// 更新管理员时带版本号比对，实现乐观并发控制
 bool Repository::updateAdmin(const AdminRecord &admin)
 {
     beginOperation();
@@ -668,6 +694,7 @@ bool Repository::updateAdmin(const AdminRecord &admin)
     return true;
 }
 
+// 先删后插，整体替换某管理员的站点授权
 bool Repository::replaceAdminStationScopes(qint64 adminId,
                                            const QList<qint64> &stationIds,
                                            qint64 grantedByAdminId,
@@ -712,6 +739,7 @@ bool Repository::replaceAdminStationScopes(qint64 adminId,
     return true;
 }
 
+// 追加一条管理员操作审计记录
 bool Repository::appendAdminAudit(qint64 actorAdminId,
                                   const QString &action,
                                   qint64 targetAdminId,
@@ -745,6 +773,7 @@ bool Repository::appendAdminAudit(qint64 actorAdminId,
     return true;
 }
 
+// 按手机号查询用户
 std::optional<UserDto> Repository::findUserByPhone(const QString &phone) const
 {
     beginOperation();
@@ -805,6 +834,7 @@ std::optional<UserDto> Repository::findUserById(qint64 userId) const
     return user;
 }
 
+// 插入新用户，余额0且状态为启用
 UserDto Repository::createUser(const QString &phone,
                                const QString &nickname,
                                const QString &createdAt)
@@ -839,6 +869,7 @@ UserDto Repository::createUser(const QString &phone,
     return UserDto{userId, phone, nickname, 0, UserStatus::Active, createdAt};
 }
 
+// 更新用户资料与余额
 bool Repository::updateUser(const UserDto &user)
 {
     beginOperation();
@@ -865,6 +896,7 @@ bool Repository::updateUser(const UserDto &user)
     return query.numRowsAffected() == 1;
 }
 
+// 给用户加余额，金额必须为正，返回更新后的用户
 std::optional<UserDto> Repository::addUserBalance(qint64 userId,
                                                   qint64 amountCents)
 {
@@ -878,6 +910,7 @@ std::optional<UserDto> Repository::addUserBalance(qint64 userId,
     }
 
     QSqlQuery query(database_);
+    // SQL 条件里排除加法溢出，避免余额越界
     if (!query.prepare(QStringLiteral(
             "UPDATE users SET balance_cents = balance_cents + :amount "
             "WHERE user_id = :user_id "
@@ -897,6 +930,7 @@ std::optional<UserDto> Repository::addUserBalance(qint64 userId,
     return findUserById(userId);
 }
 
+// 按用户ID顺序读取全部用户，读取失败返回空表
 QList<UserDto> Repository::listUsers() const
 {
     beginOperation();
@@ -922,6 +956,7 @@ QList<UserDto> Repository::listUsers() const
     return users;
 }
 
+// 只查询状态为 ACTIVE 的站点
 QList<StationDto> Repository::listActiveStations() const
 {
     beginOperation();
@@ -947,6 +982,7 @@ QList<StationDto> Repository::listActiveStations() const
     return stations;
 }
 
+// 读取全部站点，含已停用的
 QList<StationDto> Repository::listStations() const
 {
     beginOperation();
@@ -972,6 +1008,7 @@ QList<StationDto> Repository::listStations() const
     return stations;
 }
 
+// 按站点ID查单条记录，无结果返回空值
 std::optional<StationDto> Repository::findStationById(qint64 stationId) const
 {
     beginOperation();
@@ -1003,6 +1040,7 @@ std::optional<StationDto> Repository::findStationById(qint64 stationId) const
     return station;
 }
 
+// 在一个事务里插入站点及其电桩，任一步失败即回滚
 StationDto Repository::createStation(StationDto station,
                                      const QList<PileDto> &piles)
 {
@@ -1045,6 +1083,7 @@ StationDto Repository::createStation(StationDto station,
         return {};
     }
 
+    // 取数据库返回的自增站点ID，拿不到就回滚
     bool idOk = false;
     const qint64 stationId = stationInsert.lastInsertId().toLongLong(&idOk);
     if (!idOk || stationId <= 0) {
@@ -1062,6 +1101,7 @@ StationDto Repository::createStation(StationDto station,
         failOperation(operation, pileInsert.lastError().text());
         return {};
     }
+    // 逐个校验电桩编号与功率，非法数据整体回滚
     for (const PileDto &pile : piles) {
         if (pile.pileCode.trimmed().isEmpty() || pile.pileCode.size() > 64
             || !std::isfinite(pile.ratedPowerKw) || pile.ratedPowerKw <= 0.0
@@ -1087,6 +1127,7 @@ StationDto Repository::createStation(StationDto station,
         return {};
     }
 
+    // 提交后回填站点ID与桩数等展示字段
     station.stationId = stationId;
     station.status = StationStatus::Active;
     station.totalPileCount = piles.size();
@@ -1098,6 +1139,7 @@ StationDto Repository::createStation(StationDto station,
     return station;
 }
 
+// 更新站点前先校验名称、坐标、单价等取值范围
 bool Repository::updateStation(const StationDto &station)
 {
     beginOperation();
@@ -1137,6 +1179,7 @@ bool Repository::updateStation(const StationDto &station)
     return query.numRowsAffected() == 1;
 }
 
+// 删除站点：先查是否已有订单，有则拒绝删除
 DeleteStationResult Repository::deleteStation(qint64 stationId)
 {
     beginOperation();
@@ -1179,6 +1222,7 @@ DeleteStationResult Repository::deleteStation(qint64 stationId)
         return DeleteStationResult::HasOrders;
     }
 
+    // 先删该站的电桩，再删站点本身
     QSqlQuery pileDelete(database_);
     if (!pileDelete.prepare(QStringLiteral(
             "DELETE FROM charging_piles WHERE station_id = :station_id"))) {
@@ -1215,6 +1259,7 @@ DeleteStationResult Repository::deleteStation(qint64 stationId)
     return DeleteStationResult::Deleted;
 }
 
+// 按站点ID列出其下电桩
 QList<PileDto> Repository::listPilesByStationId(qint64 stationId) const
 {
     beginOperation();
@@ -1246,6 +1291,7 @@ QList<PileDto> Repository::listPilesByStationId(qint64 stationId) const
     return piles;
 }
 
+// 列出全部电桩
 QList<PileDto> Repository::listPiles() const
 {
     beginOperation();
@@ -1271,6 +1317,7 @@ QList<PileDto> Repository::listPiles() const
     return piles;
 }
 
+// 新建电桩，初始状态为空闲，统计值清零
 PileDto Repository::createPile(PileDto pile)
 {
     beginOperation();
@@ -1308,6 +1355,7 @@ PileDto Repository::createPile(PileDto pile)
     return pile;
 }
 
+// 仅空闲或离线且无历史订单的桩才允许删除
 DeletePileResult Repository::deletePile(qint64 pileId)
 {
     beginOperation();
@@ -1339,6 +1387,7 @@ DeletePileResult Repository::deletePile(qint64 pileId)
     return query.numRowsAffected() == 1 ? DeletePileResult::Deleted : DeletePileResult::NotFound;
 }
 
+// 更新电桩编号、类型、功率与状态
 bool Repository::updatePile(const PileDto &pile)
 {
     beginOperation();
@@ -1366,6 +1415,7 @@ bool Repository::updatePile(const PileDto &pile)
     return query.numRowsAffected() == 1;
 }
 
+// 开启订单事务，使用 BEGIN IMMEDIATE 且不允许嵌套
 bool Repository::beginTransaction()
 {
     beginOperation();
@@ -1384,6 +1434,7 @@ bool Repository::beginTransaction()
     return true;
 }
 
+// 提交事务并清除事务标记
 bool Repository::commitTransaction()
 {
     beginOperation();
@@ -1397,6 +1448,7 @@ bool Repository::commitTransaction()
     return true;
 }
 
+// 回滚事务；没有事务时直接返回
 void Repository::rollbackTransaction()
 {
     if (!transactionOpen_) return;
@@ -1408,6 +1460,7 @@ void Repository::rollbackTransaction()
     transactionOpen_ = false;
 }
 
+// 列出订单，可按用户ID过滤
 QList<OrderDto> Repository::listOrders(std::optional<qint64> userId) const
 {
     beginOperation();
@@ -1439,6 +1492,7 @@ QList<OrderDto> Repository::listOrders(std::optional<qint64> userId) const
     return orders;
 }
 
+// 按订单ID查询单条订单
 std::optional<OrderDto> Repository::findOrderById(qint64 orderId) const
 {
     beginOperation();
@@ -1463,6 +1517,7 @@ std::optional<OrderDto> Repository::findOrderById(qint64 orderId) const
     return order;
 }
 
+// 创建订单，必须在已开启的事务中执行
 OrderDto Repository::createOrder(OrderDto order)
 {
     beginOperation();
@@ -1494,6 +1549,7 @@ OrderDto Repository::createOrder(OrderDto order)
     return saved.value_or(OrderDto{});
 }
 
+// 按期望状态更新订单，状态不符则不生效
 bool Repository::updateOrder(const OrderDto &order, OrderStatus expectedStatus)
 {
     beginOperation();
@@ -1519,6 +1575,7 @@ bool Repository::updateOrder(const OrderDto &order, OrderStatus expectedStatus)
 }
 
 namespace {
+// 拼接工单查询语句，旧库无报修列时用占位值
 QString ticketSelect(bool repairs)
 {
     return QStringLiteral("SELECT ticket_id, user_id, submission_id, title, summary, "
@@ -1527,6 +1584,7 @@ QString ticketSelect(bool repairs)
         + QStringLiteral("FROM support_tickets ");
 }
 
+// 把查询行拼成 JSON 再转成工单 DTO
 bool readTicket(const QSqlQuery &query, SupportTicketDto *ticket)
 {
     QJsonObject json{{"ticketId", query.value(0).toLongLong()},
@@ -1543,11 +1601,13 @@ bool readTicket(const QSqlQuery &query, SupportTicketDto *ticket)
 }
 }
 
+// 工单功能是否可用取决于连接与迁移结果
 bool Repository::supportsSupportTickets() const
 {
     return isOpen() && supportTicketsAvailable_;
 }
 
+// 按工单ID查询工单
 std::optional<SupportTicketDto> Repository::findSupportTicket(qint64 ticketId) const
 {
     beginOperation();
@@ -1568,6 +1628,7 @@ std::optional<SupportTicketDto> Repository::findSupportTicket(qint64 ticketId) c
     return ticket;
 }
 
+// 按用户与提交ID查已存在工单，用于重复提交判断
 std::optional<SupportTicketDto> Repository::findSupportSubmission(
     qint64 userId, const QString &submissionId) const
 {
@@ -1590,6 +1651,7 @@ std::optional<SupportTicketDto> Repository::findSupportSubmission(
     return ticket;
 }
 
+// 按ID倒序分页列出工单，limit 会被限制上界
 QList<SupportTicketDto> Repository::listSupportTickets(
     std::optional<qint64> userId, std::optional<qint64> beforeId, int limit) const
 {
@@ -1620,6 +1682,7 @@ QList<SupportTicketDto> Repository::listSupportTickets(
     return tickets;
 }
 
+// 新建工单，带桩号的报修需要数据库已完成迁移
 SupportTicketDto Repository::createSupportTicket(SupportTicketDto ticket)
 {
     beginOperation();
@@ -1656,6 +1719,7 @@ SupportTicketDto Repository::createSupportTicket(SupportTicketDto ticket)
     return ticket;
 }
 
+// 更新工单状态、回复与更新时间
 bool Repository::updateSupportTicket(const SupportTicketDto &ticket)
 {
     beginOperation();

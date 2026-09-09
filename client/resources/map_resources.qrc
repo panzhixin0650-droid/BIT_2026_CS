@@ -1,3 +1,4 @@
+<!-- 把地图页面、沈阳离线底图和版权说明打包进程序 -->
 <RCC>
   <qresource prefix="/map">
     <file alias="map.html">map/map.html</file>

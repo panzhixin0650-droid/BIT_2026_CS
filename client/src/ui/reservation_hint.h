@@ -8,9 +8,11 @@
 namespace charging::client {
 
 // Display only: cancellation and its deadline check belong to the API producer.
+// 生成预约提示文案：仅展示用，取消与超时判定由服务端负责
 inline QString reservationHint(const protocol::OrderDto &order)
 {
     if (order.status != protocol::OrderStatus::Reserved) return {};
+    // 预约时间转北京时间并加上30分钟保留时长
     const auto reserved = order.reservedAt
         ? QDateTime::fromString(*order.reservedAt, Qt::ISODate) : QDateTime{};
     if (!reserved.isValid()) return QStringLiteral("预约保留 30 分钟，超时自动取消");

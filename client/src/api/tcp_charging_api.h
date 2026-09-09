@@ -1,5 +1,6 @@
 #pragma once
 
+// 本文件声明基于 TCP 的充电接口客户端实现
 #include "api/i_charging_api.h"
 
 #include "charging/protocol/frame_codec.h"
@@ -18,6 +19,7 @@ struct ResponseEnvelope;
 
 namespace charging::client {
 
+// TcpChargingApi 用长连接和帧协议实现 IChargingApi
 class TcpChargingApi final : public IChargingApi {
     Q_OBJECT
 
@@ -28,6 +30,7 @@ public:
                             QObject *parent = nullptr);
     ~TcpChargingApi() override;
 
+    // 各接口只返回请求编号，真正结果由信号异步送回
     [[nodiscard]] QString loginUser(const QString &phone) override;
     [[nodiscard]] QString logout() override;
     [[nodiscard]] QString getProfile() override;
@@ -50,6 +53,7 @@ public:
     [[nodiscard]] QString getSupportTicket(qint64 ticketId) override;
 
 private:
+    // PendingRequest 记录待响应请求的类型、原始帧与超时定时器
     struct PendingRequest {
         QString type;
         QByteArray frame;
@@ -58,6 +62,7 @@ private:
     };
 
     [[nodiscard]] QString nextRequestId();
+    // submit 组装请求帧，requiresToken 决定是否附带登录令牌
     [[nodiscard]] QString submit(const char *type,
                                  const QJsonObject &data,
                                  bool requiresToken);
@@ -80,8 +85,10 @@ private:
     quint16 port_ = 45678;
     int requestTimeoutMs_ = 5000;
     QTcpSocket socket_;
+    // decoder_ 从字节流中切分出完整帧
     protocol::FrameDecoder decoder_;
     QHash<QString, PendingRequest> pending_;
+    // sendQueue_ 暂存尚未连接时待发送的请求
     QStringList sendQueue_;
     QString token_;
     quint64 requestSequence_ = 0;

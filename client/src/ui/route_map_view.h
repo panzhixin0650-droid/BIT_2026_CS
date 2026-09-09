@@ -12,6 +12,7 @@ class QWebEngineView;
 namespace charging::client {
 
 // Only map events are exposed to JavaScript; no page or business API methods.
+// 转发网页地图的就绪、选站和交互事件，不提供业务接口
 class MapEventBridge final : public QObject {
     Q_OBJECT
 public:
@@ -28,6 +29,7 @@ signals:
     void interacted();
 };
 
+// 地图视图声明：兼顾路线绘制与充电站场景
 class RouteMapView final : public QWidget {
     Q_OBJECT
 public:
@@ -37,6 +39,7 @@ public:
     [[nodiscard]] bool isReady() const { return initialized_; }
     [[nodiscard]] bool isBaseMapReady() const { return baseMapReady_; }
     [[nodiscard]] bool isLoading() const { return initializing_; }
+    // 预热SDK、绘制路线并提供缩放与自适应操作
     void preload(const QUrl &scriptUrl);
     void prepareMap();
     void setRoute(const RouteResult &route);
@@ -51,6 +54,7 @@ public:
     void setStationViewport(const QMargins &margins);
     void fitStations();
 
+// 对外状态信号：加载、就绪、错误与站点选中
 signals:
     void preloadReady();
     void baseMapReadyChanged(bool ready);
@@ -66,6 +70,7 @@ protected:
     void showEvent(QShowEvent *event) override;
 
 private:
+    // 失败原因枚举，用于生成对应中文提示
     enum class FailureReason {
         MissingScriptUrl,
         EmbeddedPageUnavailable,
@@ -91,6 +96,7 @@ private:
     [[nodiscard]] bool canRetry(FailureReason reason) const;
     void command(const QString &script);
 
+    // 缓存视图、脚本地址与场景数据及各阶段就绪标志
     QWebEngineView *view_ = nullptr;
     QTimer timeout_;
     QTimer tileTimeout_;

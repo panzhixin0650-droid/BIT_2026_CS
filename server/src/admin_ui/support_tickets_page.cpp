@@ -1,3 +1,4 @@
+// 管理台工单页面：分页浏览用户工单并保存处理结果与回复
 #include "admin_ui/support_tickets_page.h"
 #include "admin_ui/admin_facade.h"
 #include "charging/protocol/protocol_constants.h"
@@ -16,6 +17,7 @@
 namespace charging::server {
 using namespace charging::protocol;
 
+// 构造页面布局：左侧工单列表，右侧详情与处理回复区
 SupportTicketsPage::SupportTicketsPage(AdminFacade *facade, QWidget *parent)
     : QWidget(parent), facade_(facade)
 {
@@ -45,6 +47,7 @@ SupportTicketsPage::SupportTicketsPage(AdminFacade *facade, QWidget *parent)
     list_->setMouseTracking(true);
     list_->setSpacing(2);
     inboxLayout->addWidget(list_, 1);
+    // 加载更多按钮按游标继续取下一页工单
     more_ = new QPushButton(QStringLiteral("加载更多"), inbox);
     more_->setObjectName(QStringLiteral("adminTicketMore"));
     inboxLayout->addWidget(more_);
@@ -64,6 +67,7 @@ SupportTicketsPage::SupportTicketsPage(AdminFacade *facade, QWidget *parent)
     locatePile_->setObjectName(QStringLiteral("adminTicketLocatePile"));
     detailHeader->addWidget(locatePile_);
     descriptionLayout->addLayout(detailHeader);
+    // 报修工单可一键跳到充电桩管理定位该桩
     connect(locatePile_, &QPushButton::clicked, this, [this] {
         const int row = list_->currentRow();
         if (row >= 0 && row < tickets_.size() && !tickets_[row].pileCode.isEmpty())
@@ -84,6 +88,7 @@ SupportTicketsPage::SupportTicketsPage(AdminFacade *facade, QWidget *parent)
     auto *handlingTitle = new QLabel(QStringLiteral("处理与回复"), handling);
     handlingTitle->setProperty("role", "sectionTitle");
     handlingHeader->addWidget(handlingTitle, 1);
+    // 处理状态下拉：待处理、处理中、已解决
     auto *statusLabel = new QLabel(QStringLiteral("处理状态"), handling);
     handlingHeader->addWidget(statusLabel);
     status_ = new AdminComboBox(handling);
@@ -127,6 +132,7 @@ SupportTicketsPage::SupportTicketsPage(AdminFacade *facade, QWidget *parent)
     clear();
 }
 
+// 清空列表与编辑区，禁用操作按钮回到初始态
 void SupportTicketsPage::clear()
 {
     tickets_.clear(); list_->clear(); summary_->clear(); reply_->clear();
@@ -137,11 +143,13 @@ void SupportTicketsPage::clear()
     count_->setText(QStringLiteral("全部工单")); notice_->clear();
 }
 
+// 拉取工单列表；more 为真时以最后一条ID继续分页
 void SupportTicketsPage::refresh(bool more)
 {
     if (more && (!hasMore_ || tickets_.isEmpty())) return;
     const auto result = facade_->listSupportTickets(more
         ? std::optional<qint64>(tickets_.last().ticketId) : std::nullopt);
+    // 读取失败时区分未启用工单功能与登录/服务异常提示
     if (!result.ok()) {
         clear();
         notice_->setText(result.message == QStringLiteral("SUPPORT_TICKETS_MIGRATION_REQUIRED")
@@ -176,6 +184,7 @@ qint64 SupportTicketsPage::selectedTicketId() const
     return row >= 0 && row < tickets_.size() ? tickets_[row].ticketId : 0;
 }
 
+// 刷新后尝试重新选中原工单，必要时继续翻页查找
 void SupportTicketsPage::restoreTicketSelection(qint64 ticketId)
 {
     refresh(); // Recheck authorization and current data before restoring a historical selection.
@@ -196,6 +205,7 @@ void SupportTicketsPage::restoreTicketSelection(qint64 ticketId)
     }
 }
 
+// 切换选中工单时填充详情、状态与既有回复
 void SupportTicketsPage::selectTicket()
 {
     const int row = list_->currentRow();
@@ -218,6 +228,7 @@ void SupportTicketsPage::selectTicket()
     reply_->setPlainText(ticket.reply);
 }
 
+// 提交处理结果，成功后用服务端返回的工单刷新本地显示
 void SupportTicketsPage::save()
 {
     const int row = list_->currentRow();

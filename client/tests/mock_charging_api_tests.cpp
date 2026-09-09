@@ -1,3 +1,4 @@
+// 本文件测试MockChargingApi：登录、站点、预约、充电到结算的全流程
 #include "api/mock_charging_api.h"
 
 #include "charging/protocol/protocol_constants.h"
@@ -10,6 +11,7 @@
 
 using namespace charging;
 
+// 测试类：每个槽函数对应一个Mock接口场景
 class MockChargingApiTests : public QObject {
     Q_OBJECT
 
@@ -37,6 +39,7 @@ private slots:
     void peakAutomaticStopKeepsSnapshot();
 };
 
+// 注册各结果类型，QSignalSpy才能用QVariant取出
 void MockChargingApiTests::initTestCase()
 {
     qRegisterMetaType<client::LoginResult>();
@@ -53,6 +56,7 @@ void MockChargingApiTests::initTestCase()
     qRegisterMetaType<client::PaymentResult>();
 }
 
+// 内置演示用户可直接登录，返回昵称与余额
 void MockChargingApiTests::existingFixtureUserCanLogin()
 {
     client::MockChargingApi api;
@@ -72,6 +76,7 @@ void MockChargingApiTests::existingFixtureUserCanLogin()
     QVERIFY(!result.payload->token.isEmpty());
 }
 
+// 陌生手机号首次登录自动注册，再次登录视为老用户
 void MockChargingApiTests::unknownPhoneIsAutomaticallyRegisteredOnce()
 {
     client::MockChargingApi api;
@@ -97,6 +102,7 @@ void MockChargingApiTests::unknownPhoneIsAutomaticallyRegisteredOnce()
     QCOMPARE(secondResult.payload->user.userId, firstResult.payload->user.userId);
 }
 
+// 手机号格式非法返回InvalidRequest且无载荷
 void MockChargingApiTests::invalidPhoneCompletesWithInvalidRequest()
 {
     client::MockChargingApi api;
@@ -111,6 +117,7 @@ void MockChargingApiTests::invalidPhoneCompletesWithInvalidRequest()
     QVERIFY(!result.payload.has_value());
 }
 
+// 资料接口依赖会话，未登录或登出后均失败
 void MockChargingApiTests::profileRequiresAndUsesAdapterSession()
 {
     client::MockChargingApi api;
@@ -150,6 +157,7 @@ void MockChargingApiTests::profileRequiresAndUsesAdapterSession()
     QCOMPARE(profileResult.response.code, protocol::ErrorCode::InvalidSession);
 }
 
+// 充值需会话且金额有效，余额由服务端口径返回
 void MockChargingApiTests::rechargeRequiresSessionAndReturnsAuthoritativeBalance()
 {
     client::MockChargingApi api;
@@ -192,6 +200,7 @@ void MockChargingApiTests::rechargeRequiresSessionAndReturnsAuthoritativeBalance
     QCOMPARE(profileResult.payload->user.balanceCents, 21000);
 }
 
+// 站点列表需会话，并按坐标、区域、关键词过滤
 void MockChargingApiTests::stationListRequiresSessionAndAppliesQuery()
 {
     client::MockChargingApi api;
@@ -224,6 +233,7 @@ void MockChargingApiTests::stationListRequiresSessionAndAppliesQuery()
     QVERIFY(result.payload->items.first().distanceKm.has_value());
     QVERIFY(result.payload->items.first().recommended);
 
+    // 不带坐标查询时结果没有距离字段
     client::StationQuery queryWithoutLocation;
     (void)api.listStations(queryWithoutLocation);
     QTRY_COMPARE(stationSpy.count(), 1);
@@ -248,6 +258,7 @@ void MockChargingApiTests::stationListRequiresSessionAndAppliesQuery()
     QVERIFY(result.ok());
     QVERIFY(result.payload->items.isEmpty());
 
+    // 只给经度缺纬度属于非法请求
     query.keyword.clear();
     query.latitude.reset();
     (void)api.listStations(query);
@@ -256,6 +267,7 @@ void MockChargingApiTests::stationListRequiresSessionAndAppliesQuery()
     QCOMPARE(result.response.code, protocol::ErrorCode::InvalidRequest);
 }
 
+// 站点详情返回充电桩列表，未知站点返回NotFound
 void MockChargingApiTests::stationDetailReturnsPilesAndNotFound()
 {
     client::MockChargingApi api;
@@ -286,6 +298,7 @@ void MockChargingApiTests::stationDetailReturnsPilesAndNotFound()
     QVERIFY(!result.payload.has_value());
 }
 
+// 订单列表需会话，按时间倒序返回
 void MockChargingApiTests::orderListRequiresSessionAndReturnsNewestFirst()
 {
     client::MockChargingApi api;
@@ -316,6 +329,7 @@ void MockChargingApiTests::orderListRequiresSessionAndReturnsNewestFirst()
     QVERIFY(listResult.payload->items.first().status
             == protocol::OrderStatus::Completed);
 
+    // 新建预约后该单排在列表首位
     (void)api.reserve(QStringLiteral("PILE-A-01"));
     QTRY_COMPARE(reserveSpy.count(), 1);
     const auto reserveResult =
@@ -331,6 +345,7 @@ void MockChargingApiTests::orderListRequiresSessionAndReturnsNewestFirst()
     QVERIFY(listResult.payload->items.first().status
             == protocol::OrderStatus::Reserved);
 
+    // 取消后首位订单状态变为已取消
     (void)api.cancel(reservedOrderId);
     QTRY_COMPARE(cancelSpy.count(), 1);
     (void)api.listOrders();
@@ -341,6 +356,7 @@ void MockChargingApiTests::orderListRequiresSessionAndReturnsNewestFirst()
             == protocol::OrderStatus::Cancelled);
 }
 
+// 预约生成当前订单并占用对应充电桩
 void MockChargingApiTests::reservationCreatesCurrentOrderAndUpdatesPile()
 {
     client::MockChargingApi api;
@@ -361,6 +377,7 @@ void MockChargingApiTests::reservationCreatesCurrentOrderAndUpdatesPile()
     QVERIFY(currentResult.payload.has_value());
     QVERIFY(!currentResult.payload->order.has_value());
 
+    // 使用中的桩预约失败，返回桩不可用
     (void)api.reserve(QStringLiteral("PILE-A-02"));
     QTRY_COMPARE(reserveSpy.count(), 1);
     auto reserveResult =
@@ -368,6 +385,7 @@ void MockChargingApiTests::reservationCreatesCurrentOrderAndUpdatesPile()
     QCOMPARE(reserveResult.response.code, protocol::ErrorCode::PileNotAvailable);
     QVERIFY(!reserveResult.payload.has_value());
 
+    // 预约成功但不锁定单价，只记录预约时间
     const QString reserveRequestId = api.reserve(QStringLiteral("PILE-A-01"));
     QTRY_COMPARE(reserveSpy.count(), 1);
     reserveResult = qvariant_cast<client::OrderResult>(reserveSpy.takeFirst().at(0));
@@ -389,6 +407,7 @@ void MockChargingApiTests::reservationCreatesCurrentOrderAndUpdatesPile()
     QVERIFY(currentResult.payload->order.has_value());
     QCOMPARE(currentResult.payload->order->orderId, reservedOrder.orderId);
 
+    // 预约后站点可用桩数归零，桩状态变已预约
     (void)api.getStation(1);
     QTRY_COMPARE(detailSpy.count(), 1);
     const auto detailResult =
@@ -398,12 +417,14 @@ void MockChargingApiTests::reservationCreatesCurrentOrderAndUpdatesPile()
     QVERIFY(detailResult.payload->piles.first().status
             == protocol::PileStatus::Reserved);
 
+    // 已存在当前订单时再预约返回CurrentOrderExists
     (void)api.reserve(QStringLiteral("PILE-B-02"));
     QTRY_COMPARE(reserveSpy.count(), 1);
     reserveResult = qvariant_cast<client::OrderResult>(reserveSpy.takeFirst().at(0));
     QCOMPARE(reserveResult.response.code, protocol::ErrorCode::CurrentOrderExists);
 }
 
+// 验证直接开始充电与凭预约开始两条路径
 void MockChargingApiTests::chargingStartsDirectlyOrFromMatchingReservation()
 {
     client::MockChargingApi directApi(nullptr, [] {
@@ -421,6 +442,7 @@ void MockChargingApiTests::chargingStartsDirectlyOrFromMatchingReservation()
 
     (void)directApi.loginUser(QStringLiteral("13800000001"));
     QTRY_COMPARE(directLoginSpy.count(), 1);
+    // 开始充电时按当前时段锁定单价135分
     const QString directRequestId =
         directApi.startCharging(QStringLiteral("PILE-A-01"));
     QTRY_COMPARE(directStartSpy.count(), 1);
@@ -439,6 +461,7 @@ void MockChargingApiTests::chargingStartsDirectlyOrFromMatchingReservation()
     QVERIFY(directDetail.payload->piles.first().status
             == protocol::PileStatus::Charging);
 
+    // 充电中再开别的桩返回已有当前订单
     (void)directApi.startCharging(QStringLiteral("PILE-B-02"));
     QTRY_COMPARE(directStartSpy.count(), 1);
     startResult = qvariant_cast<client::OrderResult>(directStartSpy.takeFirst().at(0));
@@ -458,6 +481,7 @@ void MockChargingApiTests::chargingStartsDirectlyOrFromMatchingReservation()
         qvariant_cast<client::OrderResult>(reserveSpy.takeFirst().at(0));
     const qint64 reservationOrderId = reserveResult.payload->order.orderId;
 
+    // 预约单与桩号不匹配时返回非法订单状态
     (void)reservationApi.startCharging(QStringLiteral("PILE-B-02"),
                                        reservationOrderId);
     QTRY_COMPARE(reservationStartSpy.count(), 1);
@@ -476,6 +500,7 @@ void MockChargingApiTests::chargingStartsDirectlyOrFromMatchingReservation()
     QVERIFY(startResult.payload->order.status == protocol::OrderStatus::Charging);
 }
 
+// 进度与结束结算均以服务端返回为准
 void MockChargingApiTests::chargingProgressAndStopUseAuthoritativeSettlement()
 {
     client::MockChargingApi api;
@@ -494,6 +519,7 @@ void MockChargingApiTests::chargingProgressAndStopUseAuthoritativeSettlement()
         qvariant_cast<client::OrderResult>(startSpy.takeFirst().at(0));
     const qint64 orderId = startResult.payload->order.orderId;
 
+    // 每次查询进度按Demo节奏累加时长与电量
     (void)api.getChargingProgress(orderId);
     QTRY_COMPARE(progressSpy.count(), 1);
     auto progressResult = qvariant_cast<client::ChargingProgressResult>(
@@ -511,6 +537,7 @@ void MockChargingApiTests::chargingProgressAndStopUseAuthoritativeSettlement()
     QCOMPARE(progressResult.payload->order.durationSeconds, 120);
     QVERIFY(progressResult.payload->order.energyWh >= firstEnergyWh);
 
+    // 余额充足时结束即完成扣款并标记已完成
     (void)api.stopCharging(orderId);
     QTRY_COMPARE(stopSpy.count(), 1);
     auto stopResult = qvariant_cast<client::ChargingStopResult>(
@@ -537,12 +564,14 @@ void MockChargingApiTests::chargingProgressAndStopUseAuthoritativeSettlement()
     QVERIFY(detailResult.payload->piles.first().status
             == protocol::PileStatus::Idle);
 
+    // 重复结束同一订单返回非法订单状态
     (void)api.stopCharging(orderId);
     QTRY_COMPARE(stopSpy.count(), 1);
     stopResult = qvariant_cast<client::ChargingStopResult>(
         stopSpy.takeFirst().at(0));
     QCOMPARE(stopResult.response.code, protocol::ErrorCode::IllegalOrderState);
 
+    // 零余额用户结束后转待支付并给出欠款差额
     client::MockChargingApi insufficientApi;
     QSignalSpy insufficientLoginSpy(&insufficientApi,
                                     &client::IChargingApi::loginCompleted);
@@ -574,6 +603,7 @@ void MockChargingApiTests::chargingProgressAndStopUseAuthoritativeSettlement()
              std::optional<qint64>{insufficientStop.payload->order.amountCents});
 }
 
+// 待支付订单需先充值才能支付成功
 void MockChargingApiTests::pendingPaymentCanBePaidOnlyAfterRecharge()
 {
     client::MockChargingApi api;
@@ -598,12 +628,14 @@ void MockChargingApiTests::pendingPaymentCanBePaidOnlyAfterRecharge()
         stopSpy.takeFirst().at(0));
     QVERIFY(stop.payload->order.status == protocol::OrderStatus::PendingPayment);
 
+    // 余额不足时支付返回余额不足错误
     (void)api.payOrder(orderId);
     QTRY_COMPARE(paySpy.count(), 1);
     auto payment = qvariant_cast<client::PaymentResult>(paySpy.takeFirst().at(0));
     QCOMPARE(payment.response.code, protocol::ErrorCode::InsufficientBalance);
     QVERIFY(!payment.payload.has_value());
 
+    // 充值刚好够后支付成功，余额清零
     (void)api.recharge(stop.payload->order.amountCents);
     QTRY_COMPARE(rechargeSpy.count(), 1);
     (void)api.payOrder(orderId);
@@ -615,12 +647,14 @@ void MockChargingApiTests::pendingPaymentCanBePaidOnlyAfterRecharge()
     QVERIFY(payment.payload->order.status == protocol::OrderStatus::Completed);
     QVERIFY(payment.payload->order.paidAt.has_value());
 
+    // 已完成订单重复支付返回非法订单状态
     (void)api.payOrder(orderId);
     QTRY_COMPARE(paySpy.count(), 1);
     payment = qvariant_cast<client::PaymentResult>(paySpy.takeFirst().at(0));
     QCOMPARE(payment.response.code, protocol::ErrorCode::IllegalOrderState);
 }
 
+// 取消预约释放桩位，并拒绝重复取消
 void MockChargingApiTests::cancellationReleasesPileAndRejectsIllegalState()
 {
     client::MockChargingApi api;
@@ -667,6 +701,7 @@ void MockChargingApiTests::cancellationReleasesPileAndRejectsIllegalState()
     QCOMPARE(cancelResult.response.code, protocol::ErrorCode::IllegalOrderState);
 }
 
+// 从fixture读取高峰计价用例的时间与期望单价
 void MockChargingApiTests::peakQuotesAndStart_data()
 {
     QTest::addColumn<QDateTime>("now");
@@ -684,6 +719,7 @@ void MockChargingApiTests::peakQuotesAndStart_data()
     }
 }
 
+// 验证高峰/平时报价与开始充电锁价一致
 void MockChargingApiTests::peakQuotesAndStart()
 {
     QFETCH(QDateTime, now);
@@ -707,6 +743,7 @@ void MockChargingApiTests::peakQuotesAndStart()
             QCOMPARE(order.amountCents, (order.energyWh * *order.unitPriceCentsPerKwh + 500) / 1000);
         }
     }
+    // 列表、详情报价一致，开始充电按该价锁定
     (void)api.listStations({});
     QTRY_COMPARE(list.count(), 1);
     const auto result = qvariant_cast<client::StationListResult>(list.first().first());
@@ -733,6 +770,7 @@ void MockChargingApiTests::peakQuotesAndStart()
     }
 }
 
+// 预约不锁价，开始充电时才取当时时段单价
 void MockChargingApiTests::peakReservationAndSettlementKeepSnapshot()
 {
     // Reservation must now be used within 30 minutes; retain the peak-to-normal
@@ -761,6 +799,7 @@ void MockChargingApiTests::peakReservationAndSettlementKeepSnapshot()
     QVERIFY(started.ok() && started.payload);
     QCOMPARE(started.payload->order.orderId, id);
     QCOMPARE(started.payload->order.unitPriceCentsPerKwh.value(), qint64{162});
+    // 时间跨入平时段，计费仍用开始时的单价快照
     now = now.addSecs(120); // now off-peak, 240 Wh at 7.2 kW
     (void)api.getChargingProgress(id);
     QTRY_COMPARE(progress.count(), 1);
@@ -773,6 +812,7 @@ void MockChargingApiTests::peakReservationAndSettlementKeepSnapshot()
     QVERIFY(stopped.ok() && stopped.payload);
     QVERIFY(stopped.payload->order.status == protocol::OrderStatus::PendingPayment);
     QCOMPARE(stopped.payload->shortfallCents.value(), qint64{39});
+    // 先因余额不足失败，充值后按快照单价结清
     (void)api.payOrder(id);
     QTRY_COMPARE(pay.count(), 1);
     QCOMPARE(qvariant_cast<client::PaymentResult>(pay.takeFirst().first()).response.code,
@@ -793,6 +833,7 @@ void MockChargingApiTests::peakReservationAndSettlementKeepSnapshot()
              protocol::ErrorCode::IllegalOrderState);
 }
 
+// 到期自动结束的订单同样保留开始时单价
 void MockChargingApiTests::peakAutomaticStopKeepsSnapshot()
 {
     auto now = QDateTime::fromString(QStringLiteral("2026-09-08T12:59:00Z"), Qt::ISODate);
@@ -805,6 +846,7 @@ void MockChargingApiTests::peakAutomaticStopKeepsSnapshot()
     (void)api.startCharging("PILE-A-01");
     QTRY_COMPARE(start.count(), 1);
     const auto order = qvariant_cast<client::OrderResult>(start.first().first()).payload->order;
+    // 推进Mock时钟并等待自动结束定时器触发
     now = now.addSecs(200);
     QTest::qWait(1100); // allow the existing automatic-stop timer to fire
     (void)api.listOrders();
@@ -823,6 +865,7 @@ void MockChargingApiTests::peakAutomaticStopKeepsSnapshot()
     QVERIFY(found);
 }
 
+// 预约超时用例数据来自fixture，同时校验时长常量
 void MockChargingApiTests::reservationDeadline_data()
 {
     QTest::addColumn<QDateTime>("reservedAt");
@@ -843,12 +886,14 @@ void MockChargingApiTests::reservationDeadline_data()
     }
 }
 
+// 逐条判断给定时刻的预约是否已过期
 void MockChargingApiTests::reservationDeadline()
 {
     QFETCH(QDateTime, reservedAt);
     QFETCH(QDateTime, now);
     QFETCH(bool, expired);
     auto clock = reservedAt;
+    // 注入可控时钟，便于模拟预约过期与未过期两种时间
     client::MockChargingApi api(nullptr, [&clock] { return clock; });
     QSignalSpy login(&api, &client::IChargingApi::loginCompleted);
     QSignalSpy reserve(&api, &client::IChargingApi::reservationCompleted);
@@ -863,9 +908,11 @@ void MockChargingApiTests::reservationDeadline()
     const auto reserved = qvariant_cast<client::OrderResult>(reserve.takeFirst().first());
     QVERIFY(reserved.ok() && reserved.payload);
     const auto id = reserved.payload->order.orderId;
+    // 把时钟推到 now，决定预约是否已超过 30 分钟
     clock = now;
     (void)api.startCharging("PILE-A-01", id); QTRY_COMPARE(start.count(), 1);
     const auto started = qvariant_cast<client::OrderResult>(start.takeFirst().first());
+    // 预约过期后开始充电应被拒为非法订单状态
     QCOMPARE(started.response.code, expired ? protocol::ErrorCode::IllegalOrderState : protocol::ErrorCode::Ok);
     (void)api.getCurrentOrder(); QTRY_COMPARE(current.count(), 1);
     const auto active = qvariant_cast<client::CurrentOrderResult>(current.first().first());
@@ -881,17 +928,20 @@ void MockChargingApiTests::reservationDeadline()
     const auto station = qvariant_cast<client::StationDetailResult>(detail.first().first());
     QVERIFY(station.ok() && station.payload);
     QCOMPARE(station.payload->station.availablePileCount, expired ? 1 : 0);
+    // 未过期分支：订单进入充电并记录开始时间
     if (!expired) {
         QCOMPARE(order.orderId, id);
         QCOMPARE(order.startedAt.value(), now.toString(Qt::ISODate));
         return;
     }
+    // 过期分支：订单被取消，金额电量时长均为零
     QVERIFY(!order.startedAt && !order.endedAt && !order.paidAt && !order.unitPriceCentsPerKwh);
     QCOMPARE(order.amountCents, qint64{0});
     QCOMPARE(order.energyWh, qint64{0});
     QCOMPARE(order.durationSeconds, qint64{0});
     (void)api.getProfile(); QTRY_COMPARE(profile.count(), 1);
     QCOMPARE(qvariant_cast<client::UserResult>(profile.first().first()).payload->user.balanceCents, qint64{0});
+    // 已取消的订单不能再次取消，也不能再开始充电
     (void)api.cancel(id); QTRY_COMPARE(cancel.count(), 1);
     QCOMPARE(qvariant_cast<client::OrderResult>(cancel.first().first()).response.code, protocol::ErrorCode::IllegalOrderState);
     (void)api.reserve("PILE-A-01"); QTRY_COMPARE(reserve.count(), 1);
@@ -906,6 +956,7 @@ void MockChargingApiTests::reservationDeadline()
              next.payload->order.orderId);
 }
 
+// 验证登出后维护定时器仍会把超时预约标记为取消
 void MockChargingApiTests::reservationTimerWorksAfterLogout()
 {
     auto now = QDateTime::fromString(QStringLiteral("2026-09-08T01:00:00Z"), Qt::ISODate);
@@ -920,10 +971,12 @@ void MockChargingApiTests::reservationTimerWorksAfterLogout()
     QVERIFY(qvariant_cast<client::OrderResult>(reserve.first().first()).ok());
     (void)api.logout(); QTRY_COMPARE(logout.count(), 1);
     QVERIFY(qvariant_cast<client::LogoutResult>(logout.first().first()).ok());
+    // 推进注入时钟到预约时长，等待一次后台维护
     now = now.addSecs(protocol::DemoReservationDurationSeconds);
     QTest::qWait(1200); // Allow one maintenance tick, without authenticated API calls.
     // Roll the injected clock back so a later query cannot itself cause expiry:
     // the stored cancellation must have occurred in the logged-out timer tick.
+    // 把时钟回拨，确保取消由登出期间的定时器完成
     now = reservedAt.addSecs(60);
     login.clear(); (void)api.loginUser("13900000888"); QTRY_COMPARE(login.count(), 1);
     (void)api.listOrders(); QTRY_COMPARE(history.count(), 1);
@@ -933,6 +986,7 @@ void MockChargingApiTests::reservationTimerWorksAfterLogout()
     QCOMPARE(result.payload->items.first().amountCents, qint64{0});
 }
 
+// 以无界面方式运行整个测试类
 QTEST_GUILESS_MAIN(MockChargingApiTests)
 
 #include "mock_charging_api_tests.moc"

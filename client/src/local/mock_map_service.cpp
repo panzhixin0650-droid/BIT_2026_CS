@@ -1,3 +1,4 @@
+// 离线 Mock 地图服务：返回演示用的定位与文字路线，不访问网络
 #include "local/mock_map_service.h"
 
 #include <QTimer>
@@ -8,6 +9,7 @@ namespace charging::client {
 
 namespace {
 
+// 判断经纬度是否为有限值且在合法范围内
 bool validCoordinate(const MapLocation &location)
 {
     return std::isfinite(location.longitude) && std::isfinite(location.latitude)
@@ -15,6 +17,7 @@ bool validCoordinate(const MapLocation &location)
         && location.latitude >= -90.0 && location.latitude <= 90.0;
 }
 
+// Mock 只识别几个演示地址关键字，其余返回空
 std::optional<MapLocation> locationForAddress(const QString &address)
 {
     if (address.contains(QStringLiteral("和平"))) {
@@ -31,6 +34,7 @@ std::optional<MapLocation> locationForAddress(const QString &address)
 
 }  // namespace
 
+// 地址解析：先生成请求编号，再用 singleShot 异步回报结果
 QString MockMapService::geocode(const QString &address)
 {
     const QString requestId = nextRequestId();
@@ -38,6 +42,7 @@ QString MockMapService::geocode(const QString &address)
     QTimer::singleShot(0, this, [this, requestId, normalizedAddress]() {
         GeocodeResult result;
         result.requestId = requestId;
+        // 依次处理空地址、指定失败关键字与未知地址
         if (normalizedAddress.isEmpty()) {
             result.message = QStringLiteral("请输入要定位的地址");
         } else if (normalizedAddress.contains(QStringLiteral("无法解析"))
@@ -57,6 +62,7 @@ QString MockMapService::geocode(const QString &address)
     return requestId;
 }
 
+// 路线规划：校验起终点和出行方式后拼出提示文本
 QString MockMapService::openRoute(const MapLocation &start,
                                   const MapLocation &end,
                                   RouteMode mode)
@@ -90,6 +96,7 @@ QString MockMapService::openRoute(const MapLocation &start,
     return requestId;
 }
 
+// 请求编号自增，便于界面匹配对应回调
 QString MockMapService::nextRequestId()
 {
     return QStringLiteral("map-mock-%1").arg(nextRequestNumber_++);

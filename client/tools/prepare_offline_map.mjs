@@ -1,10 +1,12 @@
 // Developer-only, explicit refresh. Never run by CMake or the client at startup.
 // Usage: node client/tools/prepare_offline_map.mjs input-overpass.json output.json
 // Fetch input with the bounded query below, or pass --download as the first argument.
+// 本脚本供开发者手动生成客户端离线地图数据文件
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 
+// 数据源接口与抓取范围包围盒（南西北东）
 const endpoint = 'https://overpass-api.de/api/interpreter';
 const bbox = [41.66, 123.31, 41.84, 123.53]; // south, west, north, east; WGS84
 const query = `[out:json][timeout:45][bbox:${bbox.join(',')}];(way[highway][highway!~"^(footway|path|steps|cycleway|construction|proposed|track)$"];way[railway=rail];way[waterway=river];way[natural=water];relation[natural=water];way[leisure~"^(park|garden|golf_course|pitch)$"];relation[leisure=park];way[landuse~"^(residential|commercial|retail|industrial|forest|grass)$"];);out geom;`;
@@ -12,6 +14,7 @@ const query = `[out:json][timeout:45][bbox:${bbox.join(',')}];(way[highway][high
 // WGS84 -> GCJ-02 display alignment, adapted from wandergis/coordtransform
 // (MIT, Copyright (c) 2015 记忆的残骸). Full notice: ../resources/map/NOTICE.md.
 // Only the offline background is converted; API/DTO coordinates are untouched.
+// WGS84 转 GCJ-02，仅用于离线底图显示对齐
 function displayCoordinate({lon: lng, lat}) {
   const pi = Math.PI, x = lng - 105, y = lat - 35;
   const common = (20 * Math.sin(6 * x * pi) + 20 * Math.sin(2 * x * pi)) * 2 / 3;
@@ -29,6 +32,7 @@ function displayCoordinate({lon: lng, lat}) {
 
 // Join multipolygon way members by their actual shared end nodes. Never close
 // incomplete ways across a river, and preserve inner rings (islands/holes).
+// 按实际共享端点拼接多边形环，保留内环空洞
 function rings(members) {
   const remaining = members.filter(m => m.type === 'way' && m.geometry?.length > 1)
     .map(m => m.geometry.slice());
@@ -48,6 +52,7 @@ function rings(members) {
   return result;
 }
 
+// 根据 OSM 标签判定要素类别，无法识别则忽略
 function kind(tags) {
   if (tags.natural === 'water') return 'water';
   if (tags.waterway === 'river') return 'river';
@@ -62,6 +67,7 @@ function kind(tags) {
 
 // Display-only Douglas-Peucker simplification (~4 m). Retain the actual road
 // shape without thousands of sub-pixel survey vertices in the offline canvas.
+// 抽稀顶点，只为显示减少数据量
 function simplify(points) {
   if (points.length <= 2) return points;
   const first = points[0], last = points.at(-1), dx = last[0]-first[0], dy = last[1]-first[1];
@@ -75,6 +81,7 @@ function simplify(points) {
   return index < 0 ? [first,last] : [...simplify(points.slice(0,index+1)).slice(0,-1), ...simplify(points.slice(index))];
 }
 
+// 读取或下载数据，并校验响应是否完整可用
 const [input, output] = process.argv.slice(2);
 if (!input || !output) throw new Error('Expected input-overpass.json (or --download) and output.json');
 const raw = input === '--download' ? execFileSync('curl', ['--fail','--silent','--show-error',
@@ -102,6 +109,7 @@ for (const element of data.elements) {
 }
 if (features.length < 1000 || !features.some(f => f.kind === 'water'))
   throw new Error('Extract lacks roads/water; existing asset is unchanged');
+// 写出元数据：来源、许可、时间戳与校验和
 const metadata = {version: 1, source: 'OpenStreetMap contributors', license: 'ODbL-1.0',
   attributionUrl: 'https://www.openstreetmap.org/copyright', endpoint, query, bbox,
   sourceTimestamp: data.osm3s.timestamp_osm_base,
