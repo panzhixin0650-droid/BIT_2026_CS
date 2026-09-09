@@ -12,7 +12,10 @@ class LoginPage final : public QWidget {
     Q_OBJECT
 
 public:
-    explicit LoginPage(QWidget *parent = nullptr);
+    enum class LayoutMode { Mobile, Vehicle };
+
+    explicit LoginPage(QWidget *parent = nullptr,
+                       LayoutMode layoutMode = LayoutMode::Mobile);
 
     [[nodiscard]] QString phone() const;
     void showDemoVerificationCode(const QString &code);

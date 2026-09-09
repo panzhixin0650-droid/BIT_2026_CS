@@ -82,11 +82,15 @@ add_library(charging_client_common STATIC
     src/ui/api_error_message.h
     src/ui/avatar_art.cpp
     src/ui/avatar_art.h
+    src/ui/avatar_picker_dialog.cpp
+    src/ui/avatar_picker_dialog.h
     src/ui/client_theme.cpp
     src/ui/client_theme.h
     src/common/client_tokens.cpp
     src/common/client_tokens.h
     src/common/charging_session_state.h
+    src/common/charging_progress_ring.cpp
+    src/common/charging_progress_ring.h
     src/ui/pricing_hint.h
     src/ui/reservation_hint.h
     src/ui/pricing_info_button.cpp
@@ -129,8 +133,6 @@ endif()
 
 add_library(charging_client_mobile_ui STATIC
     resources/album_resources.qrc
-    src/ui/avatar_picker_dialog.cpp
-    src/ui/avatar_picker_dialog.h
     src/ui/charging_controller.cpp
     src/ui/charging_controller.h
     src/ui/charging_page.cpp

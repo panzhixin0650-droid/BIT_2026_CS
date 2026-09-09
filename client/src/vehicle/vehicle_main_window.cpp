@@ -5,6 +5,8 @@
 #include "local/avatar_storage.h"
 #include "local/i_map_service.h"
 #include "ui/api_error_message.h"
+#include "ui/avatar_art.h"
+#include "ui/avatar_picker_dialog.h"
 #include "ui/client_theme.h"
 #include "ui/login_controller.h"
 #include "ui/login_page.h"
@@ -50,6 +52,7 @@ VehicleMainWindow::VehicleMainWindow(IChargingApi &api, IMapService &mapService,
     setMinimumSize(1024, 600);
     setStyleSheet(clientThemeStyleSheet() + QStringLiteral(R"QSS(
         QMainWindow#vehicleMainWindow QPushButton { min-height:48px; }
+        QMainWindow#vehicleMainWindow QPushButton#loginButton { min-height:56px; max-height:56px; }
         QTabWidget#vehicleNavigation::pane { border: none; }
         QTabWidget#vehicleNavigation QTabBar::tab {
             min-width: 190px; min-height: 58px; padding: 0 28px;
@@ -58,7 +61,15 @@ VehicleMainWindow::VehicleMainWindow(IChargingApi &api, IMapService &mapService,
         QTabWidget#vehicleNavigation QTabBar::tab:selected { color:white; background:#245c45; }
         #vehicleHomeSidePanel { background:#fffefa; border:1px solid #dce5d7; border-radius:18px; }
         #vehicleHomeSidePanel QPushButton[role="stationCard"] { text-align:left; padding:8px 12px; }
-        #vehicleChargingProgress { min-height:56px; text-align:center; font-size:17px; font-weight:700; }
+        #vehicleRefreshButton { padding:0; border:none; background:transparent; font-size:30px; }
+        #vehicleExitRouteFullscreen { background:#245c45; color:white; border:1px solid #245c45;
+                                      border-radius:11px; margin:0; }
+        #vehicleExitRouteFullscreen:hover { background:#163f31; }
+        #vehicleRouteDetailsButton { background:white; margin:0; }
+        #vehicleRouteDetails { background:#fffefa; border:1px solid #dce5d7;
+                               border-radius:10px; padding:8px; color:#36523f; }
+        #vehicleRoutePanelDetails { background:#f3f6ef; border:1px solid #dce5d7;
+                                    border-radius:12px; padding:10px; color:#36523f; }
     )QSS"));
 
     auto *shell = new QWidget(this);
@@ -66,6 +77,7 @@ VehicleMainWindow::VehicleMainWindow(IChargingApi &api, IMapService &mapService,
     shellLayout->setContentsMargins(0, 0, 0, 0);
     shellLayout->setSpacing(0);
     auto *header = new QFrame(shell);
+    header_ = header;
     header->setObjectName(QStringLiteral("vehicleHeader"));
     header->setFixedHeight(70);
     auto *headerLayout = new QHBoxLayout(header);
@@ -73,12 +85,15 @@ VehicleMainWindow::VehicleMainWindow(IChargingApi &api, IMapService &mapService,
     auto *brand = new QLabel(QStringLiteral("ϟ  悦充车载端"), header);
     auto font = brand->font(); font.setPointSize(20); font.setBold(true); brand->setFont(font);
     headerLayout->addWidget(brand);
-    auto *notice = new QLabel(QStringLiteral("请停车后操作 · 演示位置，不代表车辆 GPS"), header);
+    auto *notice = new QLabel(QStringLiteral("请停车后操作，安全驾驶，文明出行"), header);
+    notice->setObjectName(QStringLiteral("vehicleSafetyNotice"));
     notice->setStyleSheet(QStringLiteral("color:#65796c"));
     headerLayout->addWidget(notice, 1, Qt::AlignCenter);
-    refresh_ = new QPushButton(QStringLiteral("刷新"), header);
+    refresh_ = new QPushButton(QStringLiteral("↻"), header);
     refresh_->setObjectName(QStringLiteral("vehicleRefreshButton"));
-    refresh_->setMinimumSize(72, 48);
+    refresh_->setFixedSize(48, 48);
+    refresh_->setAccessibleName(QStringLiteral("刷新当前页面数据"));
+    refresh_->setToolTip(refresh_->accessibleName());
     account_ = new QPushButton(QStringLiteral("未登录"), header);
     account_->setObjectName(QStringLiteral("vehicleAccountButton"));
     account_->setMinimumSize(150, 48);
@@ -87,7 +102,7 @@ VehicleMainWindow::VehicleMainWindow(IChargingApi &api, IMapService &mapService,
 
     applicationPages_ = new QStackedWidget(shell);
     applicationPages_->setObjectName(QStringLiteral("vehicleApplicationPages"));
-    loginPage_ = new LoginPage(applicationPages_);
+    loginPage_ = new LoginPage(applicationPages_, LoginPage::LayoutMode::Vehicle);
     navigation_ = new QTabWidget(applicationPages_);
     navigation_->setObjectName(QStringLiteral("vehicleNavigation"));
     navigation_->setTabPosition(QTabWidget::South);
@@ -127,11 +142,15 @@ VehicleMainWindow::VehicleMainWindow(IChargingApi &api, IMapService &mapService,
         else if (navigation_->currentWidget() == charging_) refreshCharging();
         else { profile_->showOverview(); refreshProfile(); }
     });
+    connect(home_, &VehicleHomePage::routeFullscreenChanged, this, [this](bool fullscreen) {
+        header_->setVisible(!fullscreen);
+        navigation_->tabBar()->setVisible(!fullscreen);
+    });
     connect(chargingTimer_, &QTimer::timeout, this, [this] {
         if (!authenticated_ || !currentOrder_
             || currentOrder_->status != protocol::OrderStatus::Charging
-            || !progressRequest_.isEmpty()) return;
-        progressRequest_ = api_.getChargingProgress(currentOrder_->orderId);
+            || !currentRequest_.isEmpty()) return;
+        refreshCharging();
     });
     connect(qApp, &QGuiApplication::applicationStateChanged, this,
             [this](Qt::ApplicationState state) {
@@ -151,10 +170,10 @@ VehicleMainWindow::VehicleMainWindow(IChargingApi &api, IMapService &mapService,
         home_->showMessage(QStringLiteral("正在预约…"));
     });
     connect(home_, &VehicleHomePage::chargeRequested, this,
-            [this](const QString &pileCode, double power) {
+            [this](const QString &pileCode, double power, const protocol::StationDto &station) {
         candidatePile_ = pileCode; candidatePowerKw_ = power;
         ratedPowerByPile_.insert(pileCode, power);
-        charging_->prepare(pileCode, power);
+        charging_->prepare(pileCode, power, station);
         navigation_->setCurrentWidget(charging_);
     });
     connect(home_, &VehicleHomePage::locationRequested, this, [this](const QString &address) {
@@ -206,6 +225,23 @@ VehicleMainWindow::VehicleMainWindow(IChargingApi &api, IMapService &mapService,
             [this] { openDesk(true, false); });
     connect(profile_, &VehicleProfilePage::ticketsRequested, this,
             [this] { openDesk(false, true); });
+    connect(profile_, &VehicleProfilePage::avatarChangeRequested, this, [this] {
+        if (!authenticated_) return;
+        const QString currentPath = avatarStorage_->avatarPath(user_.phone);
+        QImage current = currentPath.isEmpty() ? defaultAvatar() : QImage(currentPath);
+        if (current.isNull()) current = defaultAvatar();
+        AvatarPickerDialog picker(current, this);
+        picker.resize(760, 520);
+        if (picker.exec() != QDialog::Accepted) return;
+        QString savedPath;
+        QString error;
+        if (!avatarStorage_->saveImage(user_.phone, picker.selectedImage(), &savedPath, &error)) {
+            profile_->showMessage(error, true);
+            return;
+        }
+        profile_->setUser(user_, savedPath);
+        profile_->showMessage(QStringLiteral("头像已保存在本车载端，不会同步到手机端"));
+    });
     connect(profile_, &VehicleProfilePage::nicknameRequested, this, [this](const QString &nickname) {
         if (!actionRequest_.isEmpty()) return;
         actionRequest_ = api_.updateNickname(nickname);
@@ -241,7 +277,7 @@ VehicleMainWindow::VehicleMainWindow(IChargingApi &api, IMapService &mapService,
         if (detailPurpose_ == DetailPurpose::SelectedStation) home_->showStationDetail(*result.payload);
         else if (currentOrder_) {
             candidatePowerKw_ = ratedPowerByPile_.value(currentOrder_->pileCode, 0.0);
-            charging_->prepare(currentOrder_->pileCode, candidatePowerKw_);
+            charging_->prepare(currentOrder_->pileCode, candidatePowerKw_, result.payload->station);
             charging_->showOrder(*currentOrder_);
         }
         detailPurpose_ = DetailPurpose::None;
@@ -277,6 +313,23 @@ VehicleMainWindow::VehicleMainWindow(IChargingApi &api, IMapService &mapService,
         if (!result.ok() || !result.payload) { charging_->setBusy(false); charging_->showMessage(failure(result.response, QStringLiteral("当前订单刷新失败")), true); currentPurpose_ = CurrentPurpose::None; return; }
         const auto purpose = currentPurpose_; currentPurpose_ = CurrentPurpose::None;
         if (purpose == CurrentPurpose::StartCheck) {
+            if (currentOrder_ && currentOrder_->status == protocol::OrderStatus::Reserved
+                && result.payload->order
+                && result.payload->order->orderId != currentOrder_->orderId) {
+                currentOrder_ = *result.payload->order;
+                charging_->showOrder(*currentOrder_);
+                charging_->setBusy(false);
+                charging_->showMessage(QStringLiteral("当前订单已变化，请重新确认"), true);
+                return;
+            }
+            if (!result.payload->order && currentOrder_
+                && currentOrder_->status == protocol::OrderStatus::Reserved) {
+                charging_->setBusy(false);
+                charging_->showMessage(QStringLiteral(
+                    "预约已失效，正在刷新订单，请重新选桩"), true);
+                finalHistoryRequest_ = api_.listOrders();
+                return;
+            }
             const auto decision = session::startDecision(result.payload->order, candidatePile_);
             if (decision == session::StartDecision::Direct) {
                 actionRequest_ = api_.startCharging(candidatePile_); return;
@@ -298,7 +351,9 @@ VehicleMainWindow::VehicleMainWindow(IChargingApi &api, IMapService &mapService,
             currentOrder_ = *result.payload->order;
             candidatePile_ = currentOrder_->pileCode;
             candidatePowerKw_ = ratedPowerByPile_.value(candidatePile_, candidatePowerKw_);
-            charging_->prepare(candidatePile_, candidatePowerKw_); charging_->showOrder(*currentOrder_);
+            if (charging_->pileCode() != candidatePile_)
+                charging_->prepare(candidatePile_, candidatePowerKw_);
+            charging_->showOrder(*currentOrder_);
             if (currentOrder_->status == protocol::OrderStatus::Charging) chargingTimer_->start();
             else chargingTimer_->stop();
             if (candidatePowerKw_ <= 0 && stationDetailRequest_.isEmpty()) {
@@ -311,14 +366,6 @@ VehicleMainWindow::VehicleMainWindow(IChargingApi &api, IMapService &mapService,
             else charging_->showNoOrder();
         }
         charging_->setBusy(false);
-    });
-    connect(&api_, &IChargingApi::chargingProgressCompleted, this, [this](const ChargingProgressResult &result) {
-        if (!matches(result.response, progressRequest_, OrderProgress)) return;
-        progressRequest_.clear();
-        if (handleInvalidSession(result.response.code)) return;
-        if (result.response.code == protocol::ErrorCode::IllegalOrderState) { refreshCharging(); return; }
-        if (!result.ok() || !result.payload) { charging_->showMessage(failure(result.response, QStringLiteral("进度刷新失败")), true); return; }
-        currentOrder_ = result.payload->order; charging_->showOrder(*currentOrder_);
     });
     connect(&api_, &IChargingApi::reservationCompleted, this, [this](const OrderResult &result) {
         if (!matches(result.response, actionRequest_, OrderReserve)) return;
@@ -534,15 +581,13 @@ void VehicleMainWindow::updateHeader()
 {
     refresh_->setEnabled(authenticated_);
     if (!authenticated_) { account_->setText(QStringLiteral("未登录")); return; }
-    const QString phone = user_.phone.size() >= 7
-        ? user_.phone.left(3) + QStringLiteral("****") + user_.phone.right(4) : user_.phone;
-    account_->setText(user_.nickname.left(8) + QStringLiteral("  ") + phone);
+    account_->setText(user_.nickname.left(12));
 }
 
 void VehicleMainWindow::clearPending()
 {
     stationListRequest_.clear(); stationDetailRequest_.clear(); historyRequest_.clear();
-    currentRequest_.clear(); progressRequest_.clear(); actionRequest_.clear(); profileRequest_.clear();
+    currentRequest_.clear(); actionRequest_.clear(); profileRequest_.clear();
     ordersRequest_.clear(); finalHistoryRequest_.clear(); geocodeRequest_.clear(); routeRequest_.clear();
     currentPurpose_ = CurrentPurpose::None; detailPurpose_ = DetailPurpose::None;
     geocodePurpose_ = GeocodePurpose::None;

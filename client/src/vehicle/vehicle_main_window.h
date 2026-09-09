@@ -11,6 +11,7 @@
 #include <optional>
 
 class QPushButton;
+class QFrame;
 class QStackedWidget;
 class QTabWidget;
 class QTimer;
@@ -69,6 +70,7 @@ private:
     SupportDeskPage *desk_ = nullptr;
     AssistantService *assistant_ = nullptr;
     QPushButton *refresh_ = nullptr;
+    QFrame *header_ = nullptr;
     QPushButton *account_ = nullptr;
     QTimer *chargingTimer_ = nullptr;
     std::unique_ptr<AvatarStorage> avatarStorage_;
@@ -86,7 +88,6 @@ private:
     QString stationDetailRequest_;
     QString historyRequest_;
     QString currentRequest_;
-    QString progressRequest_;
     QString actionRequest_;
     QString profileRequest_;
     QString ordersRequest_;

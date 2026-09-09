@@ -28,7 +28,8 @@ inline bool shouldPoll(const std::optional<protocol::OrderDto> &order)
 inline bool needsFinalHistory(const std::optional<protocol::OrderDto> &previous)
 {
     return previous && (previous->status == protocol::OrderStatus::Charging
-                        || previous->status == protocol::OrderStatus::PendingPayment);
+                        || previous->status == protocol::OrderStatus::PendingPayment
+                        || previous->status == protocol::OrderStatus::Reserved);
 }
 
 inline int demoProgressPercent(qint64 durationSeconds)

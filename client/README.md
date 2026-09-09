@@ -24,22 +24,82 @@ charging_client_common
 └── charging_client_vehicle_ui -> vehicle-client
 ```
 
-构建和运行：
+### 使用命令行打开车载端
+
+从仓库根目录配置客户端。车载端使用腾讯地图时必须启用 WebEngine；下面的配置可以同时
+构建手机端和车载端，但 `vehicle-client` 不会因此链接扫码、摄像头或 ZBar：
 
 ```bash
 cmake -S client -B build/client -G Ninja \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCHARGING_CLIENT_ENABLE_WEBENGINE=ON
 cmake --build build/client --target user-client vehicle-client
+```
 
+离线演示直接启动业务 Mock 和地图 Mock：
+
+```bash
 ./build/client/vehicle-client --api mock --map mock
+```
+
+连接本机 TCP 服务端、同时使用腾讯地图：
+
+```bash
+export TENCENT_MAP_KEY='你的本地腾讯地图Key'
 ./build/client/vehicle-client \
   --api tcp --host 127.0.0.1 --port 45678 --map tencent
 ```
 
-Tencent 模式仍从 `TENCENT_MAP_KEY` 读取 Key；缺 Key 明确退出，不回退 Mock。头像使用
-`VehicleChargingClient` 自己的应用数据目录和设置，只代表本机头像，不宣称与手机端同步。
+`--api` 与 `--map` 相互独立，也可以组合为 `--api tcp ... --map mock` 或
+`--api mock --map tencent`。TCP 模式需要先按[服务端说明](../server/README.md)启动
+`server-app`；不传参数等同于 `--api mock --map mock`。登录使用 11 位手机号和演示验证码
+`123456`。
+
+### 使用 Qt Creator 打开车载端
+
+1. 在 Qt Creator 选择 `File → Open File or Project`，打开仓库中的
+   `client/CMakeLists.txt`，选择项目使用的 Desktop Qt 6.2.4 Kit。
+2. 在 `Projects → Build → CMake` 的配置项中加入
+   `CHARGING_CLIENT_ENABLE_WEBENGINE:BOOL=ON`，然后重新运行 CMake；只使用 Mock 地图时
+   可以保持该选项关闭。
+3. 在运行配置中选择 CMake 自动生成的 `vehicle-client` 可执行目标，不要选择手机端的
+   `user-client`。构建目标同样选择 `vehicle-client`，再点击运行。
+4. 离线演示时，在 `Projects → Run → Command line arguments` 填写
+   `--api mock --map mock`（或留空）。TCP 联调填写
+   `--api tcp --host 127.0.0.1 --port 45678 --map mock`。
+5. 腾讯地图联调时，在 `Projects → Run → Run Environment` 新增环境变量
+   `TENCENT_MAP_KEY`，值只填写 Key 本身；运行参数使用 `--api mock --map tencent`，或在
+   服务端已启动时使用 `--api tcp --host 127.0.0.1 --port 45678 --map tencent`。
+
+如果 Qt Creator 中看到“离线 Mock 路线”，先确认当前 Run configuration 确实是
+`vehicle-client`，并检查 Command line arguments 中是否明确写了 `--map tencent`。
+
+Tencent 模式仍从 `TENCENT_MAP_KEY` 读取 Key；缺 Key 明确退出，不回退 Mock。手机端
+`user-client` 与车载端 `vehicle-client` 的头像分别保存在各自客户端的本地应用数据目录，
+不会上传服务端，也不会跨端同步：在手机端更换头像不会改变车载端头像，反之亦然。这一
+规则只适用于头像；昵称、手机号、余额、订单和工单在 TCP 模式下仍从同一服务端刷新。
 双端状态一致性必须在 TCP 模式下通过同一服务端验证；两个 Mock 进程不会共享内存状态。
+
+车载端联调腾讯底图和驾车路线时，必须同时满足“构建启用 WebEngine、运行参数选择
+Tencent、Key 开通 JavaScript API GL 与 WebService 路线能力”三个条件：
+
+```bash
+cmake -S client -B build/client -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug -DCHARGING_CLIENT_ENABLE_WEBENGINE=ON
+cmake --build build/client --target vehicle-client
+export TENCENT_MAP_KEY='你的本地腾讯地图Key'
+./build/client/vehicle-client --api mock --map tencent
+```
+
+`--api mock` 只表示充电业务使用 Mock，不会让地图路线变成 Mock；地图适配器完全由
+`--map` 决定。如果路线面板明确显示“离线 Mock 路线”，说明实际进程仍以 `--map mock`
+启动，常见原因是 Qt Creator 的 Run arguments 没有更新。腾讯路线请求失败时会显示网络、
+Key 权限或配额错误，不会退回一条成功的 Mock 路线。路线成功后车载端自动隐藏顶栏、底栏
+和右侧面板，以横屏全幅显示地图，并保留“退出全屏”按钮。这里的“驾车路线”仍是路线规划
+和交互查看，不包含持续 GPS、语音播报、偏航检测或自动重算。
+
+车载端可以在“我的 → 修改个人信息”中选择基础头像或本地图片。V1 契约没有头像上传
+字段，因此它只修改当前车载端保存的头像；手机端也只修改手机端自己的本地头像。
 
 车载专项测试：
 
