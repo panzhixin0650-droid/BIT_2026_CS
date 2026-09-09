@@ -209,7 +209,7 @@ void SupportDeskTests::repairNeedsExplicitConfirmation()
     AssistantService summary(assistant_test::config().forSupportDesk(), nullptr, &summaryNetwork, AssistantPurpose::TicketSummary);
     SupportDeskPage dialog(api, desk, summary);
     dialog.openDesk({{QStringLiteral("结算后提示异常"), QStringLiteral("请核实订单")}});
-    QVERIFY(child<QLabel>(dialog, "deskDisclosure")->isVisible());
+    QVERIFY(!dialog.findChild<QLabel *>(QStringLiteral("deskDisclosure")));
     QVERIFY(child<QTextBrowser>(dialog, "deskChat")->toPlainText().contains(QStringLiteral("工号 008")));
     QVERIFY(deskNetwork.requests.isEmpty());
     // 纯咨询模式下不显示工单生成与摘要控件
@@ -347,8 +347,8 @@ void SupportDeskTests::floatingEntryAndSmallLayout()
     child<QPushButton>(dialog, "deskSend")->click();
     QTRY_VERIFY(!desk.isBusy());
     QVERIFY(child<QTextBrowser>(dialog, "deskChat")->toPlainText().contains("<script>"));
-    for (const auto *control : QList<QWidget *>{child<QLabel>(dialog, "deskDisclosure"),
-             child<QPushButton>(dialog, "deskSend"), child<QPushButton>(dialog, "ticketGenerate")}) {
+    for (const auto *control : QList<QWidget *>{child<QPushButton>(dialog, "deskSend"),
+             child<QPushButton>(dialog, "ticketGenerate")}) {
         QVERIFY(dialog.rect().contains(QRect(control->mapTo(&dialog, QPoint()), control->size())));
     }
     screenshot(dialog, "support-desk-small");

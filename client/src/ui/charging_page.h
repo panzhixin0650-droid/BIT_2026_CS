@@ -6,7 +6,7 @@
 class QLabel;
 class QPushButton;
 namespace charging::client {
-class ChargingRing;
+class ChargingProgressRing;
 class PricingInfoButton;
 class ChargingPage final : public QWidget {
     Q_OBJECT
@@ -44,7 +44,7 @@ private:
     bool quoteLoading_ = false;
     bool busy_ = false;
     // 页面内各标签与按钮控件
-    ChargingRing *ring_;
+    ChargingProgressRing *ring_;
     QLabel *state_, *station_, *message_, *power_, *energy_, *duration_, *amount_, *price_;
     QLabel *reservationHint_;
     PricingInfoButton *pricingInfo_;

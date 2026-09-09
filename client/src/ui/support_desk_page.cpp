@@ -48,7 +48,6 @@ SupportDeskPage::SupportDeskPage(IChargingApi &api, AssistantService &desk,
         QWidget#supportDeskPage { background: #f6f7f2; }
         QLabel { background: transparent; color: #304d42; }
         QLabel#deskHeading { font-size: 21px; font-weight: 700; }
-        QLabel#deskDisclosure { color: #597668; font-size: 12px; }
         QTextBrowser, QPlainTextEdit, QLineEdit, QListWidget { background: white;
             color: #203d33; border: 1px solid #dce5d8; border-radius: 10px; padding: 9px; }
         QPushButton { background: #e8eee2; color: #31543f; border: none;
@@ -76,7 +75,6 @@ SupportDeskPage::SupportDeskPage(IChargingApi &api, AssistantService &desk,
     auto *backShortcut = new QShortcut(QKeySequence(Qt::Key_Escape), this);
     backShortcut->setContext(Qt::WidgetWithChildrenShortcut);
     connect(backShortcut, &QShortcut::activated, this, &SupportDeskPage::backRequested);
-    root->addWidget(label(QStringLiteral("课程演示 · AI 模拟坐席  |  客服小悦 · 工号 008"), this, "deskDisclosure"));
     notice_ = label(QStringLiteral("仅发送你输入的内容和最近 4 轮对话；请勿提供密码、验证码或支付凭证。"), this, "deskNotice");
     root->addWidget(notice_);
     auto *waiting = new QHBoxLayout;
@@ -536,7 +534,6 @@ void SupportDeskPage::updateControls()
     repairFields_->setVisible(repairDraft_);
     findChild<QLabel *>(QStringLiteral("deskHeading"))->setText(section_ == Section::Repair
         ? QStringLiteral("故障报修") : section_ == Section::Tickets ? QStringLiteral("我的工单") : QStringLiteral("客服对话"));
-    findChild<QLabel *>(QStringLiteral("deskDisclosure"))->setVisible(section_ == Section::Conversation);
     notice_->setVisible(section_ != Section::Repair);
     tabs_->setTabText(1, repairDraft_ ? QStringLiteral("报修单") : QStringLiteral("工单草稿"));
     findChild<QLabel *>(QStringLiteral("ticketPrivacy"))->setText(repairDraft_

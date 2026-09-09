@@ -14,7 +14,10 @@ class LoginPage final : public QWidget {
     Q_OBJECT
 
 public:
-    explicit LoginPage(QWidget *parent = nullptr);
+    enum class LayoutMode { Mobile, Vehicle };
+
+    explicit LoginPage(QWidget *parent = nullptr,
+                       LayoutMode layoutMode = LayoutMode::Mobile);
 
     // 提供取号、演示码提示、加载与错误状态设置
     [[nodiscard]] QString phone() const;

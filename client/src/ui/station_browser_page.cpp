@@ -934,7 +934,7 @@ void StationBrowserPage::updateDirectChargingButtons()
 void StationBrowserPage::updateLocationSummary()
 {
     locationCaption_->setText(currentLocation_.address == QStringLiteral("演示位置")
-        ? QStringLiteral("默认定位（演示）") : currentLocation_.address);
+        ? QString{} : currentLocation_.address);
     locationCaption_->setToolTip(locationCaption_->text());
     locationSummaryLabel_->setText(QStringLiteral("当前位置：%1\n此位置用于附近电站距离与路线起点。")
         .arg(currentLocation_.address));

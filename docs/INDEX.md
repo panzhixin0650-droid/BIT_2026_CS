@@ -62,3 +62,5 @@
 悦充顶栏、个人资料、客服/报修/工单入口拆分：[ADR-0014](decisions/0014-client-shell-profile-support.md)。
 
 当前位置、可用电站范围和单站推荐算法：[ADR-0015](decisions/0015-client-location-recommendation.md)。
+
+独立车载横屏用户端、双端共享边界与同步策略：[ADR-0018](decisions/0018-client-vehicle-shell.md)。

@@ -182,7 +182,7 @@ void ProfileController::handleProfileCompleted(const UserResult &result)
                             .arg(result.payload->user.userId)
                             .arg(result.payload->user.phone);
     page_.setAvatarPath(avatarStorage_.avatarPath(currentAvatarKey_));
-    page_.showMessage(QStringLiteral("资料已刷新"));
+    page_.showMessage({});
     emit profileChanged(result.payload->user);
 }
 
