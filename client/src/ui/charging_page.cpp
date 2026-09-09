@@ -1,5 +1,7 @@
 #include "ui/charging_page.h"
 #include "ui/client_theme.h"
+#include "common/charging_session_state.h"
+#include "common/charging_progress_ring.h"
 #include "ui/pricing_hint.h"
 #include "ui/pricing_info_button.h"
 #include "ui/reservation_hint.h"
@@ -9,65 +11,11 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QPainter>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QVBoxLayout>
 
 namespace charging::client {
-
-class ChargingRing final : public QWidget {
-public:
-    explicit ChargingRing(QWidget *parent) : QWidget(parent)
-    {
-        setObjectName("chargingProgressRing");
-        setMinimumSize(220, 220);
-        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    }
-
-    int percent = 0;
-    QString caption = QStringLiteral("等待开始");
-
-protected:
-    void paintEvent(QPaintEvent *) override
-    {
-        QPainter painter(this);
-        painter.fillRect(rect(), Qt::white);
-        painter.setRenderHint(QPainter::Antialiasing);
-        const qreal side = qMin<qreal>(280, qMin(width() - 36, height() - 28));
-        const QRectF arc((width() - side) / 2, (height() - side) / 2, side, side);
-
-        painter.setPen(QPen(QColor("#eef2e8"), 1));
-        painter.setBrush(Qt::NoBrush);
-        painter.drawEllipse(arc.adjusted(-12, -12, 12, 12));
-        painter.setPen(QPen(QColor("#e7eddf"), 13, Qt::SolidLine, Qt::RoundCap));
-        painter.drawEllipse(arc);
-        painter.setPen(QPen(QColor("#567b52"), 13, Qt::SolidLine, Qt::RoundCap));
-        if (percent > 0) painter.drawArc(arc, 90 * 16, -qRound(percent * 3.6 * 16));
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(QColor("#f5f8f0"));
-        painter.drawEllipse(arc.adjusted(15, 15, -15, -15));
-
-        QFont textFont = font();
-        textFont.setPixelSize(11);
-        painter.setFont(textFont);
-        painter.setPen(QColor("#71826c"));
-        painter.drawText(QRectF(arc.left(), arc.center().y() - 58, side, 24),
-                         Qt::AlignCenter, QStringLiteral("本次充电进度"));
-        textFont.setPixelSize(qRound(side * .22));
-        textFont.setBold(true);
-        painter.setFont(textFont);
-        painter.setPen(QColor("#245c45"));
-        painter.drawText(arc.adjusted(0, -4, 0, -4), Qt::AlignCenter,
-                         QString::number(percent) + "%");
-        textFont.setPixelSize(11);
-        textFont.setBold(false);
-        painter.setFont(textFont);
-        painter.setPen(QColor("#65796c"));
-        painter.drawText(QRectF(arc.left(), arc.center().y() + 34, side, 26),
-                         Qt::AlignCenter, caption);
-    }
-};
 
 ChargingPage::ChargingPage(QWidget *parent) : QWidget(parent)
 {
@@ -130,7 +78,7 @@ ChargingPage::ChargingPage(QWidget *parent) : QWidget(parent)
     reservationHint_->setWordWrap(true);
     reservationHint_->setAlignment(Qt::AlignCenter);
     sessionLayout->addWidget(reservationHint_);
-    ring_ = new ChargingRing(session);
+    ring_ = new ChargingProgressRing(session);
     sessionLayout->addWidget(ring_, 1);
     layout->addWidget(session, 1);
 
@@ -261,9 +209,9 @@ void ChargingPage::render(){
     if (cancelled) state_->setText(QStringLiteral("预约已取消"));
     station_->setText(pileCode_.isEmpty()?QStringLiteral("在首页选桩，或扫一扫桩身二维码"):(order_?order_->stationName+" · ":quote_?quote_->name+" · ":QString())+pileCode_);
     qint64 secs=order_?order_->durationSeconds:0;
-    ring_->percent=qBound(0,int(secs*100/protocol::DemoChargingDurationSeconds),100);
-    ring_->caption=charging?QStringLiteral("预计剩余 %1 秒").arg(qMax<qint64>(0,protocol::DemoChargingDurationSeconds-secs)):finished?QStringLiteral("本次充电结束"):QStringLiteral("连接充电枪后开始");ring_->update();
-    if (cancelled) ring_->caption = QStringLiteral("请重新选桩");
+    QString progressCaption=charging?QStringLiteral("预计剩余 %1 秒").arg(qMax<qint64>(0,protocol::DemoChargingDurationSeconds-secs)):finished?QStringLiteral("本次充电结束"):QStringLiteral("连接充电枪后开始");
+    if (cancelled) progressCaption = QStringLiteral("请重新选桩");
+    ring_->setProgress(session::demoProgressPercent(secs), progressCaption);
     power_->setText(charging?QStringLiteral("7.2 kW"):QStringLiteral("—"));energy_->setText(QStringLiteral("%1 kWh").arg((order_?order_->energyWh:0)/1000.0,0,'f',3));
     duration_->setText(QStringLiteral("%1:%2").arg(secs/60,2,10,QChar('0')).arg(secs%60,2,10,QChar('0')));
     amount_->setText(QStringLiteral("¥ %1").arg((order_?order_->amountCents:0)/100.0,0,'f',2));

@@ -1,4 +1,5 @@
 #include "ui/client_theme.h"
+#include "common/client_tokens.h"
 
 #include <QColor>
 #include <QPainter>
@@ -145,9 +146,9 @@ QString clientThemeStyleSheet()
 {
     return QStringLiteral(R"QSS(
 QMainWindow, QWidget {
-    background-color: #f6f7f2;
+    background-color: %1;
     color: #203d33;
-    font-family: "Noto Sans CJK SC", "Noto Sans", sans-serif;
+    font-family: %2;
 }
 
 QLabel {
@@ -481,7 +482,7 @@ QToolTip {
     border: none;
     border-radius: 5px;
 }
-)QSS");
+)QSS").arg(tokens::warmWhite(), tokens::fontFamily());
 }
 
 QString profileServicesStyleSheet()
@@ -558,12 +559,12 @@ QIcon clientNavigationIcon(NavigationIcon icon)
                      QIcon::Normal,
                      QIcon::Off);
     result.addPixmap(navigationPixmap(icon,
-                                      QColor(QStringLiteral("#245c45")),
+                                      QColor(tokens::forest()),
                                       false),
                      QIcon::Active,
                      QIcon::Off);
     result.addPixmap(navigationPixmap(icon,
-                                      QColor(QStringLiteral("#245c45")),
+                                      QColor(tokens::forest()),
                                       true),
                      QIcon::Selected,
                      QIcon::Off);

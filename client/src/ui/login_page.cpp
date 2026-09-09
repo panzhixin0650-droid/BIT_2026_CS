@@ -15,7 +15,7 @@
 
 namespace charging::client {
 
-LoginPage::LoginPage(QWidget *parent)
+LoginPage::LoginPage(QWidget *parent, LayoutMode layoutMode)
     : QWidget(parent)
 {
     setObjectName(QStringLiteral("loginPage"));
@@ -28,17 +28,25 @@ LoginPage::LoginPage(QWidget *parent)
     scroll->setFrameShape(QFrame::NoFrame);
     auto *content = new QWidget(scroll);
     auto *centerLayout = new QHBoxLayout(content);
-    centerLayout->setContentsMargins(24, 24, 24, 24);
-    auto *column = new QWidget(content);
-    column->setMaximumWidth(440);
-    auto *contentLayout = new QVBoxLayout(column);
-    contentLayout->setContentsMargins(0, 0, 0, 0);
-    centerLayout->addStretch();
-    centerLayout->addWidget(column, 1);
-    centerLayout->addStretch();
-    contentLayout->setSpacing(18);
-    contentLayout->addStretch();
+    const bool vehicle = layoutMode == LayoutMode::Vehicle;
+    centerLayout->setContentsMargins(vehicle ? 56 : 24, vehicle ? 36 : 24,
+                                     vehicle ? 56 : 24, vehicle ? 36 : 24);
+    centerLayout->setSpacing(vehicle ? 56 : 0);
+    QWidget *column = nullptr;
+    QVBoxLayout *contentLayout = nullptr;
+    if (!vehicle) {
+        column = new QWidget(content);
+        column->setMaximumWidth(440);
+        contentLayout = new QVBoxLayout(column);
+        contentLayout->setContentsMargins(0, 0, 0, 0);
+        centerLayout->addStretch();
+        centerLayout->addWidget(column, 1);
+        centerLayout->addStretch();
+        contentLayout->setSpacing(18);
+        contentLayout->addStretch();
+    }
     auto *intro = new QWidget(content);
+    intro->setObjectName(QStringLiteral("loginIntro"));
     intro->setMaximumWidth(440);
     auto *introLayout = new QVBoxLayout(intro);
     introLayout->setContentsMargins(0, 0, 0, 0);
@@ -51,11 +59,11 @@ LoginPage::LoginPage(QWidget *parent)
     introLayout->addWidget(new DecorativeHeading(headline, QStringLiteral("clover"),
                                                 104, -8, intro));
     introLayout->addWidget(new ChargingArt(ChargingArt::Scene::Welcome, intro));
-    contentLayout->addWidget(intro);
+    if (!vehicle) contentLayout->addWidget(intro);
 
     auto *card = new QFrame(this);
     card->setObjectName(QStringLiteral("loginCard"));
-    card->setMaximumWidth(440);
+    card->setMaximumWidth(vehicle ? 500 : 440);
     card->setProperty("role", "card");
     auto *cardLayout = new QVBoxLayout(card);
     cardLayout->setContentsMargins(22, 22, 22, 22);
@@ -87,7 +95,7 @@ LoginPage::LoginPage(QWidget *parent)
     phoneInput_->setPlaceholderText(QStringLiteral("请输入11位手机号"));
     phoneInput_->setMaxLength(11);
     phoneInput_->setClearButtonEnabled(true);
-    phoneInput_->setMinimumHeight(42);
+    phoneInput_->setMinimumHeight(vehicle ? 52 : 42);
     phoneInput_->setAccessibleName(QStringLiteral("11位手机号"));
     phoneLabel->setBuddy(phoneInput_);
     phoneInput_->setValidator(new QRegularExpressionValidator(
@@ -98,7 +106,7 @@ LoginPage::LoginPage(QWidget *parent)
     verificationCodeInput_->setObjectName(QStringLiteral("verificationCodeInput"));
     verificationCodeInput_->setPlaceholderText(QStringLiteral("6位验证码"));
     verificationCodeInput_->setMaxLength(6);
-    verificationCodeInput_->setMinimumHeight(42);
+    verificationCodeInput_->setMinimumHeight(vehicle ? 52 : 42);
     verificationCodeInput_->setAccessibleName(QStringLiteral("6位验证码"));
     verificationCodeInput_->setInputMethodHints(Qt::ImhDigitsOnly);
     verificationCodeInput_->setValidator(new QRegularExpressionValidator(
@@ -107,7 +115,7 @@ LoginPage::LoginPage(QWidget *parent)
 
     sendCodeButton_ = new QPushButton(QStringLiteral("发送验证码"), card);
     sendCodeButton_->setObjectName(QStringLiteral("sendVerificationCodeButton"));
-    sendCodeButton_->setMinimumHeight(42);
+    sendCodeButton_->setMinimumHeight(vehicle ? 52 : 42);
     sendCodeButton_->setToolTip(QStringLiteral("占位功能：仅展示演示验证码，不发送短信"));
     auto *codeLayout = new QHBoxLayout;
     codeLayout->setSpacing(8);
@@ -127,7 +135,10 @@ LoginPage::LoginPage(QWidget *parent)
 
     loginButton_ = new QPushButton(QStringLiteral("登录"), card);
     loginButton_->setObjectName(QStringLiteral("loginButton"));
-    loginButton_->setMinimumHeight(44);
+    loginButton_->setMinimumHeight(vehicle ? 56 : 44);
+    // Qt style-sheet contents/border accounting can subtract a few logical
+    // pixels from QWidget's fixed height. Keep the rendered hit area >= 56 px.
+    if (vehicle) loginButton_->setFixedHeight(64);
     loginButton_->setDefault(true);
 
     cardLayout->addWidget(brandBadge, 0, Qt::AlignLeft);
@@ -141,12 +152,29 @@ LoginPage::LoginPage(QWidget *parent)
     cardLayout->addWidget(errorLabel_);
     cardLayout->addWidget(loginButton_);
 
-    contentLayout->addWidget(card);
     auto *footer = new QLabel(QStringLiteral("发现好站  ·  轻松补能  ·  自在出发"), content);
     footer->setAlignment(Qt::AlignCenter);
     footer->setProperty("role", "eyebrow");
-    contentLayout->addWidget(footer);
-    contentLayout->addStretch();
+    if (vehicle) {
+        intro->setMaximumWidth(560);
+        headline->setStyleSheet(QStringLiteral(
+            "font-size: 42px; font-weight: 700; color: #203d33;"));
+        auto *formColumn = new QWidget(content);
+        formColumn->setMaximumWidth(500);
+        auto *formLayout = new QVBoxLayout(formColumn);
+        formLayout->setContentsMargins(0, 0, 0, 0);
+        formLayout->setSpacing(18);
+        formLayout->addStretch();
+        formLayout->addWidget(card);
+        formLayout->addWidget(footer);
+        formLayout->addStretch();
+        centerLayout->addWidget(intro, 11, Qt::AlignVCenter);
+        centerLayout->addWidget(formColumn, 9);
+    } else {
+        contentLayout->addWidget(card);
+        contentLayout->addWidget(footer);
+        contentLayout->addStretch();
+    }
     scroll->setWidget(content);
     pageLayout->addWidget(scroll);
 

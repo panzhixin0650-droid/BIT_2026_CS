@@ -2,6 +2,7 @@
 #include "ui/charging_page.h"
 #include "ui/charging_stop_dialog.h"
 #include "ui/api_error_message.h"
+#include "common/charging_session_state.h"
 #include "api/i_charging_api.h"
 #include <QTimer>
 namespace charging::client {
@@ -63,15 +64,15 @@ ChargingController::ChargingController(ChargingPage &page,IChargingApi &api,QObj
                 requestId_ = api_.listOrders();
                 return;
             }
-            if(!r.payload->order){start({});return;}
+            const auto decision=session::startDecision(r.payload->order,candidate_);
+            if(decision==session::StartDecision::Direct){start({});return;}
+            if(decision==session::StartDecision::UseReservation){start(r.payload->order->orderId);return;}
             auto current=*r.payload->order;
-            if(current.status==S::Reserved&&current.pileCode==candidate_){start(current.orderId);return;}
             finish();apply(current);page_.showMessage(QStringLiteral("请先处理当前订单；预约充电请使用对应充电桩"),true);return;
         }
         if(r.payload->order){auto current=*r.payload->order;finish();apply(current);return;}
-        if(order_&&(order_->status==S::Charging||order_->status==S::PendingPayment||order_->status==S::Reserved)){
-            page_.setBusy(true);action_=Action::History;requestId_=api_.listOrders();return;
-        }
+        if(session::needsFinalHistory(order_)){action_=Action::History;requestId_=api_.listOrders();return;}
+        if(order_&&order_->status==S::Reserved){order_.reset();candidate_.clear();page_.reset();}
         finish();
     });
     connect(&api_,&IChargingApi::chargingStartCompleted,this,[this](const OrderResult&r){
