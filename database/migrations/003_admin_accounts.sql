@@ -2,10 +2,12 @@
 -- Requires the merged schema 2 (001 + 002_support_tickets.sql).
 -- Stop the server, back up the database and run with sqlite3 -batch -bail.
 
+-- 迁移3：升级管理员账号表，加入角色与站点授权
 PRAGMA foreign_keys = ON;
 
 BEGIN IMMEDIATE;
 
+-- 守卫：要求版本为2且旧admins仍是四列结构
 CREATE TEMP TABLE migration_003_guard (value INTEGER NOT NULL CHECK (value = 1));
 INSERT INTO migration_003_guard
 SELECT CASE WHEN user_version = 2
@@ -20,6 +22,7 @@ DROP TABLE migration_003_guard;
 
 ALTER TABLE admins RENAME TO admins_v1;
 
+-- 新管理员表：角色、状态、强制改密与版本号
 CREATE TABLE admins (
     admin_id INTEGER PRIMARY KEY,
     username TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -39,6 +42,7 @@ CREATE TABLE admins (
         AND username NOT GLOB '*[^A-Za-z0-9_.-]*'
     ),
     CONSTRAINT ck_admins_password_hash_v2 CHECK (length(password_hash) BETWEEN 32 AND 256),
+    -- 口令允许遗留SHA256或新的PBKDF2两种格式
     CONSTRAINT ck_admins_password_algorithm CHECK (
         (password_algorithm = 'SHA256_LEGACY'
          AND length(password_hash) = 64
@@ -59,6 +63,7 @@ CREATE TABLE admins (
     CONSTRAINT ck_admins_version CHECK (version >= 0)
 );
 
+-- 把旧管理员数据搬入新表并标记为遗留算法
 INSERT INTO admins (
     admin_id, username, password_hash, password_algorithm, display_name,
     role, status, must_change_password, last_login_at,
@@ -73,6 +78,7 @@ FROM admins_v1;
 
 DROP TABLE admins_v1;
 
+-- 站点授权范围表：记录管理员可管理的站点
 CREATE TABLE admin_station_scopes (
     admin_id INTEGER NOT NULL,
     station_id INTEGER NOT NULL,
@@ -87,6 +93,7 @@ CREATE TABLE admin_station_scopes (
         REFERENCES admins(admin_id) ON UPDATE RESTRICT ON DELETE RESTRICT
 );
 
+-- 管理员操作审计表，详情要求为合法JSON
 CREATE TABLE admin_audit_logs (
     audit_id INTEGER PRIMARY KEY,
     actor_admin_id INTEGER NOT NULL,
@@ -107,6 +114,7 @@ CREATE INDEX idx_admin_scopes_station ON admin_station_scopes(station_id, admin_
 CREATE INDEX idx_admin_audit_target_time
     ON admin_audit_logs(target_admin_id, created_at DESC);
 
+-- schema版本升级为3
 PRAGMA user_version = 3;
 
 COMMIT;

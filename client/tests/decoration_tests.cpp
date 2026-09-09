@@ -1,3 +1,4 @@
+// 本文件测试手绘装饰素材与各页面在不同尺寸下的布局
 #include "api/mock_charging_api.h"
 #include "ui/main_window.h"
 #include "ui/client_theme.h"
@@ -16,6 +17,7 @@
 
 using namespace charging::client;
 
+// 装饰与布局测试集合
 class DecorationTests final : public QObject {
     Q_OBJECT
 private slots:
@@ -26,6 +28,7 @@ private slots:
     void profileCardsKeepInteractions();
 };
 
+// 装饰图边缘必须透明，角色白色区域保持不透明
 void DecorationTests::transparentAssetsPreserveWhite()
 {
     MockChargingApi api;
@@ -50,6 +53,7 @@ void DecorationTests::transparentAssetsPreserveWhite()
     }
 }
 
+// 手机、默认与桌面三种窗口尺寸数据集
 void DecorationTests::responsivePages_data()
 {
     QTest::addColumn<QSize>("size");
@@ -58,6 +62,7 @@ void DecorationTests::responsivePages_data()
     QTest::newRow("desktop") << QSize(1100, 800);
 }
 
+// 装饰不接收鼠标、不越界重叠，页面不横向滚动
 void DecorationTests::responsivePages()
 {
     QFETCH(QSize, size);
@@ -111,6 +116,7 @@ void DecorationTests::profileCardsKeepInteractions_data()
     responsivePages_data();
 }
 
+// 我的页卡片样式不影响按钮点击与钱包流程
 void DecorationTests::profileCardsKeepInteractions()
 {
     QFETCH(QSize, size);
@@ -158,6 +164,7 @@ void DecorationTests::profileCardsKeepInteractions()
     QCOMPARE(repair.count(), 2);
     QCOMPARE(tickets.count(), 2);
 
+    // 快捷金额只填写输入框，充值需点按钮，余额只随接口更新
     auto *amount = wallet->findChild<QLineEdit *>("rechargeAmountInput");
     auto *recharge = wallet->findChild<QPushButton *>("rechargeButton");
     auto *balance = wallet->findChild<QLabel *>("profileBalanceLabel");
@@ -188,6 +195,7 @@ void DecorationTests::profileCardsKeepInteractions()
     QCOMPARE(requested.count(), 1);
     QCOMPARE(requested.at(0).at(0).toString(), QStringLiteral("12.34"));
     QCOMPARE(balance->text(), QStringLiteral("¥123.45")); // Only API responses update balance.
+    // 忙碌时禁用充值输入，金额超上限视为非法
     profile->setBusy(true);
     QVERIFY(!recharge->isEnabled());
     QVERIFY(!amount->isEnabled());
@@ -200,6 +208,7 @@ void DecorationTests::profileCardsKeepInteractions()
     QVERIFY(!amount->hasAcceptableInput());
 
     // The local card styles must not change main's identity/detail/avatar flow.
+    // 卡片样式不改变身份信息、详情与头像页的跳转
     QCOMPARE(profile->findChild<QLabel *>("profileAvatar")->size(), QSize(64, 64));
     QCOMPARE(profile->findChild<QLabel *>("profileNicknameLabel")->font().pointSize(), 15);
     QVERIFY(!profile->findChild<QPushButton *>("logoutButton")->isFlat());

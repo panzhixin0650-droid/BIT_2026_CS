@@ -1,3 +1,4 @@
+// 文件用途：带手绘插图的标题控件实现
 #include "ui/decorative_heading.h"
 
 #include <QHBoxLayout>
@@ -5,6 +6,7 @@
 #include <QPixmap>
 #include <QResizeEvent>
 
+// 首次使用时注册装饰图资源
 static void initializeDecorations()
 {
     Q_INIT_RESOURCE(decorations);
@@ -12,6 +14,7 @@ static void initializeDecorations()
 
 namespace charging::client {
 namespace {
+// 内部控件：只负责画插图，不接收鼠标事件
 class Accent final : public QWidget {
 public:
     Accent(const QString &asset, qreal rotation, QWidget *parent)
@@ -26,6 +29,7 @@ public:
         setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     }
 protected:
+    // 按中心旋转并等比缩放贴图
     void paintEvent(QPaintEvent *) override
     {
         if (pixmap_.isNull()) return;
@@ -45,6 +49,7 @@ private:
 };
 }
 
+// 构造：文字占主要宽度，插图放在右侧固定列
 DecorativeHeading::DecorativeHeading(QWidget *text, const QString &asset, int extent,
                                    qreal rotation, QWidget *parent)
     : QWidget(parent), extent_(extent)
@@ -62,6 +67,7 @@ DecorativeHeading::DecorativeHeading(QWidget *text, const QString &asset, int ex
     row->addWidget(art_, 0, Qt::AlignVCenter);
 }
 
+// 随宽度缩放插图，窗口过窄时隐藏让位给文字
 void DecorativeHeading::resizeEvent(QResizeEvent *event)
 {
     QWidget::resizeEvent(event);

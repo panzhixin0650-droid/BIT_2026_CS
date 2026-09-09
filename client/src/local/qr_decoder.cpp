@@ -1,3 +1,4 @@
+// 本地二维码识别：用 ZBar 从图片中读出充电桩编号
 #include "local/qr_decoder.h"
 
 #include <QFileInfo>
@@ -11,6 +12,7 @@
 
 namespace charging::client {
 
+// 识别入口：先转灰度并限制到 1600 像素以内以提速
 QrDecodeResult decodePileQr(const QImage &source)
 {
     if (source.isNull()) return {{}, QStringLiteral("无法读取图片，请选择 PNG 或 JPEG 图片")};
@@ -19,6 +21,7 @@ QrDecodeResult decodePileQr(const QImage &source)
         gray = gray.scaled(1600, 1600, Qt::KeepAspectRatio, Qt::SmoothTransformation);
     gray = gray.convertToFormat(QImage::Format_Grayscale8);
     // ZBar expects packed rows, while QImage scanlines can contain padding.
+    // 逐行拷贝像素，去掉 QImage 行尾填充字节
     QByteArray pixels(gray.width() * gray.height(), Qt::Uninitialized);
     for (int y = 0; y < gray.height(); ++y)
         std::memcpy(pixels.data() + y * gray.width(), gray.constScanLine(y), gray.width());
@@ -29,6 +32,7 @@ QrDecodeResult decodePileQr(const QImage &source)
     std::unique_ptr<zbar_image_t, decltype(&zbar_image_destroy)> image(
         zbar_image_create(), zbar_image_destroy);
     if (!scanner || !image) return {{}, QStringLiteral("二维码识别暂不可用，请重试")};
+    // 只启用二维码类型，避免识别到条形码
     zbar_image_scanner_set_config(scanner.get(), ZBAR_NONE, ZBAR_CFG_ENABLE, 0);
     zbar_image_scanner_set_config(scanner.get(), ZBAR_QRCODE, ZBAR_CFG_ENABLE, 1);
     zbar_image_set_format(image.get(), zbar_fourcc('Y', '8', '0', '0'));
@@ -37,6 +41,7 @@ QrDecodeResult decodePileQr(const QImage &source)
     if (zbar_scan_image(scanner.get(), image.get()) < 0)
         return {{}, QStringLiteral("二维码识别失败，请换一张图片或重试")};
 
+    // 收集所有二维码文本，去重后判断数量
     QSet<QString> codes;
     for (auto *symbol = zbar_image_first_symbol(image.get()); symbol;
          symbol = zbar_symbol_next(symbol)) {
@@ -49,12 +54,14 @@ QrDecodeResult decodePileQr(const QImage &source)
     if (codes.size() != 1) return {{}, QStringLiteral("发现多个不同二维码，请只保留一个充电桩二维码")};
     const QString code = *codes.cbegin();
     // The local scanner accepts a plain pile code, never executes/opens QR URLs.
+    // 仅接受纯桩编号格式，不解析也不打开网址二维码
     static const QRegularExpression pattern(QStringLiteral("^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"));
     if (!pattern.match(code).hasMatch())
         return {{}, QStringLiteral("请扫描包含桩编号的二维码，例如 PILE-A-01；暂不支持网址二维码")};
     return {code, {}};
 }
 
+// 从文件识别：先限制文件大小与像素总量再读取
 QrDecodeResult decodePileQrFile(const QString &path)
 {
     const QFileInfo file(path);

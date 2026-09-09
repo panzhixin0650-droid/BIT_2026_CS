@@ -1,3 +1,4 @@
+// 本文件实现内置知识库的加载与关键词检索
 #include "assistant/knowledge_base.h"
 
 #include <QFile>
@@ -18,6 +19,7 @@ static void initializeAssistantResources()
 namespace charging::client {
 namespace {
 
+// terms 把文本切成英文词与中文二字片段，并去停用词
 QSet<QString> terms(const QString &text)
 {
     QSet<QString> result;
@@ -47,6 +49,7 @@ QSet<QString> terms(const QString &text)
 
 }  // namespace
 
+// bundled 从内置资源读取 knowledge.json 构建条目
 KnowledgeBase KnowledgeBase::bundled()
 {
     initializeAssistantResources();
@@ -74,11 +77,13 @@ KnowledgeBase KnowledgeBase::bundled()
     return base;
 }
 
+// retrieve 打分排序，返回最相关的少量知识条目
 QList<KnowledgeEntry> KnowledgeBase::retrieve(const QString &question,
                                              const QString &previousQuestion) const
 {
     QString query = question.toLower().trimmed();
     // Resolve short follow-ups, without pulling old subjects into a new full question.
+    // 短句追问时拼上上一问，补足缺失的主题
     static const QRegularExpression followUp(
         QStringLiteral("^(那|然后|还有|能取消|可以取消|为什么|具体|详细|它|这个|继续)"));
     if (query.size() <= 18 && followUp.match(query).hasMatch()) {
@@ -87,6 +92,7 @@ QList<KnowledgeEntry> KnowledgeBase::retrieve(const QString &question,
     const auto queryTerms = terms(query);
     struct Match { double score; int index; };
     QList<Match> matches;
+    // 关键词命中权重最高，标题与正文命中分别加分
     for (int i = 0; i < entries_.size(); ++i) {
         const auto &entry = entries_[i];
         double score = 0;
@@ -107,6 +113,7 @@ QList<KnowledgeEntry> KnowledgeBase::retrieve(const QString &question,
             matches.append({score, i});
         }
     }
+    // 按分数排序后最多取三条，且过滤分数过低的
     std::stable_sort(matches.begin(), matches.end(),
                      [](const Match &a, const Match &b) { return a.score > b.score; });
     QList<KnowledgeEntry> result;
@@ -119,6 +126,7 @@ QList<KnowledgeEntry> KnowledgeBase::retrieve(const QString &question,
     return result;
 }
 
+// suggestedQuestions 取前几条示例问题用于引导用户
 QStringList KnowledgeBase::suggestedQuestions() const
 {
     QStringList questions;

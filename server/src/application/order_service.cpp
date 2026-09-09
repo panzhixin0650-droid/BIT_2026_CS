@@ -1,3 +1,4 @@
+// 本文件实现订单相关业务：预约、开始、进度、停止与支付
 #include "application_service.h"
 
 #include "adapters/i_pile_gateway.h"
@@ -19,6 +20,7 @@ namespace {
 
 using namespace charging::protocol;
 
+// 把错误码翻译成统一的失败响应文案
 ServiceResult orderError(int code)
 {
     switch (code) {
@@ -41,6 +43,7 @@ ServiceResult orderError(int code)
     }
 }
 
+// 从JSON读取ID，要求是精确可表示的正整数
 bool readId(const QJsonObject &input, const QString &key, qint64 *id)
 {
     const QJsonValue value = input.value(key);
@@ -54,6 +57,7 @@ bool readId(const QJsonObject &input, const QString &key, qint64 *id)
     return true;
 }
 
+// 读取并裁剪桩编号，限制长度
 bool readPileCode(const QJsonObject &input, QString *code)
 {
     const QJsonValue value = input.value(QStringLiteral("pileCode"));
@@ -62,6 +66,7 @@ bool readPileCode(const QJsonObject &input, QString *code)
     return !code->isEmpty() && code->size() <= 64;
 }
 
+// 拒绝客户端自带的权威字段，金额状态只能由服务端定
 bool hasAuthoritativeFields(const QJsonObject &input)
 {
     // Unrelated optional fields are ignored as elsewhere in V1, but callers
@@ -81,6 +86,7 @@ bool isCurrent(OrderStatus status)
         || status == OrderStatus::PendingPayment;
 }
 
+// 查找该用户的进行中订单（预约、充电或待支付）
 std::optional<OrderDto> currentOrder(IRepository *repository, qint64 userId,
                                      ServiceResult *failure)
 {
@@ -95,6 +101,7 @@ std::optional<OrderDto> currentOrder(IRepository *repository, qint64 userId,
     return std::nullopt;
 }
 
+// 按ID取订单并校验归属，区分不存在与越权
 std::optional<OrderDto> ownedOrder(IRepository *repository, qint64 orderId,
                                    qint64 userId, ServiceResult *failure)
 {
@@ -119,6 +126,7 @@ std::optional<PileDto> findPile(IRepository *repository, const QString &code)
     return std::nullopt;
 }
 
+// 生成新订单骨架，订单号用UUID拼接
 OrderDto newOrder(qint64 userId, const PileDto &pile, const StationDto &station,
                    const QString &now)
 {
@@ -135,6 +143,7 @@ OrderDto newOrder(qint64 userId, const PileDto &pile, const StationDto &station,
 
 }  // namespace
 
+// 从桩网关刷新时长与电量，并按锁定单价重算金额
 bool ApplicationService::refreshOrderReading(OrderDto *order, const QDateTime &now,
                                               bool stop) const
 {
@@ -156,6 +165,7 @@ bool ApplicationService::refreshOrderReading(OrderDto *order, const QDateTime &n
     return true;
 }
 
+// 查询当前订单，先清理到期预约再返回最新读数
 ServiceResult ApplicationService::getCurrentOrder(const QString &token,
                                                   const QJsonObject &input) const
 {
@@ -175,6 +185,7 @@ ServiceResult ApplicationService::getCurrentOrder(const QString &token,
     return ServiceResult::success({{QStringLiteral("order"), toJson(*order)}});
 }
 
+// 列出该用户全部订单，逐条刷新充电中读数
 ServiceResult ApplicationService::listUserOrders(const QString &token,
                                                  const QJsonObject &input) const
 {
@@ -194,6 +205,7 @@ ServiceResult ApplicationService::listUserOrders(const QString &token,
     return ServiceResult::success({{QStringLiteral("items"), items}});
 }
 
+// 预约下单：校验桩空闲、用户无进行中订单，预约不锁价
 ServiceResult ApplicationService::reserveOrder(const QString &token, const QJsonObject &input)
 {
     ServiceResult failure;
@@ -232,6 +244,7 @@ ServiceResult ApplicationService::reserveOrder(const QString &token, const QJson
     return ServiceResult::success({{QStringLiteral("order"), toJson(order)}});
 }
 
+// 用户取消预约，只允许处于预约状态的订单
 ServiceResult ApplicationService::cancelOrder(const QString &token, const QJsonObject &input)
 {
     ServiceResult failure;
@@ -267,6 +280,7 @@ int ApplicationService::cancelReservation(OrderDto *order) const
         ? ErrorCode::Ok : ErrorCode::InternalError;
 }
 
+// 开启预约过期巡检，先补扫一次再每秒轮询
 void ApplicationService::enableReservationExpiry()
 {
     if (reservationExpiryEnabled_) return;
@@ -281,6 +295,7 @@ void ApplicationService::enableReservationExpiry()
     timer->start(1000);
 }
 
+// 扫描超时预约并逐单取消，返回过期数量，出错返回-1
 int ApplicationService::expireDueReservations(const QDateTime &now) const
 {
     if (!now.isValid()) return -1;
@@ -306,6 +321,7 @@ int ApplicationService::expireDueReservations(const QDateTime &now) const
     return expired;
 }
 
+// 开始充电：可从预约转入或直接开桩
 ServiceResult ApplicationService::startOrder(const QString &token, const QJsonObject &input)
 {
     ServiceResult failure;
@@ -349,6 +365,7 @@ ServiceResult ApplicationService::startOrder(const QString &token, const QJsonOb
         || (!reserved && pile->status != PileStatus::Idle)) {
         return orderError(ErrorCode::PileNotAvailable);
     }
+    // 此刻按高峰或平时价锁定单价，写入订单快照
     const auto price = chargingUnitPriceCents(station->priceCentsPerKwh, now);
     if (!price.has_value()) return orderError(ErrorCode::InternalError);
     if (!reserved) {
@@ -378,6 +395,7 @@ ServiceResult ApplicationService::startOrder(const QString &token, const QJsonOb
     return ServiceResult::success({{QStringLiteral("order"), toJson(*order)}});
 }
 
+// 查询充电进度，附带本次读数的采样时间
 ServiceResult ApplicationService::getOrderProgress(const QString &token,
                                                   const QJsonObject &input) const
 {
@@ -399,6 +417,7 @@ ServiceResult ApplicationService::getOrderProgress(const QString &token,
     });
 }
 
+// 开启Demo自动停止定时器，每秒检查一次
 void ApplicationService::enableDemoAutomaticStop()
 {
     if (demoAutomaticStop_) return;
@@ -408,6 +427,7 @@ void ApplicationService::enableDemoAutomaticStop()
     timer->start(1000);
 }
 
+// 把充电满180秒的Demo会话按截止时刻结算
 int ApplicationService::completeDueDemoCharges(const QDateTime &now)
 {
     if (!demoAutomaticStop_ || !now.isValid()) return 0;
@@ -424,6 +444,7 @@ int ApplicationService::completeDueDemoCharges(const QDateTime &now)
     return completed;
 }
 
+// 用户手动停止充电，交由统一结算流程处理
 ServiceResult ApplicationService::stopOrder(const QString &token, const QJsonObject &input)
 {
     ServiceResult failure;
@@ -435,6 +456,7 @@ ServiceResult ApplicationService::stopOrder(const QString &token, const QJsonObj
     return settleChargingOrder(orderId, *userId, nowUtc());
 }
 
+// 结算充电单：取末次读数、置桩空闲并尝试扣费
 ServiceResult ApplicationService::settleChargingOrder(qint64 orderId, qint64 userId, const QDateTime &now)
 {
     RepositoryTransaction transaction(repository_);
@@ -454,6 +476,7 @@ ServiceResult ApplicationService::settleChargingOrder(qint64 orderId, qint64 use
     }
     if (!refreshOrderReading(&*order, now, true)) return orderError(ErrorCode::InternalError);
     order->endedAt = now.toString(Qt::ISODate);
+    // 余额够则直接完成扣款，否则转为待支付
     const bool paid = user->balanceCents >= order->amountCents;
     order->status = paid ? OrderStatus::Completed : OrderStatus::PendingPayment;
     if (paid) {
@@ -479,6 +502,7 @@ ServiceResult ApplicationService::settleChargingOrder(qint64 orderId, qint64 use
     return ServiceResult::success(data);
 }
 
+// 补付待支付订单，余额不足直接返回错误
 ServiceResult ApplicationService::payOrder(const QString &token, const QJsonObject &input)
 {
     RepositoryTransaction transaction(repository_);

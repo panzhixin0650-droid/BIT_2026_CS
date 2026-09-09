@@ -15,18 +15,22 @@
 #include <algorithm>
 #include <limits>
 
+// 本文件实现电站浏览页的搜索、推荐与发现列表渲染
 namespace charging::client {
 namespace {
+// 按用户ID分别保存搜索历史的配置键
 QString historyKey(qint64 userId)
 {
     return QStringLiteral("stationDiscovery/users/%1/searches").arg(userId);
 }
+// 关键词为空即全部匹配，否则匹配站名、地址或区域
 bool matches(const protocol::StationDto &station, const QString &keyword)
 {
     return keyword.isEmpty() || station.name.contains(keyword, Qt::CaseInsensitive)
         || station.address.contains(keyword, Qt::CaseInsensitive)
         || station.region.contains(keyword, Qt::CaseInsensitive);
 }
+// 清空容器内已有控件，避免重复渲染时残留
 void clearContent(QWidget *widget)
 {
     while (auto *item = widget->layout()->takeAt(0)) {
@@ -40,6 +44,7 @@ void clearContent(QWidget *widget)
 }
 }
 
+// 切换用户后重置访问记录并读取该用户最近8条搜索
 void StationBrowserPage::setUserId(qint64 userId)
 {
     if (userId_ != userId) { visitedStationIds_.clear(); visitHistoryFailed_ = false; }
@@ -50,6 +55,7 @@ void StationBrowserPage::setUserId(qint64 userId)
     renderDiscovery();
 }
 
+// 从订单中找出最近一个真正开始过充电的电站
 void StationBrowserPage::showVisitHistory(const QList<protocol::OrderDto> &orders)
 {
     auto sorted = orders;
@@ -73,6 +79,7 @@ void StationBrowserPage::showVisitHistoryError()
     renderDiscovery();
 }
 
+// 打开搜索页并回填已生效的关键词
 void StationBrowserPage::openSearch()
 {
     keywordInput_->setText(appliedKeyword_);
@@ -82,6 +89,7 @@ void StationBrowserPage::openSearch()
     keywordInput_->selectAll();
 }
 
+// 进入位置设置页，记住返回来源页面
 void StationBrowserPage::openLocationSettings()
 {
     if (pages_->currentWidget() == locationPage_) return;
@@ -93,6 +101,7 @@ void StationBrowserPage::openLocationSettings()
     pages_->setCurrentWidget(locationPage_);
 }
 
+// 提交搜索：写入历史并重新过滤电站
 void StationBrowserPage::submitSearch()
 {
     appliedKeyword_ = keywordInput_->text().trimmed().left(80);
@@ -106,6 +115,7 @@ void StationBrowserPage::submitSearch()
     applyDiscovery();
 }
 
+// 按关键词过滤电站、标记推荐站并刷新地图与文案
 void StationBrowserPage::applyDiscovery()
 {
     stations_.clear();
@@ -117,6 +127,7 @@ void StationBrowserPage::applyDiscovery()
     const bool retained = std::any_of(stations_.cbegin(), stations_.cend(), [selected](const auto &s) {
         return s.stationId == selected;
     });
+    // 选中站被过滤掉时先关闭详情，避免它被重新打开
     if (selected > 0 && !retained) {
         // Cancel any outstanding detail request before it can reopen a filtered-out station.
         QWidget *returnPage = pages_->currentWidget();
@@ -135,6 +146,7 @@ void StationBrowserPage::applyDiscovery()
     layoutHomeOverlays();
 }
 
+// 重绘首页发现列表，同时同步搜索页内容
 void StationBrowserPage::renderDiscovery()
 {
     if (!discoveryList_) return;
@@ -142,6 +154,7 @@ void StationBrowserPage::renderDiscovery()
     renderSearch();
 }
 
+// 按输入框草稿关键词实时预览搜索结果
 void StationBrowserPage::renderSearch()
 {
     QList<protocol::StationDto> results;
@@ -153,6 +166,7 @@ void StationBrowserPage::renderSearch()
     renderStationSections(searchContent_, results, true);
 }
 
+// 构建列表区块：历史、搜索结果或推荐与附近电站
 void StationBrowserPage::renderStationSections(QWidget *container,
                                                const QList<protocol::StationDto> &items, bool search)
 {
@@ -174,6 +188,7 @@ void StationBrowserPage::renderStationSections(QWidget *container,
         return button;
     };
     const bool hasKeyword = !(search ? keywordInput_->text().trimmed() : appliedKeyword_).isEmpty();
+    // 无关键词的搜索页展示最近搜索与清空入口
     if (search && !hasKeyword) {
         label(QStringLiteral("最近搜索"), true);
         if (searchHistory_.isEmpty()) label(QStringLiteral("还没有搜索记录"));
@@ -198,6 +213,7 @@ void StationBrowserPage::renderStationSections(QWidget *container,
             appliedKeyword_.clear(); keywordInput_->clear(); applyDiscovery();
         });
     }
+    // 生成单个电站卡片，点击后打开预览
     const auto stationCard = [this, container, layout, search](const protocol::StationDto &station, const QString &section) {
         auto *card = new QPushButton(container);
         card->setObjectName(QStringLiteral("discoveryStation_%1_%2_%3").arg(search ? "search" : "home", section).arg(station.stationId));
@@ -231,6 +247,7 @@ void StationBrowserPage::renderStationSections(QWidget *container,
     if (hasKeyword) {
         label(QStringLiteral("搜索结果"), true);
         for (const auto &station : items) stationCard(station, "results");
+    // 首页分区：上次使用、为你推荐、附近电站
     } else {
         label(QStringLiteral("上次使用的电站"), true);
         bool visited = false;
@@ -252,6 +269,7 @@ void StationBrowserPage::renderStationSections(QWidget *container,
                 stationCard(station, "recommended"); break;
             }
         } else label(QStringLiteral("30 公里内暂无可用电站，可修改当前位置或稍后刷新"));
+        // 附近站不足时提示已从10公里扩大到30公里
         const auto nearby = discovery::nearby(items);
         const bool expanded = !nearby.isEmpty() && *nearby.last().distanceKm > discovery::preferredRadiusKm;
         label(expanded ? QStringLiteral("附近电站 · 30 公里内") : QStringLiteral("附近电站 · 10 公里内"), true);
@@ -260,6 +278,7 @@ void StationBrowserPage::renderStationSections(QWidget *container,
         if (nearby.isEmpty()) label(QStringLiteral("30 公里内暂无空闲电站，请稍后刷新或修改位置"));
     }
     if (items.isEmpty() && hasKeyword) label(QStringLiteral("没有找到电站，请更换关键词"));
+    // 列表末尾提供刷新电站信息按钮
     auto *reload = action(QStringLiteral("刷新电站信息"), search ? "stationSearchReload" : "stationHomeReload");
     connect(reload, &QPushButton::clicked, this, &StationBrowserPage::refreshRequested);
     layout->addStretch();

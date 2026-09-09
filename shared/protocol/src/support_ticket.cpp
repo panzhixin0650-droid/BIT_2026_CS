@@ -1,3 +1,4 @@
+// 实现工单状态转换、字段校验与 JSON 互转
 #include "charging/protocol/support_ticket.h"
 
 #include <QDateTime>
@@ -6,6 +7,7 @@
 
 namespace charging::protocol {
 
+// 状态转协议字符串
 QString toString(TicketStatus status)
 {
     switch (status) {
@@ -16,6 +18,7 @@ QString toString(TicketStatus status)
     return {};
 }
 
+// 状态对应的界面中文标签
 QString ticketStatusLabel(TicketStatus status)
 {
     switch (status) {
@@ -26,6 +29,7 @@ QString ticketStatusLabel(TicketStatus status)
     return {};
 }
 
+// 按协议字符串反查状态枚举
 bool parseTicketStatus(const QString &text, TicketStatus *status)
 {
     for (auto value : {TicketStatus::Open, TicketStatus::InProgress, TicketStatus::Resolved}) {
@@ -34,6 +38,7 @@ bool parseTicketStatus(const QString &text, TicketStatus *status)
     return false;
 }
 
+// 校验文本长度、控制字符以及代理对是否成对
 bool validTicketText(const QString &text, int maximum, bool required)
 {
     if (text.size() > maximum || (required && text.trimmed().isEmpty())) return false;
@@ -48,6 +53,7 @@ bool validTicketText(const QString &text, int maximum, bool required)
     return true;
 }
 
+// 工单 ID 必须是安全范围内的正整数
 bool positiveTicketId(const QJsonValue &value, qint64 *id)
 {
     const double number = value.toDouble();
@@ -57,6 +63,7 @@ bool positiveTicketId(const QJsonValue &value, qint64 *id)
     return true;
 }
 
+// 草稿转 JSON，含报修信息时才附加 repair 对象
 QJsonObject toJson(const SupportTicketDraft &draft)
 {
     QJsonObject json{{"submissionId", draft.submissionId}, {"title", draft.title},
@@ -67,6 +74,7 @@ QJsonObject toJson(const SupportTicketDraft &draft)
     return json;
 }
 
+// 完整工单在草稿基础上补 ID、状态、回复与时间
 QJsonObject toJson(const SupportTicketDto &ticket)
 {
     auto json = toJson(static_cast<const SupportTicketDraft &>(ticket));
@@ -79,6 +87,7 @@ QJsonObject toJson(const SupportTicketDto &ticket)
     return json;
 }
 
+// 解析草稿：字段数量、UUID、长度与模型名格式全部校验
 bool fromJson(const QJsonObject &json, SupportTicketDraft *draft, QString *error)
 {
     static const QRegularExpression uuid(QStringLiteral(
@@ -92,6 +101,7 @@ bool fromJson(const QJsonObject &json, SupportTicketDraft *draft, QString *error
     valid = valid && uuid.match(parsed.submissionId).hasMatch()
         && validTicketText(parsed.title, 80) && validTicketText(parsed.summary, 4000)
         && model.match(parsed.sourceModel).hasMatch();
+    // 报修子对象要求桩编号与故障类型都合法
     if (json.contains("repair")) {
         const auto repair = json.value("repair").toObject();
         parsed.pileCode = repair.value("pileCode").toString();
@@ -109,6 +119,7 @@ bool fromJson(const QJsonObject &json, SupportTicketDraft *draft, QString *error
     return true;
 }
 
+// 解析服务端返回的完整工单
 bool fromJson(const QJsonObject &json, SupportTicketDto *ticket, QString *error)
 {
     SupportTicketDto parsed;
@@ -117,6 +128,7 @@ bool fromJson(const QJsonObject &json, SupportTicketDto *ticket, QString *error)
                               QStringLiteral("summary"), QStringLiteral("sourceModel")})
         draft.insert(key, json.value(key));
     if (json.contains("repair")) draft.insert("repair", json.value("repair"));
+    // 时间需为以 Z 结尾的 UTC ISO 字符串
     const auto utc = [](const QJsonValue &value) {
         return value.isString() && value.toString().endsWith('Z')
             && QDateTime::fromString(value.toString(), Qt::ISODate).isValid();
@@ -126,6 +138,7 @@ bool fromJson(const QJsonObject &json, SupportTicketDto *ticket, QString *error)
         || !positiveTicketId(json.value("userId"), &parsed.userId)
         || !parseTicketStatus(json.value("status").toString(), &parsed.status)
         || !json.value("reply").isString()
+        // 已解决的工单必须带有回复内容
         || !validTicketText(json.value("reply").toString(), 2000, parsed.status == TicketStatus::Resolved)
         || !utc(json.value("createdAt")) || !utc(json.value("updatedAt"))) {
         if (error) *error = QStringLiteral("Invalid support ticket response");

@@ -1,3 +1,4 @@
+// 本文件测试 AI 助理在慢网络下界面不卡顿、可随时停止
 #include "assistant/assistant_service.h"
 #include "assistant_test_network.h"
 #include "api/mock_charging_api.h"
@@ -20,12 +21,14 @@
 using namespace charging::client;
 
 namespace {
+// NetworkState 记录构造、销毁、线程与请求次数等观测标志
 struct NetworkState {
     std::atomic<bool> constructing{false}, constructed{false}, destroyed{false};
     std::atomic<bool> offUiThread{false}, posted{false};
     std::atomic<int> requests{0};
 };
 
+// SlowNetwork 用睡眠模拟启动慢、发送慢的假网络
 class SlowNetwork final : public assistant_test::Network {
 public:
     SlowNetwork(std::shared_ptr<NetworkState> state, int postDelay, bool hanging)
@@ -46,6 +49,7 @@ private:
     int postDelay_;
 };
 
+// 工厂按给定延迟创建慢网络，便于各用例复用
 AssistantNetworkFactory slowFactory(const std::shared_ptr<NetworkState> &state,
                                     int initDelay, int postDelay, bool hang = false)
 {
@@ -59,6 +63,7 @@ AssistantNetworkFactory slowFactory(const std::shared_ptr<NetworkState> &state,
     };
 }
 
+// PaintCounter 统计控件收到的重绘事件次数
 class PaintCounter final : public QObject {
 public:
     int paints = 0;
@@ -72,6 +77,7 @@ public:
 template<typename T> T *child(QWidget &widget, const char *name)
 { return widget.findChild<T *>(QString::fromLatin1(name)); }
 
+// 设置了环境变量时才把界面截图存盘，便于人工查看
 void capture(QWidget &widget, const char *name)
 {
     const auto directory = qEnvironmentVariable("CHARGING_RESPONSIVENESS_SCREENSHOTS");
@@ -79,6 +85,7 @@ void capture(QWidget &widget, const char *name)
 }
 }
 
+// 助理响应性测试集合
 class AssistantResponsivenessTests final : public QObject {
     Q_OBJECT
 private slots:
@@ -92,6 +99,7 @@ private slots:
     void deskStreamDoesNotRebuildHistory();
 };
 
+// 三种助理用途都要覆盖同一套线程检查
 void AssistantResponsivenessTests::initializationAndPostStayOffUiThread_data()
 {
     QTest::addColumn<int>("purpose");
@@ -100,6 +108,7 @@ void AssistantResponsivenessTests::initializationAndPostStayOffUiThread_data()
     QTest::newRow("summary") << int(AssistantPurpose::TicketSummary);
 }
 
+// ask 立即返回，网络初始化与发送不占 UI 线程，结果回到 UI 线程
 void AssistantResponsivenessTests::initializationAndPostStayOffUiThread()
 {
     QFETCH(int, purpose);
@@ -132,6 +141,7 @@ void AssistantResponsivenessTests::initializationAndPostStayOffUiThread()
     QTRY_VERIFY(state->destroyed.load());
 }
 
+// 排队期间被取消的问题不应真的发出请求
 void AssistantResponsivenessTests::cancelledQueuedRequestsAreNeverSent()
 {
     const auto state = std::make_shared<NetworkState>();
@@ -155,6 +165,7 @@ void AssistantResponsivenessTests::cancelledQueuedRequestsAreNeverSent()
     QTRY_VERIFY(state->destroyed.load());
 }
 
+// 超时判定与对象销毁都不等待卡住的网络启动
 void AssistantResponsivenessTests::deadlineAndDestructionDoNotWaitForStartup()
 {
     const auto state = std::make_shared<NetworkState>();
@@ -175,6 +186,7 @@ void AssistantResponsivenessTests::deadlineAndDestructionDoNotWaitForStartup()
     QCOMPARE(done.size(), 1);
 }
 
+// 普通助理页等待时有转圈动画，且可立即停止
 void AssistantResponsivenessTests::ordinaryPageAnimatesAndCanStop()
 {
     const auto state = std::make_shared<NetworkState>();
@@ -210,6 +222,7 @@ void AssistantResponsivenessTests::ordinaryPageAnimatesAndCanStop()
     QTRY_VERIFY(state->destroyed.load());
 }
 
+// 客服台停止等待不会改动报修草稿，也不会自动建工单
 void AssistantResponsivenessTests::deskCanStopWithoutChangingRepairDraft()
 {
     MockChargingApi api;
@@ -267,6 +280,7 @@ void AssistantResponsivenessTests::deskCanStopWithoutChangingRepairDraft()
     QTRY_VERIFY(deskState->destroyed.load());
 }
 
+// 大量流式增量应合并刷新，不逐字重绘
 void AssistantResponsivenessTests::denseStreamDoesNotRepaintPerToken()
 {
     assistant_test::Network network;
@@ -287,6 +301,7 @@ void AssistantResponsivenessTests::denseStreamDoesNotRepaintPerToken()
     QCOMPARE(updates.last()[1].toString(), result.answer);
 }
 
+// 客服台流式更新只追加内容，不重建整段历史
 void AssistantResponsivenessTests::deskStreamDoesNotRebuildHistory()
 {
     MockChargingApi api;
@@ -308,5 +323,6 @@ void AssistantResponsivenessTests::deskStreamDoesNotRebuildHistory()
     desk.cancel();
 }
 
+// 测试程序入口
 QTEST_MAIN(AssistantResponsivenessTests)
 #include "assistant_responsiveness_tests.moc"

@@ -23,10 +23,12 @@
 #include <QStackedWidget>
 #include <QVBoxLayout>
 
+// 本文件实现电站浏览页主体：详情、导航路线与当前订单展示
 namespace charging::client {
 
 namespace {
 
+// 金额与单价以整数分存储，显示时转换为元
 QString formatPrice(qint64 centsPerKwh)
 {
     return QStringLiteral("¥%1.%2/度")
@@ -41,6 +43,7 @@ QString formatMoney(qint64 cents)
         .arg(cents % 100, 2, 10, QChar('0'));
 }
 
+// 以下若干函数把枚举翻译为中文文案与状态颜色
 QString pileTypeText(protocol::PileType type)
 {
     return type == protocol::PileType::Fast ? QStringLiteral("快充")
@@ -98,6 +101,7 @@ QString orderStatusText(protocol::OrderStatus status)
     return QStringLiteral("未知");
 }
 
+// 统一创建带卡片样式的容器
 QFrame *createCard(QWidget *parent)
 {
     auto *card = new QFrame(parent);
@@ -108,6 +112,7 @@ QFrame *createCard(QWidget *parent)
 
 }  // namespace
 
+// 构造函数：装配地图首页、电站详情页与导航页
 StationBrowserPage::StationBrowserPage(QWidget *parent)
     : QWidget(parent)
 {
@@ -125,6 +130,7 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
 
     setupMapHome();
 
+    // 电站详情页：站点信息、参考单价与充电桩列表
     detailPage_ = new QWidget(pages_);
     detailPage_->setObjectName(QStringLiteral("stationDetailPage"));
     auto *detailPageLayout = new QVBoxLayout(detailPage_);
@@ -189,6 +195,7 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     detailPageLayout->addWidget(detailMessageLabel_);
     detailPageLayout->addWidget(detailScrollArea, 1);
 
+    // 导航页：起终点、出行方式与路线结果展示
     navigationPage_ = new QWidget(pages_);
     navigationPage_->setObjectName(QStringLiteral("stationNavigationPage"));
     auto *navigationLayout = new QVBoxLayout(navigationPage_);
@@ -308,6 +315,7 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     routeDetails_->setMaximumHeight(88);
     routeDetails_->hide();
 
+    // 地图工具栏：缩放、全程、重载与分步详情
     auto *mapToolbar = new QHBoxLayout();
     mapToolbar->setSpacing(6);
     auto *zoomIn = new QPushButton(QStringLiteral("＋"), navigationPage_);
@@ -358,6 +366,7 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
             [zoomIn, zoomOut, fitRoute](bool ready) {
                 for (auto *button : {zoomIn, zoomOut, fitRoute}) button->setEnabled(ready);
             });
+    // 地图加载状态变化时同步禁用路线控件
     connect(routeMapView_, &RouteMapView::loadingChanged, this, [this](bool loading) {
         mapLoading_ = loading;
         if (loading) routeDisplayStack_->setCurrentWidget(routeMapView_);
@@ -393,6 +402,7 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     });
     pages_->setCurrentWidget(listPage_);
 
+    // 绑定搜索、位置、导航、订单等各类按钮信号
     const auto search = [this] { submitSearch(); };
     connect(refreshButton_, &QPushButton::clicked, this, search);
     connect(keywordInput_, &QLineEdit::returnPressed, this, search);
@@ -451,6 +461,7 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     connect(progressButton_, &QPushButton::clicked, this, [this]() {
         if (currentOrder_) emit reservationScanRequested(currentOrder_->pileCode);
     });
+    // 结束充电前需用户在对话框中确认
     connect(stopButton_, &QPushButton::clicked, this, [this]() {
         if (confirmChargingStop(this)) {
             emit stopRequested(stopButton_->property("orderId").toLongLong());
@@ -459,6 +470,7 @@ StationBrowserPage::StationBrowserPage(QWidget *parent)
     updateLocationSummary();
 }
 
+// 按当前位置与关键词组装电站查询参数
 StationQuery StationBrowserPage::stationQuery() const
 {
     StationQuery query;
@@ -486,6 +498,7 @@ void StationBrowserPage::setGreetingNickname(const QString &nickname)
     welcomeLabel_->setToolTip(welcomeLabel_->text());
 }
 
+// 列表加载中禁用输入并显示提示
 void StationBrowserPage::setListLoading(bool loading)
 {
     refreshButton_->setDisabled(loading);
@@ -496,6 +509,7 @@ void StationBrowserPage::setListLoading(bool loading)
     listMessageLabel_->setVisible(loading);
 }
 
+// 预约请求进行中统一禁用相关按钮
 void StationBrowserPage::setReservationBusy(bool busy)
 {
     reservationBusy_ = busy;
@@ -514,6 +528,7 @@ void StationBrowserPage::setReservationBusy(bool busy)
     }
 }
 
+// 收到电站列表后重新过滤与渲染
 void StationBrowserPage::showStations(const QList<protocol::StationDto> &stations)
 {
     catalog_ = stations;
@@ -538,6 +553,7 @@ void StationBrowserPage::showListMessage(const QString &message, bool error)
     actionMessageLabel_->setVisible(!message.isEmpty());
 }
 
+// 刷新当前订单卡片：文案与可用操作随状态变化
 void StationBrowserPage::showCurrentOrder(
     const std::optional<protocol::OrderDto> &order)
 {
@@ -560,6 +576,7 @@ void StationBrowserPage::showCurrentOrder(
     currentOrderToggle_->setText(QStringLiteral("ϟ 当前%1 · %2  ›")
         .arg(orderStatusText(order->status), order->stationName));
     currentOrderToggle_->setToolTip(currentOrderToggle_->text());
+    // 预约状态附加过期提示，状态由服务端判定
     if (order->status == protocol::OrderStatus::Reserved) {
         currentOrderSummaryLabel_->setText(currentOrderSummaryLabel_->text()
                                            + QChar('\n') + reservationHint(*order));
@@ -580,6 +597,7 @@ void StationBrowserPage::showCurrentOrder(
     progressButton_->setVisible(order->status == protocol::OrderStatus::Charging);
     stopButton_->hide();
     currentOrderProgressLabel_->hide();
+    // 待支付订单提示前往我的订单完成结算
     if (order->status == protocol::OrderStatus::PendingPayment) {
         currentOrderProgressLabel_->setText(
             QStringLiteral("待支付金额：%1\n请前往“我的 → 我的订单”完成结算。")
@@ -600,6 +618,7 @@ bool StationBrowserPage::isShowingStationDetail() const
     return pages_->currentWidget() == listPage_ && sheetPages_->currentWidget() == detailPage_;
 }
 
+// 返回地图概览并清除地图上的选中站
 void StationBrowserPage::showListPage()
 {
     navigationReturnPage_ = listPage_;
@@ -620,6 +639,7 @@ void StationBrowserPage::showDetailLoading()
     detailMessageLabel_->show();
 }
 
+// 渲染电站详情与各充电桩的预约、直接充电按钮
 void StationBrowserPage::showStationDetail(const StationDetailPayload &detail)
 {
     const bool alreadyShowingDetail = sheetPages_->currentWidget() == detailPage_;
@@ -653,6 +673,7 @@ void StationBrowserPage::showStationDetail(const StationDetailPayload &detail)
         status->setObjectName(QStringLiteral("pileStatus_%1").arg(pile.pileCode));
         status->setStyleSheet(QStringLiteral("color: %1; font-weight: 600;")
                                   .arg(pileStatusColor(pile.status)));
+        // 仅闲置桩可预约，忙碌时按钮置灰
         const bool canReserve = pile.status == protocol::PileStatus::Idle;
         auto *reserveButton = new QPushButton(
             canReserve ? QStringLiteral("预约") : QStringLiteral("不可预约"), card);
@@ -713,6 +734,7 @@ void StationBrowserPage::showDetailMessage(const QString &message, bool error)
     detailMessageLabel_->setVisible(!message.isEmpty());
 }
 
+// 位置解析过程中禁用位置设置控件
 void StationBrowserPage::setLocationBusy(bool busy)
 {
     locationPresetCombo_->setDisabled(busy);
@@ -721,6 +743,7 @@ void StationBrowserPage::setLocationBusy(bool busy)
     findChild<QPushButton *>("stationLocationDefault")->setDisabled(busy);
 }
 
+// 位置更新后清空旧距离并重算推荐与地图中心
 void StationBrowserPage::setResolvedLocation(const MapLocation &location)
 {
     currentLocation_ = location;
@@ -743,6 +766,7 @@ void StationBrowserPage::showLocationMessage(const QString &message, bool error)
     locationMessageLabel_->setVisible(!message.isEmpty());
 }
 
+// 进入导航页并预填起点与目的地
 void StationBrowserPage::showNavigation(const protocol::StationDto &station,
                                         const MapLocation &start)
 {
@@ -770,6 +794,7 @@ void StationBrowserPage::preloadMap(const QUrl &scriptUrl)
     routeMapView_->preload(scriptUrl);
 }
 
+// 路线请求中显示规划提示并锁定控件
 void StationBrowserPage::setRouteBusy(bool busy)
 {
     routeRequestBusy_ = busy;
@@ -807,6 +832,7 @@ void StationBrowserPage::showRouteMessage(const QString &message, bool error)
     routeMessageLabel_->setVisible(!message.isEmpty());
 }
 
+// 展示路线结果：摘要、分步说明与地图折线
 void StationBrowserPage::showRouteResult(const RouteResult &result)
 {
     showRouteMessage(result.message);
@@ -825,6 +851,7 @@ void StationBrowserPage::showRouteResult(const RouteResult &result)
     routeMapView_->setRoute(result);
 }
 
+// 退出登录等场景下重置页面到初始状态
 void StationBrowserPage::reset()
 {
     detailPricingInfo_->setRules({});
@@ -867,6 +894,7 @@ void StationBrowserPage::reset()
     pages_->setCurrentWidget(listPage_);
 }
 
+// 清空电桩卡片列表，同时释放按钮引用避免悬空指针
 void StationBrowserPage::clearPileCards()
 {
     reservationButtons_.clear();
@@ -877,6 +905,7 @@ void StationBrowserPage::clearPileCards()
     }
 }
 
+// 根据桩是否闲置或为本人预约，刷新直接充电按钮文案与可用性
 void StationBrowserPage::updateDirectChargingButtons()
 {
     for (QPushButton *button : directChargingButtons_) {
@@ -901,6 +930,7 @@ void StationBrowserPage::updateDirectChargingButtons()
     }
 }
 
+// 刷新当前定位文字，说明该位置用于算距离和路线起点
 void StationBrowserPage::updateLocationSummary()
 {
     locationCaption_->setText(currentLocation_.address == QStringLiteral("演示位置")

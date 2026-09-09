@@ -1,3 +1,4 @@
+// 协议库单元测试：覆盖分帧、信封与 DTO 契约
 #include "charging/protocol/dto.h"
 #include "charging/protocol/support_ticket.h"
 #include "charging/protocol/envelope.h"
@@ -15,6 +16,7 @@ using namespace charging::protocol;
 
 namespace {
 
+// 从契约样例目录读取一个 JSON 对象
 QJsonObject loadObject(const QString &fileName)
 {
     QFile file(QDir(QString::fromUtf8(CHARGING_PROTOCOL_FIXTURE_DIR)).filePath(fileName));
@@ -29,6 +31,7 @@ QJsonObject loadObject(const QString &fileName)
     return document.object();
 }
 
+// 手工拼出四字节大端长度头的帧，用于构造非法输入
 QByteArray rawFrame(const QByteArray &body)
 {
     const quint32 length = static_cast<quint32>(body.size());
@@ -43,6 +46,7 @@ QByteArray rawFrame(const QByteArray &body)
 
 }  // namespace
 
+// 测试类，下面的槽函数逐个对应一项用例
 class ProtocolTests : public QObject {
     Q_OBJECT
 
@@ -66,6 +70,7 @@ private slots:
     void supportTicketContract();
 };
 
+// 校验 pricingRule 为可选字段且旧样例仍可解析
 void ProtocolTests::optionalPricingRuleIsBackwardCompatible()
 {
     const auto original = loadObject(QStringLiteral("station-detail.response.json"))
@@ -97,6 +102,7 @@ void ProtocolTests::optionalPricingRuleIsBackwardCompatible()
     QCOMPARE(toJson(order), started);
 }
 
+// 工单契约测试：草稿、报修与各类非法字段
 void ProtocolTests::supportTicketContract()
 {
     const auto request = loadObject(QStringLiteral("support-ticket-create.request.json"));
@@ -138,6 +144,7 @@ void ProtocolTests::supportTicketContract()
         auto invalid = ticketJson; invalid.insert("ticketId", id);
         QVERIFY(!fromJson(invalid, &ticket));
     }
+    // 已解决必须有回复，时间格式错误应被拒绝
     auto resolved = ticketJson;
     resolved.insert("status", "RESOLVED");
     QVERIFY(!fromJson(resolved, &ticket));
@@ -157,6 +164,7 @@ void ProtocolTests::supportTicketContract()
     QVERIFY(!encodeFrame({{"items", items}, {"hasMore", true}}).isEmpty());
 }
 
+// 编码后长度头应为大端表示
 void ProtocolTests::encodeUsesBigEndianLength()
 {
     const QByteArray frame = encodeFrame(QJsonObject{});
@@ -164,6 +172,7 @@ void ProtocolTests::encodeUsesBigEndianLength()
     QCOMPARE(frame.mid(4), QByteArray("{}"));
 }
 
+// 完整帧能解出一条消息且缓冲清空
 void ProtocolTests::decodesCompleteFrame()
 {
     const QJsonObject message{{QStringLiteral("type"), QStringLiteral("system.ping")}};
@@ -176,6 +185,7 @@ void ProtocolTests::decodesCompleteFrame()
     QCOMPARE(decoder.bufferedBytes(), qsizetype{0});
 }
 
+// 长度头被拆开时先缓存，补齐后再解析
 void ProtocolTests::buffersSplitHeader()
 {
     const QJsonObject message{{QStringLiteral("part"), QStringLiteral("header")}};
@@ -192,6 +202,7 @@ void ProtocolTests::buffersSplitHeader()
     QCOMPARE(result.messages, QList<QJsonObject>{message});
 }
 
+// 消息体不完整时继续等待后续数据
 void ProtocolTests::buffersSplitBody()
 {
     const QJsonObject message{{QStringLiteral("part"), QStringLiteral("body")}};
@@ -207,6 +218,7 @@ void ProtocolTests::buffersSplitBody()
     QCOMPARE(result.messages, QList<QJsonObject>{message});
 }
 
+// 多条消息一起到达时，一次解出各条消息
 void ProtocolTests::decodesCoalescedFrames()
 {
     const QJsonObject first{{QStringLiteral("index"), 1}};
@@ -218,12 +230,14 @@ void ProtocolTests::decodesCoalescedFrames()
     QCOMPARE(result.messages, (QList<QJsonObject>{first, second}));
 }
 
+// 超过体积上限时编码返回空字节
 void ProtocolTests::encoderRejectsOversizedBody()
 {
     const QString oversized(static_cast<qsizetype>(kMaxFrameBodyBytes), QLatin1Char('x'));
     QVERIFY(encodeFrame({{QStringLiteral("value"), oversized}}).isEmpty());
 }
 
+// 长度为零或超限都应报 InvalidLength
 void ProtocolTests::rejectsInvalidLengths()
 {
     FrameDecoder decoder;
@@ -241,6 +255,7 @@ void ProtocolTests::rejectsInvalidLengths()
     QCOMPARE(result.error, FrameError::InvalidLength);
 }
 
+// JSON 语法错误的帧被拒绝
 void ProtocolTests::rejectsInvalidJson()
 {
     FrameDecoder decoder;
@@ -257,6 +272,7 @@ void ProtocolTests::rejectsNonObjectRoot()
     QVERIFY(result.messages.isEmpty());
 }
 
+// 请求信封序列化与解析结果一致
 void ProtocolTests::requestEnvelopeRoundTrip()
 {
     RequestEnvelope original;
@@ -272,6 +288,7 @@ void ProtocolTests::requestEnvelopeRoundTrip()
     QCOMPARE(parsed.toJson(), original.toJson());
 }
 
+// 响应信封序列化与解析结果一致
 void ProtocolTests::responseEnvelopeRoundTrip()
 {
     ResponseEnvelope original;
@@ -288,6 +305,7 @@ void ProtocolTests::responseEnvelopeRoundTrip()
     QCOMPARE(parsed.toJson(), original.toJson());
 }
 
+// data 类型错误与版本不匹配都应报出对应字段
 void ProtocolTests::envelopeRejectsInvalidFields()
 {
     QJsonObject request{
@@ -307,6 +325,7 @@ void ProtocolTests::envelopeRejectsInvalidFields()
     QVERIFY(error.contains(QStringLiteral("version")));
 }
 
+// 用样例文件验证各 DTO 往返转换不丢字段
 void ProtocolTests::dtoRoundTrips()
 {
     QString error;
@@ -339,12 +358,14 @@ void ProtocolTests::dtoRoundTrips()
     QVERIFY2(fromJson(orderJson, &order, &error), qPrintable(error));
     QCOMPARE(toJson(order), orderJson);
 
+    // 未知枚举值应解析失败并提示字段名
     QJsonObject badOrder = orderJson;
     badOrder.insert(QStringLiteral("status"), QStringLiteral("UNKNOWN"));
     QVERIFY(!fromJson(badOrder, &order, &error));
     QVERIFY(error.contains(QStringLiteral("status")));
 }
 
+// 遍历样例目录，请求与响应的版本、类型、requestId 需一致
 void ProtocolTests::fixtureEnvelopesMatch()
 {
     const QDir directory(QString::fromUtf8(CHARGING_PROTOCOL_FIXTURE_DIR));
@@ -380,6 +401,7 @@ void ProtocolTests::fixtureEnvelopesMatch()
     }
 }
 
+// 进度样例应单调递增，金额按四舍五入由电量与单价算出
 void ProtocolTests::progressFixturesAreMonotonicAndBillCorrectly()
 {
     const QJsonObject first = loadObject(QStringLiteral("order-progress-1.response.json"));

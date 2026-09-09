@@ -1,3 +1,4 @@
+// 本文件测试离线站点地图首页：预热、手势、筛选与发现列表排序
 #include "api/mock_charging_api.h"
 #include "ui/main_window.h"
 #include "ui/station_browser_page.h"
@@ -28,6 +29,7 @@
 
 using namespace charging::client;
 
+// 站点地图相关测试集合
 class StationMapTests final : public QObject {
     Q_OBJECT
 private slots:
@@ -47,6 +49,7 @@ private slots:
 };
 
 namespace {
+// 事件过滤器，统计控件的重绘次数
 class PaintProbe final : public QObject {
 public:
     int paints = 0;
@@ -57,6 +60,7 @@ public:
     }
 };
 
+// 登录并等待地图与站点标记就绪
 void login(MainWindow &window)
 {
     window.show();
@@ -67,6 +71,7 @@ void login(MainWindow &window)
     QTRY_VERIFY_WITH_TIMEOUT(window.findChild<StationMapView *>()->isReady(), 2000);
 }
 
+// 设置环境变量时保存界面截图
 void screenshot(MainWindow &window, const QString &name)
 {
     const QString directory = qEnvironmentVariable("BIT_CLIENT_SCREENSHOT_DIR");
@@ -76,6 +81,7 @@ void screenshot(MainWindow &window, const QString &name)
 }
 }
 
+// 登录输入期间预热离线首页地图，且不阻塞界面事件循环
 void StationMapTests::offlineHomePreloadsDuringLogin()
 {
     MockChargingApi api;
@@ -126,6 +132,7 @@ void StationMapTests::offlineHomePreloadsDuringLogin()
     QVERIFY(map->isReady());
 }
 
+// 离线底图按视口缓存，同参数绘制结果一致
 void StationMapTests::offlineBackdropCachesViewport()
 {
     DemoMapBackdrop backdrop;
@@ -160,6 +167,7 @@ void StationMapTests::offlineBackdropCachesViewport()
     QVERIFY(first != second);
 }
 
+// 预加载途中销毁视图不应崩溃
 void StationMapTests::closingDuringPreloadIsSafe()
 {
     {
@@ -171,6 +179,7 @@ void StationMapTests::closingDuringPreloadIsSafe()
     QCoreApplication::processEvents();
 }
 
+// 为不同窗口尺寸和高峰/平时时段准备用例
 void StationMapTests::mapHomeFitsAndSelects_data()
 {
     QTest::addColumn<QSize>("size");
@@ -186,6 +195,7 @@ void StationMapTests::mapHomeFitsAndSelects_data()
     QTest::newRow("peak-wide") << QSize(900, 640) << peak << QStringLiteral("1.62");
 }
 
+// 首页地图自适应尺寸，选中标记只显示预览不拉详情
 void StationMapTests::mapHomeFitsAndSelects()
 {
     QFETCH(QSize, size);
@@ -249,6 +259,7 @@ void StationMapTests::mapHomeFitsAndSelects()
     QTRY_VERIFY(window.findChild<QWidget *>("stationDetailPage")->isVisible());
 }
 
+// 筛选后清除选中但保留地图，无结果时给出提示
 void StationMapTests::filteringClearsSelectionAndRetainsMap()
 {
     MockChargingApi api;
@@ -281,6 +292,7 @@ void StationMapTests::filteringClearsSelectionAndRetainsMap()
     QVERIFY(!window.findChild<QLabel *>("stationListMessage")->isVisible());
 }
 
+// 离线地图的缩放、拖拽与回到当前位置
 void StationMapTests::mockPanZoomAndRecenter()
 {
     StationMapView map;
@@ -307,6 +319,7 @@ void StationMapTests::mockPanZoomAndRecenter()
     QVERIFY(!map.findChild<QPushButton *>("stationMapLocate")->isEnabled());
 }
 
+// 无空闲桩且缺预测数据时的显示与纯文本转义
 void StationMapTests::unavailableAndMissingPrediction()
 {
     StationBrowserPage page;
@@ -328,6 +341,7 @@ void StationMapTests::unavailableAndMissingPrediction()
     QVERIFY(!page.findChild<QWidget *>("stationPreviewCard")->isVisible());
 }
 
+// 小屏下当前订单卡片展开不挤压地图可用区域
 void StationMapTests::compactOrderAndFiltersKeepMapUsable()
 {
     MockChargingApi api;
@@ -372,6 +386,7 @@ void StationMapTests::compactOrderAndFiltersKeepMapUsable()
     QCOMPARE(map->height(), height);
 }
 
+// 发现面板可拖拽折叠，搜索返回后保留关键词
 void StationMapTests::discoverySheetDragAndSearchReturn()
 {
     MockChargingApi api;
@@ -428,6 +443,7 @@ void StationMapTests::discoverySheetDragAndSearchReturn()
     QVERIFY(window.findChild<QPushButton *>("stationMapLocate"));
 }
 
+// 搜索历史按用户隔离，只有实际充电过才算访问记录
 void StationMapTests::searchHistoryIsPerUserAndVisitsUseCharging()
 {
     const qint64 userA = 987654321, userB = 987654322;
@@ -469,6 +485,7 @@ void StationMapTests::searchHistoryIsPerUserAndVisitsUseCharging()
     QVERIFY(page.findChild<QPushButton *>("discoveryStation_search_visited_10"));
 }
 
+// 地图手势进入全屏与发现列表选站的联动
 void StationMapTests::mapGesturesAndDiscoverySelection()
 {
     MockChargingApi api;
@@ -535,6 +552,7 @@ void StationMapTests::mapGesturesAndDiscoverySelection()
     QVERIFY(!panel->isVisible());
 }
 
+// 推荐与附近排序：排除不可用、限制距离并按价格距离比较
 void StationMapTests::discoveryRankingLimitsAvailability()
 {
     using namespace charging::protocol;

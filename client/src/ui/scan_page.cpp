@@ -12,7 +12,9 @@
 #include <QVBoxLayout>
 #include <QTimer>
 #include <QRegularExpression>
+// 扫码页：提供扫码入口与手动输入电桩编号
 namespace charging::client {
+// 构造：搭建按钮、输入框与提示，无摄像头构建时隐藏扫码键
 ScanPage::ScanPage(QWidget *parent):QWidget(parent){
  setObjectName("scanPage");auto *v=new QVBoxLayout(this);v->setContentsMargins(20,24,20,24);v->setSpacing(16);
  auto *title=new QLabel(QStringLiteral("扫一扫"),this);title->setObjectName("scanHeading");auto titleFont=title->font();titleFont.setPointSize(24);titleFont.setBold(true);title->setFont(titleFont);v->addWidget(title);
@@ -30,6 +32,7 @@ ScanPage::ScanPage(QWidget *parent):QWidget(parent){
  cameraButton_->hide();imageButton_->hide();hint->setText(QStringLiteral("此构建可输入电桩编号；启用摄像头构建后可直接扫码。"));
 #endif
 }
+// 校验编号格式后关闭扫码框并上报
 void ScanPage::submitPileCode(const QString &input){
  const QString code=input.trimmed();static const QRegularExpression valid("^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$");
  if(!valid.match(code).hasMatch()){showMessage(QStringLiteral("请输入有效的电桩编号"),true);return;}
@@ -37,9 +40,11 @@ void ScanPage::submitPileCode(const QString &input){
 }
 void ScanPage::preparePileCode(const QString &code){pileCodeInput_->setText(code.trimmed());}
 void ScanPage::prepareDirectPileCode(const QString &code){preparePileCode(code);}
+// 加载中禁用交互，防止重复发起
 void ScanPage::setLoading(bool loading){if(loading)closeScanner();cameraButton_->setDisabled(loading);imageButton_->setDisabled(loading);pileCodeInput_->setDisabled(loading);startButton_->setDisabled(loading);}
 void ScanPage::showMessage(const QString &message,bool error){messageLabel_->setText(message);messageLabel_->setStyleSheet(error?"color:#c62828;":"color:#245c45;");}
 void ScanPage::reset(){closeScanner();setLoading(false);pileCodeInput_->clear();messageLabel_->clear();}
+// 以全屏方式打开扫码对话框，识别成功后回填提交
 void ScanPage::openScanner(bool camera){
 #ifdef CHARGING_CLIENT_HAS_SCANNER
  if(scannerDialog_||!isVisible()||!startButton_->isEnabled())return;
@@ -54,7 +59,9 @@ void ScanPage::openScanner(bool camera){
  Q_UNUSED(camera);
 #endif
 }
+// 主动关闭扫码框时不触发取消信号
 void ScanPage::closeScanner(){closingScanner_=true;if(scannerDialog_)scannerDialog_->reject();scannerDialog_.clear();closingScanner_=false;}
+// 页面显示即自动开摄像头，隐藏时释放
 void ScanPage::showEvent(QShowEvent *event){QWidget::showEvent(event);QTimer::singleShot(0,this,[this]{if(isVisible())openScanner(true);});}
 void ScanPage::hideEvent(QHideEvent *event){closeScanner();QWidget::hideEvent(event);}
 void ScanPage::resizeEvent(QResizeEvent *event){QWidget::resizeEvent(event);if(scannerDialog_)scannerDialog_->setGeometry(rect());}

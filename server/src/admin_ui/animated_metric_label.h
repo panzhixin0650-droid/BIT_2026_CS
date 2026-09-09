@@ -1,3 +1,4 @@
+// 仪表盘指标标签：数字带入场动画，文本与布局保持不变
 #pragma once
 
 #include "chart_intro.h"
@@ -19,6 +20,7 @@ public:
         intro_->setObjectName(QStringLiteral("metricIntroAnimation"));
     }
 
+    // 文本含数字才播放动画，否则直接显示最终值
     void playIntro()
     {
         if (text().contains(QRegularExpression(QStringLiteral("[0-9]")))) intro_->replay();
@@ -26,6 +28,7 @@ public:
     }
     void finishIntro() { intro_->finish(); }
 
+    // 按动画进度缩放文本中的数字，保留原有小数位
     QString displayedText() const
     {
         if (intro_->progress() >= 1.0) return text();
@@ -47,6 +50,7 @@ public:
     }
 
 protected:
+    // 动画进行中自行绘制过渡文本，结束后交回 QLabel 绘制
     void paintEvent(QPaintEvent *event) override
     {
         if (intro_->state() != QAbstractAnimation::Running) {

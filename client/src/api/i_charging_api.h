@@ -1,3 +1,4 @@
+// 客户端充电API抽象接口：Mock与TCP实现共用
 #pragma once
 
 #include "api/api_result.h"
@@ -7,6 +8,7 @@
 
 namespace charging::client {
 
+// 以异步方式发请求，结果通过信号回传界面
 class IChargingApi : public QObject {
     Q_OBJECT
 
@@ -14,6 +16,7 @@ public:
     explicit IChargingApi(QObject *parent = nullptr);
     ~IChargingApi() override;
 
+    // 各业务请求均返回请求ID，用于匹配回调结果
     [[nodiscard]] virtual QString loginUser(const QString &phone) = 0;
     [[nodiscard]] virtual QString logout() = 0;
     [[nodiscard]] virtual QString getProfile() = 0;
@@ -25,16 +28,19 @@ public:
     [[nodiscard]] virtual QString listOrders() = 0;
     [[nodiscard]] virtual QString reserve(const QString &pileCode) = 0;
     [[nodiscard]] virtual QString cancel(qint64 orderId) = 0;
+    // 开始充电可携带预约订单ID，表示由预约转充电
     [[nodiscard]] virtual QString startCharging(
         const QString &pileCode,
         std::optional<qint64> reservationOrderId = std::nullopt) = 0;
     [[nodiscard]] virtual QString getChargingProgress(qint64 orderId) = 0;
     [[nodiscard]] virtual QString stopCharging(qint64 orderId) = 0;
     [[nodiscard]] virtual QString payOrder(qint64 orderId) = 0;
+    // 工单三个方法有默认实现，子类可选择覆盖
     [[nodiscard]] virtual QString createSupportTicket(const protocol::SupportTicketDraft &draft);
     [[nodiscard]] virtual QString listSupportTickets(std::optional<qint64> beforeId = {});
     [[nodiscard]] virtual QString getSupportTicket(qint64 ticketId);
 
+// 每类请求对应一个完成信号，携带结果结构体
 signals:
     void supportTicketCreated(const charging::client::TicketResult &result);
     void supportTicketsListed(const charging::client::TicketListResult &result);

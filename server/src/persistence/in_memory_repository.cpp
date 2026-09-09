@@ -1,3 +1,4 @@
+// 本文件实现内存仓储替身，仅供开发与测试使用
 #include "in_memory_repository.h"
 
 #include <QDateTime>
@@ -11,6 +12,7 @@ namespace charging::server {
 
 using namespace charging::protocol;
 
+// 构造时灌入演示数据：管理员、用户、站点与桩
 InMemoryRepository::InMemoryRepository()
 {
     AdminRecord admin;
@@ -24,6 +26,7 @@ InMemoryRepository::InMemoryRepository()
     admin.updatedAt = admin.createdAt;
     admins_ = {admin};
 
+    // 三个演示用户分别覆盖正常、冻结与余额不足场景
     users_ = {
         UserDto{1, QStringLiteral("13800000001"), QStringLiteral("演示用户0001"),
                 20000, UserStatus::Active, QStringLiteral("2026-06-04T11:53:41Z")},
@@ -45,6 +48,7 @@ InMemoryRepository::InMemoryRepository()
                    StationStatus::Active},
     };
 
+    // 六个演示桩覆盖空闲、充电、故障与离线状态
     piles_ = {
         PileDto{1, 1, QStringLiteral("PILE-A-01"), PileType::Fast, 10.0,
                 PileStatus::Idle, 4, 14400},
@@ -63,6 +67,7 @@ InMemoryRepository::InMemoryRepository()
     nextStationId_ = 4;
     nextPileId_ = 7;
 
+    // 辅助函数按天数偏移生成一条演示订单
     const QDateTime now = QDateTime::currentDateTimeUtc();
     const auto makeOrder = [&now](qint64 id,
                                   qint64 userId,
@@ -99,6 +104,7 @@ InMemoryRepository::InMemoryRepository()
         return order;
     };
 
+    // 预置历史与进行中订单，供看板和列表演示
     orders_ = {
         makeOrder(1001, 1, 1, QStringLiteral("浑南演示充电站"), 1,
                   QStringLiteral("PILE-A-01"), OrderStatus::Completed, 0, 5000, 675),
@@ -115,11 +121,13 @@ InMemoryRepository::InMemoryRepository()
     };
 }
 
+// 此存储状态检查固定返回成功，业务操作仍会校验参数和状态
 bool InMemoryRepository::lastOperationSucceeded() const noexcept
 {
     return true;
 }
 
+// 事务用整表快照模拟，未提交时可还原数据，不会写入磁盘
 bool InMemoryRepository::beginTransaction()
 {
     if (transaction_.has_value()) return false;
@@ -136,6 +144,7 @@ bool InMemoryRepository::commitTransaction()
     return true;
 }
 
+// 回滚时用快照覆盖各表与自增ID
 void InMemoryRepository::rollbackTransaction()
 {
     if (!transaction_.has_value()) return;
@@ -154,6 +163,7 @@ void InMemoryRepository::rollbackTransaction()
     transaction_.reset();
 }
 
+// 按用户名不区分大小写查找管理员
 std::optional<AdminRecord> InMemoryRepository::findAdminByUsername(
     const QString &username) const
 {
@@ -186,6 +196,7 @@ QList<AdminRecord> InMemoryRepository::listAdmins() const
     return result;
 }
 
+// 新增管理员前检查用户名不重复
 AdminRecord InMemoryRepository::createAdmin(AdminRecord admin)
 {
     if (admin.username.isEmpty()
@@ -211,6 +222,7 @@ bool InMemoryRepository::updateAdmin(const AdminRecord &admin)
     return true;
 }
 
+// 直接覆盖管理员的站点授权列表，忽略授权人与时间
 bool InMemoryRepository::replaceAdminStationScopes(
     qint64 adminId,
     const QList<qint64> &stationIds,
@@ -238,6 +250,7 @@ bool InMemoryRepository::appendAdminAudit(qint64 actorAdminId,
         && !detailsJson.isEmpty() && !createdAt.isEmpty();
 }
 
+// 按手机号查用户
 std::optional<UserDto> InMemoryRepository::findUserByPhone(const QString &phone) const
 {
     const auto found = std::find_if(users_.cbegin(), users_.cend(),
@@ -285,6 +298,7 @@ bool InMemoryRepository::updateUser(const UserDto &user)
     return true;
 }
 
+// 充值时校验金额为正并防止余额溢出
 std::optional<UserDto> InMemoryRepository::addUserBalance(qint64 userId,
                                                           qint64 amountCents)
 {
@@ -310,6 +324,7 @@ QList<UserDto> InMemoryRepository::listUsers() const
     return result;
 }
 
+// 只列出启用站点，并补齐桩数量统计
 QList<StationDto> InMemoryRepository::listActiveStations() const
 {
     QList<StationDto> result;
@@ -345,6 +360,7 @@ std::optional<StationDto> InMemoryRepository::findStationById(qint64 stationId) 
         : std::optional<StationDto>(withPileCounts(*found));
 }
 
+// 建站同时批量建桩，校验编号唯一与额定功率范围
 StationDto InMemoryRepository::createStation(StationDto station,
                                              const QList<PileDto> &piles)
 {
@@ -387,6 +403,7 @@ StationDto InMemoryRepository::createStation(StationDto station,
     return withPileCounts(station);
 }
 
+// 更新站点基础信息，校验名称地址长度与单价
 bool InMemoryRepository::updateStation(const StationDto &station)
 {
     const auto found = std::find_if(stations_.begin(), stations_.end(),
@@ -411,6 +428,7 @@ bool InMemoryRepository::updateStation(const StationDto &station)
     return true;
 }
 
+// 有订单或被工单引用的站点不允许删除
 DeleteStationResult InMemoryRepository::deleteStation(qint64 stationId)
 {
     const auto station = std::find_if(
@@ -467,6 +485,7 @@ QList<PileDto> InMemoryRepository::listPiles() const
     return result;
 }
 
+// 新增桩要求站点存在且启用、编号未占用
 PileDto InMemoryRepository::createPile(PileDto pile)
 {
     if (pile.stationId <= 0
@@ -489,6 +508,7 @@ PileDto InMemoryRepository::createPile(PileDto pile)
     return pile;
 }
 
+// 仅空闲或离线且无订单引用的桩可删除
 DeletePileResult InMemoryRepository::deletePile(qint64 pileId)
 {
     const auto found = std::find_if(piles_.begin(), piles_.end(), [pileId](const PileDto &pile) {
@@ -526,6 +546,7 @@ bool InMemoryRepository::updatePile(const PileDto &pile)
     return true;
 }
 
+// 列订单时回填站点名与桩编号，并按时间倒序
 QList<OrderDto> InMemoryRepository::listOrders(std::optional<qint64> userId) const
 {
     QList<OrderDto> result;
@@ -554,6 +575,7 @@ std::optional<OrderDto> InMemoryRepository::findOrderById(qint64 orderId) const
     return std::nullopt;
 }
 
+// 建单需在事务内，且拦截重复单号与同用户同桩冲突
 OrderDto InMemoryRepository::createOrder(OrderDto order)
 {
     if (!transaction_.has_value()) return {};
@@ -573,6 +595,7 @@ OrderDto InMemoryRepository::createOrder(OrderDto order)
     return order;
 }
 
+// 更新订单前比对期望状态，防止状态被覆盖
 bool InMemoryRepository::updateOrder(const OrderDto &order, OrderStatus expectedStatus)
 {
     if (!transaction_.has_value()) return false;
@@ -592,6 +615,7 @@ bool InMemoryRepository::updateOrder(const OrderDto &order, OrderStatus expected
     return false;
 }
 
+// 统计站点总桩数、可用桩数与在线率
 StationDto InMemoryRepository::withPileCounts(StationDto station) const
 {
     qint64 total = 0;
@@ -633,6 +657,7 @@ std::optional<SupportTicketDto> InMemoryRepository::findSupportSubmission(
     return std::nullopt;
 }
 
+// 按用户与游标倒序取工单，限制单页数量
 QList<SupportTicketDto> InMemoryRepository::listSupportTickets(
     std::optional<qint64> userId, std::optional<qint64> beforeId, int limit) const
 {
@@ -645,6 +670,7 @@ QList<SupportTicketDto> InMemoryRepository::listSupportTickets(
     return result;
 }
 
+// 同一用户的提交编号不能重复，新工单设为待处理且无回复
 SupportTicketDto InMemoryRepository::createSupportTicket(SupportTicketDto ticket)
 {
     if (findSupportSubmission(ticket.userId, ticket.submissionId)) return {};

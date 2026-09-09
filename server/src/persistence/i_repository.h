@@ -1,3 +1,4 @@
+// 本文件定义仓储接口，隔离业务层与具体存储实现
 #pragma once
 
 #include "charging/protocol/dto.h"
@@ -10,6 +11,7 @@
 
 namespace charging::server {
 
+// 管理员账号记录，含角色、状态、版本号与授权站点
 struct AdminRecord {
     qint64 adminId = 0;
     QString username;
@@ -26,6 +28,7 @@ struct AdminRecord {
     QList<qint64> stationIds;
 };
 
+// 删除充电桩的结果枚举，区分占用与关联订单
 enum class DeletePileResult { Deleted, NotFound, HasOrders, Busy, StorageError };
 
 enum class DeleteStationResult {
@@ -38,6 +41,7 @@ enum class DeleteStationResult {
 // Business-oriented persistence boundary. The production SQLite repository
 // and the development in-memory repository expose the same operations, so
 // ApplicationService never depends on SQL or QSqlQuery.
+// SQLite实现与内存实现都遵循这一组操作
 class IRepository {
 public:
     virtual ~IRepository() = default;
@@ -69,6 +73,7 @@ public:
     [[nodiscard]] virtual bool commitTransaction() = 0;
     virtual void rollbackTransaction() = 0;
 
+    // 管理员账号、站点授权与审计写入接口
     [[nodiscard]] virtual std::optional<AdminRecord>
     findAdminByUsername(const QString &username) const = 0;
     [[nodiscard]] virtual std::optional<AdminRecord>
@@ -87,6 +92,7 @@ public:
                                                 const QString &detailsJson,
                                                 const QString &createdAt) = 0;
 
+    // 用户查询、创建、更新与充值接口
     [[nodiscard]] virtual std::optional<charging::protocol::UserDto>
     findUserByPhone(const QString &phone) const = 0;
     [[nodiscard]] virtual std::optional<charging::protocol::UserDto>
@@ -102,6 +108,7 @@ public:
     [[nodiscard]] virtual QList<charging::protocol::UserDto>
     listUsers() const = 0;
 
+    // 站点与充电桩的增删改查接口
     [[nodiscard]] virtual QList<charging::protocol::StationDto>
     listActiveStations() const = 0;
     [[nodiscard]] virtual QList<charging::protocol::StationDto>
@@ -124,6 +131,7 @@ public:
     [[nodiscard]] virtual bool updatePile(
         const charging::protocol::PileDto &pile) = 0;
 
+    // 订单接口，更新时须传入期望状态做并发校验
     [[nodiscard]] virtual QList<charging::protocol::OrderDto>
     listOrders(std::optional<qint64> userId = std::nullopt) const = 0;
     [[nodiscard]] virtual std::optional<charging::protocol::OrderDto>

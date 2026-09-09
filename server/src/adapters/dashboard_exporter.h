@@ -1,3 +1,4 @@
+// 看板导出器声明：只负责序列化，不查询数据库
 #pragma once
 
 #include <QJsonObject>
@@ -9,6 +10,7 @@ namespace charging::server {
 // directly; ApplicationService remains responsible for assembling the data.
 class DashboardExporter final {
 public:
+    // 输入服务层给的快照对象和输出路径，返回是否成功
     [[nodiscard]] bool exportSnapshot(const QString &path,
                                       const QJsonObject &snapshot,
                                       QString *error = nullptr) const;

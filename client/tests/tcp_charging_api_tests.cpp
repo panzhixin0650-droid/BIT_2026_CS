@@ -1,3 +1,4 @@
+// 本文件测试 TCP 客户端适配器的请求编码、响应映射与失败处理
 #include "api/tcp_charging_api.h"
 
 #include "charging/protocol/dto.h"
@@ -20,6 +21,7 @@ using namespace charging;
 
 namespace {
 
+// 测试用服务器：解码请求并按需回帧
 class TestTcpServer final : public QObject {
 public:
     explicit TestTcpServer(QObject *parent = nullptr)
@@ -41,6 +43,7 @@ public:
         });
     }
 
+    // 监听本机随机端口
     bool listen()
     {
         return server_.listen(QHostAddress::LocalHost, 0);
@@ -56,6 +59,7 @@ public:
         handler_ = std::move(handler);
     }
 
+    // 回复响应，可选择拆成两段发送以测半包
     void reply(const protocol::RequestEnvelope &request,
                int code,
                const QJsonObject &data,
@@ -88,6 +92,7 @@ public:
         });
     }
 
+    // 直接写入自定义帧字节，用于粘包等场景
     void writeFrames(const QByteArray &frames)
     {
         if (socket_ != nullptr) {
@@ -106,6 +111,7 @@ public:
     QString error;
 
 private:
+    // 累积解码收到的字节，逐条交给处理函数
     void readRequests()
     {
         if (socket_ == nullptr) {
@@ -134,6 +140,7 @@ private:
     std::function<void(const protocol::RequestEnvelope &)> handler_;
 };
 
+// 以下是固定测试数据：用户、站点、电桩
 protocol::UserDto fixtureUser(const QString &nickname = QStringLiteral("演示用户0001"))
 {
     return {
@@ -180,6 +187,7 @@ protocol::PileDto fixturePile()
     };
 }
 
+// 固定订单数据：金额单位分，电量单位 Wh
 protocol::OrderDto fixtureOrder()
 {
     protocol::OrderDto order;
@@ -213,6 +221,7 @@ QJsonObject loginData(const QString &token = QStringLiteral("tcp-token"))
 
 }  // namespace
 
+// TCP 适配器测试类
 class TcpChargingApiTests final : public QObject {
     Q_OBJECT
 
@@ -230,6 +239,7 @@ private slots:
     void validatesInputsBeforeSending();
 };
 
+// 注册结果类型，信号才能通过 QVariant 传递
 void TcpChargingApiTests::initTestCase()
 {
     qRegisterMetaType<client::LoginResult>();
@@ -246,6 +256,7 @@ void TcpChargingApiTests::initTestCase()
     qRegisterMetaType<client::PaymentResult>();
 }
 
+// 用例：登录、资料、充值、站点查询的完整往返
 void TcpChargingApiTests::loginProfileAndStationRoundTrip()
 {
     TestTcpServer server;
@@ -345,6 +356,7 @@ void TcpChargingApiTests::loginProfileAndStationRoundTrip()
 
     QCOMPARE(server.error, QString{});
     QCOMPARE(server.requests.size(), 7);
+    // 核对登录不带令牌，登录后的业务请求带令牌
     QVERIFY(!server.requests.first().token.has_value());
     for (qsizetype index = 1; index < server.requests.size(); ++index) {
         QVERIFY(server.requests.at(index).token.has_value());
@@ -354,6 +366,7 @@ void TcpChargingApiTests::loginProfileAndStationRoundTrip()
              QStringLiteral("浑南区"));
 }
 
+// 用例：各类订单响应都能正确映射为结果对象
 void TcpChargingApiTests::mapsEveryOrderResponse()
 {
     TestTcpServer server;
@@ -441,6 +454,7 @@ void TcpChargingApiTests::mapsEveryOrderResponse()
     QTRY_COMPARE_WITH_TIMEOUT(stopSpy.count(), 1, 2000);
     const auto stop =
         qvariant_cast<client::ChargingStopResult>(stopSpy.takeFirst().at(0));
+    // 余额不足时结算结果带出差额
     QCOMPARE(stop.payload->shortfallCents, std::optional<qint64>{238});
 
     QSignalSpy paySpy(&api, &client::IChargingApi::paymentCompleted);
@@ -457,6 +471,7 @@ void TcpChargingApiTests::mapsEveryOrderResponse()
              qint64{1001});
 }
 
+// 数据驱动：整帧与分片两种回复方式
 void TcpChargingApiTests::refreshContinuesDuringSettlementNotice_data()
 {
     QTest::addColumn<bool>("splitFrame");
@@ -464,6 +479,7 @@ void TcpChargingApiTests::refreshContinuesDuringSettlementNotice_data()
     QTest::newRow("fragmented-responses") << true;
 }
 
+// 用例：结算提示框期间的刷新请求仍能完成
 void TcpChargingApiTests::refreshContinuesDuringSettlementNotice()
 {
     QFETCH(bool, splitFrame);
@@ -518,6 +534,7 @@ void TcpChargingApiTests::refreshContinuesDuringSettlementNotice()
     QSignalSpy currentSpy(&api, &client::IChargingApi::currentOrderCompleted);
     QSignalSpy stopSpy(&api, &client::IChargingApi::chargingStopCompleted);
     bool noticeClosed = false;
+    // 在停止回执里模拟弹窗的嵌套事件循环
     connect(&api, &client::IChargingApi::chargingStopCompleted, &api,
             [&](const client::ChargingStopResult &result) {
         if (!result.ok()) {
@@ -551,6 +568,7 @@ void TcpChargingApiTests::refreshContinuesDuringSettlementNotice()
     QCOMPARE(server.error, QString{});
 }
 
+// 用例：多条响应合并写入时按请求号分别完成
 void TcpChargingApiTests::coalescedResponsesCompleteDuringNotice()
 {
     TestTcpServer server;
@@ -600,6 +618,7 @@ void TcpChargingApiTests::coalescedResponsesCompleteDuringNotice()
     QCOMPARE(spy.count(), 2);
 }
 
+// 用例：非法帧会取消排队的登录并清理会话
 void TcpChargingApiTests::queuedLoginIsCancelledByInvalidFrame()
 {
     TestTcpServer server;
@@ -633,6 +652,7 @@ void TcpChargingApiTests::queuedLoginIsCancelledByInvalidFrame()
     QVERIFY(!server.requests.last().token.has_value());
 }
 
+// 数据驱动：超时与断开两类传输失败
 void TcpChargingApiTests::realTransportFailureClearsSession_data()
 {
     QTest::addColumn<bool>("disconnect");
@@ -640,6 +660,7 @@ void TcpChargingApiTests::realTransportFailureClearsSession_data()
     QTest::newRow("disconnect") << true;
 }
 
+// 用例：传输失败后清空令牌，且不自动重发停止请求
 void TcpChargingApiTests::realTransportFailureClearsSession()
 {
     QFETCH(bool, disconnect);
@@ -678,6 +699,7 @@ void TcpChargingApiTests::realTransportFailureClearsSession()
     QCOMPARE(server.requests.size(), 3); // No automatic replay of order.stop.
 }
 
+// 用例：业务错误与传输错误各只上报一次
 void TcpChargingApiTests::propagatesBusinessAndTransportFailuresExactlyOnce()
 {
     TestTcpServer businessServer;
@@ -714,6 +736,7 @@ void TcpChargingApiTests::propagatesBusinessAndTransportFailuresExactlyOnce()
     QTest::qWait(100);
     QCOMPARE(timeoutSpy.count(), 1);
 
+    // 连接被拒也归为服务不可用
     QTcpServer portProbe;
     QVERIFY(portProbe.listen(QHostAddress::LocalHost, 0));
     const quint16 closedPort = portProbe.serverPort();
@@ -729,6 +752,7 @@ void TcpChargingApiTests::propagatesBusinessAndTransportFailuresExactlyOnce()
     QCOMPARE(refusedSpy.count(), 1);
 }
 
+// 用例：参数非法时本地拦截，不发送任何请求
 void TcpChargingApiTests::validatesInputsBeforeSending()
 {
     TestTcpServer server;
@@ -754,6 +778,7 @@ void TcpChargingApiTests::validatesInputsBeforeSending()
     QCOMPARE(server.requests.size(), 0);
 }
 
+// 无界面测试入口
 QTEST_GUILESS_MAIN(TcpChargingApiTests)
 
 #include "tcp_charging_api_tests.moc"

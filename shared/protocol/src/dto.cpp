@@ -1,3 +1,4 @@
+// 实现各 DTO 与 JSON 的相互转换及字段类型校验
 #include "charging/protocol/dto.h"
 
 #include <QJsonValue>
@@ -7,8 +8,10 @@
 namespace charging::protocol {
 namespace {
 
+// JSON 可安全表示的最大整数，超出即判为非法
 constexpr double kMaxSafeJsonInteger = 9007199254740991.0;
 
+// 统一拼出字段错误描述并返回失败
 bool fail(QString *error, const QString &field, const QString &expectation)
 {
     if (error != nullptr) {
@@ -17,6 +20,7 @@ bool fail(QString *error, const QString &field, const QString &expectation)
     return false;
 }
 
+// 读取字符串字段，类型不符直接报错
 bool readString(const QJsonObject &json, const char *field, QString *value, QString *error)
 {
     const QString key = QString::fromLatin1(field);
@@ -39,6 +43,7 @@ bool readBool(const QJsonObject &json, const char *field, bool *value, QString *
     return true;
 }
 
+// 读取浮点数并拒绝 NaN 与无穷大
 bool readDouble(const QJsonObject &json, const char *field, double *value, QString *error)
 {
     const QString key = QString::fromLatin1(field);
@@ -50,6 +55,7 @@ bool readDouble(const QJsonObject &json, const char *field, double *value, QStri
     return true;
 }
 
+// 整数字段必须无小数且落在安全范围内
 bool readInteger(const QJsonObject &json, const char *field, qint64 *value, QString *error)
 {
     const QString key = QString::fromLatin1(field);
@@ -66,6 +72,7 @@ bool readInteger(const QJsonObject &json, const char *field, qint64 *value, QStr
     return true;
 }
 
+// 可空字符串：JSON 为 null 时视为未设置
 bool readNullableString(const QJsonObject &json,
                         const char *field,
                         std::optional<QString> *value,
@@ -102,6 +109,7 @@ bool readNullableDouble(const QJsonObject &json,
     return true;
 }
 
+// 可空整数先判 null，再复用整数校验逻辑
 bool readNullableInteger(const QJsonObject &json,
                          const char *field,
                          std::optional<qint64> *value,
@@ -121,6 +129,7 @@ bool readNullableInteger(const QJsonObject &json,
     return true;
 }
 
+// 以下重载把协议大写字符串解析成对应枚举
 bool parseEnum(const QString &text, UserStatus *value)
 {
     if (text == QStringLiteral("ACTIVE")) {
@@ -240,6 +249,7 @@ bool parseEnum(const QString &text, CongestionLevel *value)
     return false;
 }
 
+// 模板函数：先读字符串再按枚举类型解析
 template<typename Enum>
 bool readEnum(const QJsonObject &json, const char *field, Enum *value, QString *error)
 {
@@ -255,6 +265,7 @@ bool readEnum(const QJsonObject &json, const char *field, Enum *value, QString *
     return true;
 }
 
+// 拥堵等级可为 null 表示暂无预测，非空时须为合法枚举
 bool readNullableCongestion(const QJsonObject &json,
                             const char *field,
                             std::optional<CongestionLevel> *value,
@@ -277,6 +288,7 @@ bool readNullableCongestion(const QJsonObject &json,
     return true;
 }
 
+// 整数按 double 写入 JSON，缺省值写成 null
 QJsonValue jsonInteger(qint64 value)
 {
     return QJsonValue(static_cast<double>(value));
@@ -294,6 +306,7 @@ QJsonValue jsonNullableInteger(const std::optional<qint64> &value)
 
 }  // namespace
 
+// 以下函数把枚举转成协议规定的大写字符串
 QString toString(UserStatus value)
 {
     switch (value) {
@@ -376,6 +389,7 @@ QJsonObject toJson(const UserDto &dto)
     };
 }
 
+// 场站转 JSON，pricingRule 为空时不写该字段
 QJsonObject toJson(const StationDto &dto)
 {
     QJsonObject json{
@@ -402,6 +416,7 @@ QJsonObject toJson(const StationDto &dto)
     return json;
 }
 
+// 充电桩转 JSON
 QJsonObject toJson(const PileDto &dto)
 {
     return {
@@ -416,6 +431,7 @@ QJsonObject toJson(const PileDto &dto)
     };
 }
 
+// 订单转 JSON，未发生的时间点写 null
 QJsonObject toJson(const OrderDto &dto)
 {
     return {
@@ -440,6 +456,7 @@ QJsonObject toJson(const OrderDto &dto)
     };
 }
 
+// 解析用户，任一字段不合法就整体失败
 bool fromJson(const QJsonObject &json, UserDto *dto, QString *error)
 {
     if (dto == nullptr) {
@@ -459,6 +476,7 @@ bool fromJson(const QJsonObject &json, UserDto *dto, QString *error)
     return true;
 }
 
+// 解析场站，pricingRule 存在时才校验
 bool fromJson(const QJsonObject &json, StationDto *dto, QString *error)
 {
     if (dto == nullptr) {
@@ -488,6 +506,7 @@ bool fromJson(const QJsonObject &json, StationDto *dto, QString *error)
     return true;
 }
 
+// 解析充电桩各字段
 bool fromJson(const QJsonObject &json, PileDto *dto, QString *error)
 {
     if (dto == nullptr) {
@@ -509,6 +528,7 @@ bool fromJson(const QJsonObject &json, PileDto *dto, QString *error)
     return true;
 }
 
+// 解析订单，逐项校验必填与可空字段
 bool fromJson(const QJsonObject &json, OrderDto *dto, QString *error)
 {
     if (dto == nullptr) {

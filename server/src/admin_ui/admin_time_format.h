@@ -1,3 +1,4 @@
+// 管理端时间格式化：ISO 时间转北京时间展示
 #pragma once
 
 #include <QDateTime>
@@ -7,6 +8,7 @@
 namespace charging::server {
 
 // Transport/storage keep ISO 8601; operator-facing timestamps use Beijing time.
+// 解析失败返回占位符，避免界面显示空白
 inline QString adminTimeText(const QString &timestamp,
                              const QString &fallback = QStringLiteral("—"))
 {

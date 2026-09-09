@@ -1,3 +1,4 @@
+// 地图控制器：把页面的定位与路线操作转给地图服务
 #include "ui/map_controller.h"
 
 #include "charging/protocol/dto.h"
@@ -9,6 +10,7 @@
 namespace charging::client {
 namespace {
 
+// 校验经纬度是否有效可用
 bool validCoordinate(const MapLocation &location)
 {
     return std::isfinite(location.longitude) && std::isfinite(location.latitude)
@@ -18,6 +20,7 @@ bool validCoordinate(const MapLocation &location)
 
 }  // namespace
 
+// 连接页面操作与地图服务的异步回调
 MapController::MapController(StationBrowserPage &page,
                              IMapService &mapService,
                              QObject *parent)
@@ -37,6 +40,7 @@ MapController::MapController(StationBrowserPage &page,
             this, &MapController::handleRoute);
 }
 
+// 重置时取消未完成的地理编码与路线请求
 void MapController::reset()
 {
     mapService_.cancel(pendingGeocodeRequestId_);
@@ -47,6 +51,7 @@ void MapController::reset()
     routeDestination_ = {};
 }
 
+// 解析地址；演示位置直接使用固定坐标
 void MapController::resolveLocation(const QString &address)
 {
     if (!pendingGeocodeRequestId_.isEmpty()) {
@@ -64,6 +69,7 @@ void MapController::resolveLocation(const QString &address)
     pendingGeocodeRequestId_ = mapService_.geocode(address);
 }
 
+// 打开导航面板并记录目标站点为终点
 void MapController::openNavigation(const protocol::StationDto &station)
 {
     cancelRoute();
@@ -71,6 +77,7 @@ void MapController::openNavigation(const protocol::StationDto &station)
     page_.showNavigation(station, page_.currentLocation());
 }
 
+// 关闭导航时取消路线及起点解析
 void MapController::cancelRoute()
 {
     mapService_.cancel(pendingRouteRequestId_);
@@ -83,6 +90,7 @@ void MapController::cancelRoute()
     page_.setRouteBusy(false);
 }
 
+// 起点与当前定位一致则跳过解析直接算路
 void MapController::requestRoute(const QString &startAddress, RouteMode mode)
 {
     if (!pendingGeocodeRequestId_.isEmpty() || !pendingRouteRequestId_.isEmpty()) {
@@ -104,6 +112,7 @@ void MapController::requestRoute(const QString &startAddress, RouteMode mode)
     pendingGeocodeRequestId_ = mapService_.geocode(startAddress);
 }
 
+// 按请求用途区分：起点解析或定位更新
 void MapController::handleGeocode(const GeocodeResult &result)
 {
     if (result.requestId != pendingGeocodeRequestId_) {
@@ -142,6 +151,7 @@ void MapController::handleGeocode(const GeocodeResult &result)
     emit locationChanged();
 }
 
+// 路线结果回调：失败提示，成功展示路线
 void MapController::handleRoute(const RouteResult &result)
 {
     if (result.requestId != pendingRouteRequestId_) {

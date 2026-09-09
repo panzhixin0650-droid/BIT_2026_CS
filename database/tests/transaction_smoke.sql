@@ -1,13 +1,16 @@
+-- 订单流程事务冒烟测试：预约、开始充电、结算三步
 .bail on
 
 PRAGMA foreign_keys = ON;
 
+-- 临时断言表：值不为1时插入即失败中止
 CREATE TEMP TABLE transaction_assertion (
     assertion_name TEXT NOT NULL,
     passed INTEGER NOT NULL CHECK (passed = 1)
 );
 
 -- Reserve PILE-A-01 for the shared Demo user.
+-- 第一步：写入预约单并把桩状态改为已预约
 BEGIN IMMEDIATE;
 
 INSERT INTO charging_orders (
@@ -54,6 +57,7 @@ INSERT INTO transaction_assertion VALUES ('reserve changed one pile', changes() 
 COMMIT;
 
 -- Start the reserved order and freeze the station price in the same transaction.
+-- 第二步：开始充电，同一事务内锁定站点单价
 BEGIN IMMEDIATE;
 
 UPDATE charging_orders
@@ -80,6 +84,7 @@ INSERT INTO transaction_assertion VALUES ('start changed one pile', changes() = 
 COMMIT;
 
 -- Stop, release the pile, deduct the balance, and complete the order atomically.
+-- 第三步：释放桩、扣余额、完成订单
 BEGIN IMMEDIATE;
 
 UPDATE charging_piles
@@ -111,6 +116,7 @@ INSERT INTO transaction_assertion VALUES ('stop completed one order', changes() 
 
 COMMIT;
 
+-- 最后核对金额、桩状态与用户余额是否符合预期
 INSERT INTO transaction_assertion VALUES (
     'completed result matches the V1 fixture',
     EXISTS (

@@ -1,4 +1,5 @@
 <!doctype html>
+<!-- 运营大屏页面骨架，数据与图表由 app.js 填充 -->
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
@@ -13,6 +14,7 @@
   <div class="page-glow page-glow-left" aria-hidden="true"></div>
   <div class="page-glow page-glow-right" aria-hidden="true"></div>
 
+  <!-- 顶栏：品牌标题、快照元信息与全屏按钮 -->
   <main class="dashboard-shell">
     <header class="topbar">
       <div class="brand">
@@ -42,6 +44,7 @@
         </span>
       </div>
 
+      <!-- 全屏切换按钮，点击事件由脚本绑定 -->
       <button class="icon-button" id="fullscreen-button" type="button" aria-label="切换全屏" title="切换全屏">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M8 3H4a1 1 0 0 0-1 1v4M16 3h4a1 1 0 0 1 1 1v4M8 21H4a1 1 0 0 1-1-1v-4m13 5h4a1 1 0 0 0 1-1v-4"/>
@@ -49,6 +52,7 @@
       </button>
     </header>
 
+    <!-- 五张核心指标卡，数值占位符等待脚本写入 -->
     <section class="kpi-grid" aria-label="核心运营指标">
       <article class="kpi-card kpi-blue">
         <span class="kpi-icon" aria-hidden="true">¥</span>
@@ -94,6 +98,7 @@
 
     <section class="dashboard-grid">
       <aside class="dashboard-column left-column">
+        <!-- 左栏电桩状态环形图与图例容器 -->
         <article class="panel state-panel">
           <header class="panel-header">
             <div>
@@ -106,6 +111,7 @@
           <div class="legend-grid" id="pile-state-legend"></div>
         </article>
 
+        <!-- 资源利用面板：可用率、各状态占比与汇总 -->
         <article class="panel utilization-panel">
           <header class="panel-header">
             <div>
@@ -130,6 +136,7 @@
       </aside>
 
       <section class="dashboard-column center-column">
+        <!-- 中栏营收面板，含近 7 日与近 30 日切换按钮 -->
         <article class="panel revenue-panel">
           <header class="panel-header panel-header-actions">
             <div>
@@ -150,6 +157,7 @@
           </footer>
         </article>
 
+        <!-- 负荷预测面板，缺数据时展示下方空状态提示 -->
         <article class="panel forecast-panel" id="forecast-panel">
           <header class="panel-header">
             <div>
@@ -177,6 +185,7 @@
       </section>
 
       <aside class="dashboard-column right-column">
+        <!-- 右栏健康度仪表图与结论文案 -->
         <article class="panel health-panel">
           <header class="panel-header">
             <div>
@@ -192,6 +201,7 @@
           </div>
         </article>
 
+        <!-- 营收指标对照条形区，仅作金额概览 -->
         <article class="panel revenue-structure-panel">
           <header class="panel-header">
             <div>
@@ -204,6 +214,7 @@
           <p class="comparison-note">不同统计周期仅作金额概览，不代表同比或环比。</p>
         </article>
 
+        <!-- 数据快照信息：时区、区间、预测来源与版本 -->
         <article class="panel snapshot-panel">
           <header class="panel-header">
             <div>
@@ -222,12 +233,14 @@
       </aside>
     </section>
 
+    <!-- 加载遮罩，数据渲染成功后由脚本隐藏 -->
     <div class="loading-overlay" id="loading-overlay" role="status" aria-live="polite">
       <span class="loading-spinner" aria-hidden="true"></span>
       <strong>正在读取运营数据</strong>
       <small>优先读取 dashboard.json，缺失时使用契约样例</small>
     </div>
 
+    <!-- 错误横幅默认隐藏，加载失败时显示 -->
     <div class="error-banner" id="error-banner" role="alert" hidden>
       <strong>数据加载失败</strong>
       <span id="error-message"></span>

@@ -1,3 +1,4 @@
+// 本文件是服务端入口，组装仓储、服务、TCP网关与管理窗口
 #include "admin_ui/admin_facade.h"
 #include "admin_ui/admin_window.h"
 #include "application/application_service.h"
@@ -17,12 +18,14 @@
 
 #include <memory>
 
+// 以GUI程序启动，因为服务端自带管理员窗口
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
     QCoreApplication::setApplicationName(QStringLiteral("server-app"));
     QCoreApplication::setApplicationVersion(QStringLiteral("0.1.0"));
 
+    // 解析命令行：端口、是否开TCP、数据库路径与内存模式
     QCommandLineParser parser;
     parser.setApplicationDescription(
         QStringLiteral("BIT_2026_CS Qt 服务端与管理员端 Demo"));
@@ -57,6 +60,7 @@ int main(int argc, char *argv[])
         ? static_cast<quint16>(requestedPort)
         : quint16{45678};
 
+    // 默认用SQLite仓储，加--in-memory才换成非持久化替身
     const bool sqliteRepository = !parser.isSet(inMemoryOption);
     std::unique_ptr<charging::server::IRepository> repository;
     if (!sqliteRepository) {
@@ -76,6 +80,7 @@ int main(int argc, char *argv[])
         qInfo().noquote() << QStringLiteral("Repository mode: SQLite");
     }
 
+    // 装配会话、模拟桩、预测与应用服务，并开启两个定时任务
     charging::server::SessionStore sessions;
     charging::server::MockPile pileGateway;
     charging::server::MockPredictionProvider predictions;
@@ -86,6 +91,7 @@ int main(int argc, char *argv[])
     charging::server::RequestRouter router(&service);
     charging::server::TcpGateway gateway(&router);
 
+    // 未指定--no-tcp时监听本机端口，失败只告警不退出
     bool tcpStarted = false;
     if (!parser.isSet(noTcpOption)) {
         QString error;
@@ -96,6 +102,7 @@ int main(int argc, char *argv[])
         }
     }
 
+    // 管理端界面通过Facade直接调用本地服务
     charging::server::AdminFacade facade(&service);
     charging::server::AdminWindow window(
         &facade, tcpStarted, gateway.serverPort(), sqliteRepository);

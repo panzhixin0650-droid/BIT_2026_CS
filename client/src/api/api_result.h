@@ -1,3 +1,4 @@
+// 客户端API的统一返回类型定义：响应头加各类负载
 #pragma once
 
 #include "charging/protocol/dto.h"
@@ -12,6 +13,7 @@
 
 namespace charging::client {
 
+// 通用响应头：请求ID、消息类型、错误码与提示
 struct ApiResponse {
     QString requestId;
     QString type;
@@ -24,6 +26,7 @@ struct ApiResponse {
     }
 };
 
+// 模板结果：响应加可选负载，失败时负载为空
 template<typename Payload>
 struct ApiResult {
     ApiResponse response;
@@ -35,6 +38,7 @@ struct ApiResult {
     }
 };
 
+// 登录负载：令牌、是否新用户与用户信息
 struct LoginPayload {
     QString token;
     bool isNewUser = false;
@@ -49,10 +53,12 @@ struct UserPayload {
     protocol::UserDto user;
 };
 
+// 充值结果只回传最新余额，单位为分
 struct RechargePayload {
     qint64 balanceCents = 0;
 };
 
+// 站点查询条件：可选经纬度、区域与关键词
 struct StationQuery {
     std::optional<double> longitude;
     std::optional<double> latitude;
@@ -81,11 +87,13 @@ struct OrderListPayload {
     QList<protocol::OrderDto> items;
 };
 
+// 充电进度负载：订单快照与本次测量时间
 struct ChargingProgressPayload {
     protocol::OrderDto order;
     QString measuredAt;
 };
 
+// 停止充电结果：订单、是否已扣款、余额与欠款差额
 struct ChargingStopPayload {
     protocol::OrderDto order;
     bool paid = false;
@@ -111,6 +119,7 @@ using ChargingProgressResult = ApiResult<ChargingProgressPayload>;
 using ChargingStopResult = ApiResult<ChargingStopPayload>;
 using PaymentResult = ApiResult<PaymentPayload>;
 
+// 客服工单的单条与列表负载，列表带是否还有更多
 struct TicketPayload { protocol::SupportTicketDto ticket; };
 struct TicketListPayload { QList<protocol::SupportTicketDto> items; bool hasMore = false; };
 using TicketResult = ApiResult<TicketPayload>;
@@ -118,6 +127,7 @@ using TicketListResult = ApiResult<TicketListPayload>;
 
 }  // namespace charging::client
 
+// 注册为元类型，便于用信号跨对象传递结果
 Q_DECLARE_METATYPE(charging::client::LoginResult)
 Q_DECLARE_METATYPE(charging::client::LogoutResult)
 Q_DECLARE_METATYPE(charging::client::UserResult)

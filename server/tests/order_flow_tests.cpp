@@ -1,3 +1,4 @@
+// 服务端订单流程集成测试：预约、充电、结算与故障回滚
 #include "adapters/mock_pile.h"
 #include "adapters/mock_prediction_provider.h"
 #include "application/application_service.h"
@@ -29,6 +30,7 @@ using namespace charging::protocol;
 
 namespace {
 
+// 测试用假电桩，可注入启动失败或读数失败
 class TestPile final : public IPileGateway {
 public:
     bool failStart = false;
@@ -52,6 +54,7 @@ public:
     bool restart(qint64, PileStatus, QString *) const override { return true; }
 };
 
+// 以下是构造请求参数与解析订单响应的小工具
 QJsonObject pileInput(const QString &code = QStringLiteral("PILE-A-01"))
 {
     return {{QStringLiteral("pileCode"), code}};
@@ -72,6 +75,7 @@ qint64 orderId(const ResponseEnvelope &response)
     return orderJson(response).value(QStringLiteral("orderId")).toInteger();
 }
 
+// 测试夹具：临时数据库、应用服务、路由与可控当前时间
 struct Fixture {
     QTemporaryDir temporary;
     std::unique_ptr<IRepository> repository;
@@ -88,6 +92,7 @@ struct Fixture {
 
     QString databasePath() const { return temporary.filePath(QStringLiteral("orders.db")); }
 
+    // 借助 sqlite3 命令行执行建表或注入触发器的语句
     bool sql(const QByteArray &statement)
     {
         QProcess process;
@@ -107,6 +112,7 @@ struct Fixture {
         return process.exitStatus() == QProcess::NormalExit && process.exitCode() == 0;
     }
 
+    // 按参数选择 SQLite 或内存仓储，并登录测试用户
     bool initialize(bool sqlite)
     {
         if (!temporary.isValid()) return false;
@@ -131,6 +137,7 @@ struct Fixture {
         return !token.isEmpty();
     }
 
+    // 组装请求信封交给路由，模拟一次客户端调用
     ResponseEnvelope call(const char *type, const QJsonObject &data = {},
                             std::optional<QString> callerToken = std::nullopt)
     {
@@ -156,6 +163,7 @@ struct Fixture {
         return {};
     }
 
+    // 抓取用户、电桩、订单快照，用于比对失败后是否回滚
     QJsonObject snapshot() const
     {
         QJsonArray users, piles, orders;
@@ -167,6 +175,7 @@ struct Fixture {
     }
 };
 
+// 数据行：同一用例在两种存储后端各跑一遍
 void backends()
 {
     QTest::addColumn<bool>("sqlite");
@@ -176,6 +185,7 @@ void backends()
 
 }  // namespace
 
+// 订单流程测试类，槽函数即各条用例
 class OrderFlowTests final : public QObject {
     Q_OBJECT
 private slots:
@@ -216,6 +226,7 @@ private slots:
     void realClientTcpReservationExpiry();
 };
 
+// 从 JSON 夹具读取预约到期的边界时间用例
 void OrderFlowTests::reservationDeadline_data()
 {
     QTest::addColumn<bool>("sqlite");
@@ -237,6 +248,7 @@ void OrderFlowTests::reservationDeadline_data()
     }
 }
 
+// 到期预约调用开始充电应被拒绝并置为已取消
 void OrderFlowTests::reservationDeadline()
 {
     QFETCH(bool, sqlite);
@@ -289,6 +301,7 @@ void OrderFlowTests::reservationDeadline()
     QVERIFY(f.getPile().status == PileStatus::Reserved);
 }
 
+// 数据行：列出会先触发过期清理的各类请求
 void OrderFlowTests::reservationExpiryBeforeRequests_data()
 {
     QTest::addColumn<bool>("sqlite");
@@ -301,6 +314,7 @@ void OrderFlowTests::reservationExpiryBeforeRequests_data()
                 << sqlite << QString::fromLatin1(type);
 }
 
+// 验证请求进入前服务端先处理过期预约再执行业务
 void OrderFlowTests::reservationExpiryBeforeRequests()
 {
     QFETCH(bool, sqlite);
@@ -328,6 +342,7 @@ void OrderFlowTests::reservationExpiryBeforeRequests()
         QCOMPARE(result.data.value("piles").toArray().first().toObject().value("status").toString(), "IDLE");
 }
 
+// 过期定时器可重复开启，服务重启后仍能清理过期预约
 void OrderFlowTests::reservationTimerAndRestart()
 {
     Fixture f;
@@ -361,6 +376,7 @@ void OrderFlowTests::reservationTimerAndRestart()
     QCOMPARE(restarted.expireDueReservations(f.now), 0);
 }
 
+// 数据行：分别注入更新失败与提交失败
 void OrderFlowTests::reservationExpiryRollback_data()
 {
     QTest::addColumn<bool>("commitFailure");
@@ -368,6 +384,7 @@ void OrderFlowTests::reservationExpiryRollback_data()
     QTest::newRow("commit") << true;
 }
 
+// 过期处理失败时订单与电桩状态整体保持原样
 void OrderFlowTests::reservationExpiryRollback()
 {
     QFETCH(bool, commitFailure);
@@ -396,6 +413,7 @@ void OrderFlowTests::reservationExpiryRollback()
     QVERIFY(f.getPile().status == PileStatus::Idle);
 }
 
+// 已开始充电的订单不会再被预约过期影响
 void OrderFlowTests::startedReservationNeverExpires()
 {
     QFETCH(bool, sqlite);
@@ -413,6 +431,7 @@ void OrderFlowTests::startedReservationNeverExpires()
     QVERIFY(f.getPile().status == PileStatus::Charging);
 }
 
+// 管理员登录时旧口令升级为 PBKDF2，并验证新建账号改密
 void OrderFlowTests::sqliteAdminAccountsAndPasswordUpgrade()
 {
     Fixture f;
@@ -461,6 +480,7 @@ void OrderFlowTests::sqliteAdminAccountsAndPasswordUpgrade()
     QCOMPARE(f.error.trimmed(), QStringLiteral("5"));
 }
 
+// 预约、重复预约受限与取消后电桩释放
 void OrderFlowTests::reservationAndCancellation()
 {
     QFETCH(bool, sqlite);
@@ -494,6 +514,7 @@ void OrderFlowTests::reservationAndCancellation()
     QCOMPARE(f.call(MessageType::OrderList, {}, other).data.value(QStringLiteral("items")).toArray().size(), 0);
 }
 
+// 充电进度与停止自动结算，单价在开始时锁定不随站点改价
 void OrderFlowTests::chargingAndAutomaticSettlement()
 {
     QFETCH(bool, sqlite);
@@ -547,6 +568,7 @@ void OrderFlowTests::chargingAndAutomaticSettlement()
     QCOMPARE(f.snapshot(), state);
 }
 
+// 余额不足时订单转待支付并先释放电桩，补缴后完成
 void OrderFlowTests::pendingPaymentReleasesPile()
 {
     QFETCH(bool, sqlite);
@@ -585,6 +607,7 @@ void OrderFlowTests::pendingPaymentReleasesPile()
     QCOMPARE(f.snapshot(), afterPay);
 }
 
+// 归属校验与订单状态机保护：越权和非法状态都被拒绝
 void OrderFlowTests::ownershipAndStateGuards()
 {
     QFETCH(bool, sqlite);
@@ -615,6 +638,7 @@ void OrderFlowTests::ownershipAndStateGuards()
     QCOMPARE(f.call(MessageType::OrderStart, pileInput(), other).code, ErrorCode::PileNotAvailable);
 }
 
+// 参数校验、电桩离线故障及设备读写失败的处理
 void OrderFlowTests::validationAndDeviceFailures()
 {
     QFETCH(bool, sqlite);
@@ -686,6 +710,7 @@ void OrderFlowTests::validationAndDeviceFailures()
     }
 }
 
+// 数据行：列举各个注入写入失败的操作点
 void OrderFlowTests::sqliteFailuresRollBack_data()
 {
     QTest::addColumn<QString>("operation");
@@ -694,6 +719,7 @@ void OrderFlowTests::sqliteFailuresRollBack_data()
     }
 }
 
+// 用触发器制造写入失败，检查错误响应与前后数据快照
 void OrderFlowTests::sqliteFailuresRollBack()
 {
     QFETCH(QString, operation);
@@ -747,6 +773,7 @@ void OrderFlowTests::sqliteFailuresRollBack()
     f.repository->rollbackTransaction();
 }
 
+// 重启后订单与锁定单价仍在，旧会话令牌失效
 void OrderFlowTests::sqliteRestartPreservesOrders()
 {
     Fixture f;
@@ -776,6 +803,7 @@ void OrderFlowTests::sqliteRestartPreservesOrders()
     QCOMPARE(stored->unitPriceCentsPerKwh.value(), qint64{135});
 }
 
+// Mock 电桩读数单调不回退，且故障桩不能重启
 void OrderFlowTests::mockReadingsNeverRetreat()
 {
     MockPile pile;
@@ -790,6 +818,7 @@ void OrderFlowTests::mockReadingsNeverRetreat()
     QVERIFY(!pile.restart(1, PileStatus::Fault));
 }
 
+// 整数分计费与高峰单价的边界与溢出校验
 void OrderFlowTests::integerBilling()
 {
     const auto peak = QDateTime::fromString(QStringLiteral("2026-09-08T00:00:00Z"), Qt::ISODate);
@@ -808,6 +837,7 @@ void OrderFlowTests::integerBilling()
     QVERIFY(!orderAmountCents(std::numeric_limits<qint64>::max(), 135).has_value());
 }
 
+// 经真实 TCP 客户端验证预约过期后无法开始充电
 void OrderFlowTests::realClientTcpReservationExpiry()
 {
     Fixture f;
@@ -849,6 +879,7 @@ void OrderFlowTests::realClientTcpReservationExpiry()
     QCOMPARE(order.amountCents, qint64{0});
 }
 
+// 真实客户端经TCP网关走完预约到支付的完整流程
 void OrderFlowTests::realClientTcpOrderFlow()
 {
     Fixture f;
@@ -869,6 +900,7 @@ void OrderFlowTests::realClientTcpOrderFlow()
     QSignalSpy pay(&api, &client::IChargingApi::paymentCompleted);
     QSignalSpy list(&api, &client::IChargingApi::orderListCompleted);
 
+    // 登录后用信号槽等待异步响应，逐步校验各步结果
     const auto loginRequest = api.loginUser(QStringLiteral("13900000903"));
     QTRY_COMPARE(login.size(), 1);
     const auto loggedIn = qvariant_cast<client::LoginResult>(login.takeFirst().at(0));
@@ -884,6 +916,7 @@ void OrderFlowTests::realClientTcpOrderFlow()
     QTRY_COMPARE(current.size(), 1);
     const auto empty = qvariant_cast<client::CurrentOrderResult>(current.takeFirst().at(0));
     QVERIFY(empty.ok() && empty.payload.has_value() && !empty.payload->order.has_value());
+    // 先预约再取消，验证桩释放后还能重新预约
     QVERIFY(!api.reserve(QStringLiteral("PILE-A-01")).isEmpty());
     QTRY_COMPARE(reserve.size(), 1);
     const auto reserved = qvariant_cast<client::OrderResult>(reserve.takeFirst().at(0));
@@ -899,6 +932,7 @@ void OrderFlowTests::realClientTcpOrderFlow()
     QVERIFY(!api.startCharging(QStringLiteral("PILE-A-01"), id).isEmpty());
     QTRY_COMPARE(start.size(), 1);
     QVERIFY(qvariant_cast<client::OrderResult>(start.takeFirst().at(0)).ok());
+    // 时间推到高峰结束之后，验证仍按开始时锁定的单价计费
     f.now = f.now.addSecs(1800); // settle after the morning peak ends
     f.pile.reading = {1800, 5000};
     QVERIFY(!api.getChargingProgress(id).isEmpty());
@@ -907,6 +941,7 @@ void OrderFlowTests::realClientTcpOrderFlow()
     QVERIFY(measured.ok() && measured.payload.has_value());
     QCOMPARE(measured.payload->order.unitPriceCentsPerKwh.value(), qint64{162});
     QCOMPARE(measured.payload->order.amountCents, qint64{810});
+    // 停止后余额不足支付失败，充值后再支付成功
     QVERIFY(!api.stopCharging(id).isEmpty());
     QTRY_COMPARE(stop.size(), 1);
     const auto stopped = qvariant_cast<client::ChargingStopResult>(stop.takeFirst().at(0));
@@ -925,6 +960,7 @@ void OrderFlowTests::realClientTcpOrderFlow()
     const auto paid = qvariant_cast<client::PaymentResult>(pay.takeFirst().at(0));
     QVERIFY(paid.ok() && paid.payload.has_value());
     QCOMPARE(paid.payload->balanceCents, qint64{190});
+    // 历史列表最新一单为本次已完成订单
     QVERIFY(!api.listOrders().isEmpty());
     QTRY_COMPARE(list.size(), 1);
     const auto history = qvariant_cast<client::OrderListResult>(list.takeFirst().at(0));
@@ -934,6 +970,7 @@ void OrderFlowTests::realClientTcpOrderFlow()
     QVERIFY(history.payload->items.first().status == OrderStatus::Completed);
 }
 
+// 演示会话到期只自动结算一次，重复调用不再扣费
 void OrderFlowTests::demoDeadlineStopsOnce()
 {
     QFETCH(bool, sqlite);
@@ -949,6 +986,7 @@ void OrderFlowTests::demoDeadlineStopsOnce()
     QVERIFY(result.ok());
     OrderDto order; QVERIFY(fromJson(result.data.value("order").toObject(), &order));
     const auto started=QDateTime::fromString(*order.startedAt, Qt::ISODate);
+    // 未满180秒不结算，超过时限才结算出一单
     QCOMPARE(service.completeDueDemoCharges(started.addSecs(DemoChargingDurationSeconds-1)),0);
     QCOMPARE(service.completeDueDemoCharges(started.addSecs(DemoChargingDurationSeconds+2)),1);
     const auto stopped=f.repository->findOrderById(order.orderId);
@@ -963,6 +1001,7 @@ void OrderFlowTests::demoDeadlineStopsOnce()
     QCOMPARE(f.repository->findUserById(order.userId)->balanceCents,balance);
 }
 
+// 服务重启后仍能结算到期会话，余额不足则转为待支付
 void OrderFlowTests::demoDeadlineHandlesDebtAfterRestart()
 {
     QFETCH(bool, sqlite);
@@ -990,6 +1029,7 @@ void OrderFlowTests::demoDeadlineHandlesDebtAfterRestart()
     QCOMPARE(restarted.completeDueDemoCharges(now),0);
 }
 
+// 从外部fixture文件读取高峰价格用例数据
 void OrderFlowTests::peakQuotesAndStart_data()
 {
     QTest::addColumn<bool>("sqlite");
@@ -1011,6 +1051,7 @@ void OrderFlowTests::peakQuotesAndStart_data()
     }
 }
 
+// 列表与详情返回高峰折算价，库中基础价保持不变
 void OrderFlowTests::peakQuotesAndStart()
 {
     QFETCH(bool, sqlite);
@@ -1050,6 +1091,7 @@ void OrderFlowTests::peakQuotesAndStart()
             QVERIFY(!adminStation.contains("pricingRule"));
         }
         // FAST and SLOW piles use the same multiplier, never a pile-type tariff.
+        // 快慢桩使用同一倍率，开始充电时写入锁定单价
         const auto code = id == 1 ? "PILE-A-01" : id == 3 ? "PILE-C-01" : "PILE-B-02";
         if (!sqlite && id == 2) {
             // Enable the initially faulted slow pile in this isolated test only.
@@ -1065,6 +1107,7 @@ void OrderFlowTests::peakQuotesAndStart()
     }
 }
 
+// 构造跨越高峰边界的预约与开始时间组合
 void OrderFlowTests::peakSnapshotSurvivesSettlement_data()
 {
     QTest::addColumn<bool>("sqlite");
@@ -1083,6 +1126,7 @@ void OrderFlowTests::peakSnapshotSurvivesSettlement_data()
     }
 }
 
+// 预约时不锁价，开始充电时才锁定单价
 void OrderFlowTests::peakSnapshotSurvivesSettlement()
 {
     QFETCH(bool, sqlite);
@@ -1102,6 +1146,7 @@ void OrderFlowTests::peakSnapshotSurvivesSettlement()
     QCOMPARE(started.code, ErrorCode::Ok);
     const auto id = orderId(started);
     QCOMPARE(orderJson(started).value("unitPriceCentsPerKwh").toInteger(), expectedPrice);
+    // 中途改动站点基础价，进度与结算仍用锁定单价
     f.now = startedAt.addSecs(120);
     f.pile.reading = {120, 1000};
     auto station = f.repository->findStationById(1);
@@ -1119,6 +1164,7 @@ void OrderFlowTests::peakSnapshotSurvivesSettlement()
     QCOMPARE(f.call(MessageType::OrderPay, orderInput(id)).code, ErrorCode::InsufficientBalance);
 
     // Reopen SQLite before paying on another day; only the persisted snapshot matters.
+    // 重建仓库与服务，验证只依赖已持久化的价格快照
     f.router.reset();
     f.service.reset();
     if (sqlite) {
@@ -1140,6 +1186,7 @@ void OrderFlowTests::peakSnapshotSurvivesSettlement()
     QCOMPARE(orderJson(paid).value("amountCents").toInteger(), expectedPrice);
     QCOMPARE(paid.data.value("balanceCents").toInteger(), 1000 - expectedPrice);
     const auto snapshot = f.snapshot();
+    // 重复支付返回状态非法，数据快照保持不变
     QCOMPARE(f.call(MessageType::OrderPay, orderInput(id)).code, ErrorCode::IllegalOrderState);
     QCOMPARE(f.snapshot(), snapshot);
 }

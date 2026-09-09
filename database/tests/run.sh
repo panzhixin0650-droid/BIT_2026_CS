@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 
+# 数据库脚本自测入口：任一步失败立即退出
 set -euo pipefail
 
+# 在临时目录建测试库，退出时自动清理
 database_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 test_tmpdir="$(mktemp -d /tmp/bit-db-test.XXXXXX)"
 test_database="$test_tmpdir/demo.db"
@@ -18,6 +20,7 @@ if ! command -v sqlite3 >/dev/null 2>&1; then
     exit 1
 fi
 
+# 辅助函数：断言某条SQL必须失败且错误信息匹配
 expect_sql_failure() {
     local test_name="$1"
     local expected_message="$2"
@@ -39,6 +42,7 @@ expect_sql_failure() {
     printf 'PASS: %s\n' "$test_name"
 }
 
+# 先建表导入种子，并验证种子可重复执行
 sqlite3 -batch -bail "$test_database" \
     < "$database_dir/migrations/001_initial_demo.sql"
 sqlite3 -batch -bail "$test_database" < "$database_dir/seeds/demo.sql"
@@ -48,6 +52,7 @@ sqlite3 -batch -bail "$test_database" < "$database_dir/seeds/demo.sql"
 sqlite3 -batch -bail "$test_database" < "$database_dir/tests/verify_demo.sql"
 sqlite3 -batch -bail "$test_database" < "$database_dir/tests/transaction_smoke.sql"
 
+# 以下逐条验证手机号、外键、状态等约束会拒绝坏数据
 expect_sql_failure \
     'invalid phone is rejected' \
     'ck_users_phone' \
@@ -109,6 +114,7 @@ expect_sql_failure \
     );"
 
 # Opt-in extension: baseline tests above still run against schema 1 unchanged.
+# 记录业务表快照，确认后续迁移不改动原有数据
 baseline_dump="$(sqlite3 "$test_database" '.dump users admins charging_stations charging_piles charging_orders')"
 sqlite3 -batch -bail "$test_database" < "$database_dir/migrations/002_support_tickets.sql"
 [[ "$(sqlite3 "$test_database" 'PRAGMA user_version')" == '2' ]]
@@ -133,6 +139,7 @@ if sqlite3 -batch -bail "$test_database" < "$database_dir/migrations/003_admin_a
 fi
 
 # A missing prerequisite must fail without renaming any baseline tables.
+# 另建旧库验证缺少前置迁移时不会改坏基线表
 legacy_database="$test_tmpdir/legacy.db"
 sqlite3 -batch -bail "$legacy_database" < "$database_dir/migrations/001_initial_demo.sql"
 if sqlite3 -batch -bail "$legacy_database" < "$database_dir/migrations/003_admin_accounts.sql" 2>/dev/null; then
@@ -155,6 +162,7 @@ fi
 [[ -z "$(sqlite3 "$test_database" 'PRAGMA foreign_key_check')" ]]
 repair_business_dump="$(sqlite3 "$test_database" '.dump users admins charging_stations charging_piles charging_orders admin_station_scopes admin_audit_logs')"
 old_ticket_rows="$(sqlite3 "$test_database" 'SELECT ticket_id, user_id, submission_id, title, summary, source_model, status, reply, created_at, updated_at FROM support_tickets ORDER BY ticket_id;')"
+# 应用报修迁移并比对工单原有字段未变
 sqlite3 -batch -bail "$test_database" < "$database_dir/migrations/004_repair_tickets.sql"
 [[ "$(sqlite3 "$test_database" 'PRAGMA user_version')" == '4' ]]
 [[ "$(sqlite3 "$test_database" '.dump users admins charging_stations charging_piles charging_orders admin_station_scopes admin_audit_logs')" == "$repair_business_dump" ]]
@@ -172,4 +180,5 @@ expect_sql_failure 'support cannot have a dangling fault type' 'ck_ticket_repair
     "UPDATE support_tickets SET pile_code = NULL WHERE ticket_id = 990;"
 [[ "$(sqlite3 "$test_database" 'PRAGMA integrity_check')" == 'ok' ]]
 [[ -z "$(sqlite3 "$test_database" 'PRAGMA foreign_key_check')" ]]
+# 全部通过后输出各阶段汇总结果
 echo 'database tests: OK (schema 1 baseline + schema 2 tickets + schema 3 administrators + schema 4 repairs)'

@@ -1,3 +1,4 @@
+# 客户端构建脚本：定义API库、UI库、主程序与各项测试
 cmake_minimum_required(VERSION 3.22)
 
 project(charging_user_client LANGUAGES CXX)
@@ -5,14 +6,17 @@ project(charging_user_client LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+# 开启自动moc与rcc，信号槽和资源文件可直接编译
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC OFF)
 set(CMAKE_AUTORCC ON)
 
+# 可选开关：用Qt WebEngine嵌入腾讯地图，默认关闭
 option(CHARGING_CLIENT_ENABLE_WEBENGINE
        "Build the embedded Tencent map view with Qt WebEngine"
        OFF)
 
+# 可选开关：摄像头与ZBar二维码扫描，默认关闭
 option(CHARGING_CLIENT_ENABLE_SCANNER
        "Enable camera and image QR scanning (Qt Multimedia and ZBar)"
        OFF)
@@ -21,11 +25,13 @@ find_package(Qt6 6.2 REQUIRED COMPONENTS Network Widgets)
 
 include(CTest)
 
+# 引入共享协议目录，客户端与服务端共用报文定义
 add_subdirectory(
     "${CMAKE_CURRENT_SOURCE_DIR}/../shared/protocol"
     "${CMAKE_CURRENT_BINARY_DIR}/shared-protocol"
 )
 
+# API静态库：抽象接口加Mock与TCP两种实现
 add_library(charging_client_api STATIC
     src/api/api_result.h
     src/api/i_charging_api.cpp
@@ -48,6 +54,7 @@ target_link_libraries(charging_client_api
         Qt6::Network
 )
 
+# UI静态库：页面、控制器、助理与本地服务等源文件
 add_library(charging_client_ui STATIC
     resources/album_resources.qrc
     src/ui/photo_album_page.cpp
@@ -140,6 +147,7 @@ target_include_directories(charging_client_ui
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
 
+# 把演示相册目录路径作为宏传给编译器
 target_compile_definitions(charging_client_ui PRIVATE
     CHARGING_DEMO_ALBUM_DIR="${CMAKE_CURRENT_SOURCE_DIR}/demo-album")
 
@@ -150,6 +158,7 @@ target_link_libraries(charging_client_ui
         Qt6::Widgets
 )
 
+# 启用WebEngine时才链接相关模块并定义能力宏
 if(CHARGING_CLIENT_ENABLE_WEBENGINE)
     find_package(Qt6 6.2 REQUIRED COMPONENTS WebEngineWidgets WebChannel)
     target_link_libraries(charging_client_ui PUBLIC Qt6::WebEngineWidgets Qt6::WebChannel)
@@ -159,6 +168,7 @@ if(CHARGING_CLIENT_ENABLE_WEBENGINE)
     )
 endif()
 
+# 启用扫码时才查找ZBar并加入扫码相关源文件
 if(CHARGING_CLIENT_ENABLE_SCANNER)
     find_package(Qt6 6.2 REQUIRED COMPONENTS Multimedia)
     find_path(ZBAR_INCLUDE_DIR NAMES zbar.h REQUIRED)
@@ -171,6 +181,7 @@ if(CHARGING_CLIENT_ENABLE_SCANNER)
     target_compile_definitions(charging_client_ui PUBLIC CHARGING_CLIENT_HAS_SCANNER=1)
 endif()
 
+# 主程序从 main.cpp 启动，页面和接口代码通过依赖库接入
 add_executable(user-client
     src/main.cpp
 )
@@ -180,6 +191,7 @@ target_link_libraries(user-client
         charging_client_ui
 )
 
+# 开启BUILD_TESTING后注册各模块的自动化测试
 if(BUILD_TESTING)
     find_package(Qt6 6.2 REQUIRED COMPONENTS Test)
 
@@ -218,6 +230,7 @@ if(BUILD_TESTING)
     add_test(NAME charging_client_navigation_tests COMMAND charging_client_navigation_tests)
     # The real WebEngine renderer needs the desktop/Xvfb platform. Qt 6.2's
     # offscreen software scene graph can crash while replacing a map view.
+    # 未启用WebEngine时导航测试才使用离屏平台
     if(NOT CHARGING_CLIENT_ENABLE_WEBENGINE)
         set_tests_properties(charging_client_navigation_tests PROPERTIES
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
@@ -241,6 +254,7 @@ if(BUILD_TESTING)
     set_tests_properties(charging_client_ui_recovery_tests PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # 主窗口测试，离屏运行避免依赖真实显示器
     add_executable(charging_client_tests
         tests/main_window_tests.cpp
     )
@@ -279,6 +293,7 @@ if(BUILD_TESTING)
     )
 
     add_test(NAME charging_client_mock_api_tests COMMAND charging_client_mock_api_tests)
+    # 向Mock测试传入预约超时与高峰计价的样例文件路径
     target_compile_definitions(charging_client_mock_api_tests PRIVATE
         CHARGING_RESERVATION_FIXTURE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../contracts/examples/reservation-timeout.local.json"
         CHARGING_PEAK_FIXTURE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../contracts/examples/demo-peak-pricing.local.json")
@@ -296,6 +311,7 @@ if(BUILD_TESTING)
 
     add_test(NAME charging_client_tcp_api_tests COMMAND charging_client_tcp_api_tests)
 
+    # 结算界面测试使用契约示例目录中的报文样例
     add_executable(charging_client_tcp_settlement_ui_tests tests/tcp_settlement_ui_tests.cpp)
     target_link_libraries(charging_client_tcp_settlement_ui_tests PRIVATE
         charging_client_ui Qt6::Test)

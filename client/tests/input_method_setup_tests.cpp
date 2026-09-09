@@ -1,3 +1,4 @@
+// 本文件测试 Qt 输入法环境变量的检测与回退逻辑
 #include "local/input_method_setup.h"
 
 #include <QDir>
@@ -9,6 +10,7 @@ namespace charging::client {
 
 namespace {
 
+// 在临时目录造一个假的输入法插件文件
 void createPluginFile(const QString &pluginsPath, const QString &fileName)
 {
     QDir root(pluginsPath);
@@ -17,6 +19,7 @@ void createPluginFile(const QString &pluginsPath, const QString &fileName)
     QVERIFY(plugin.open(QIODevice::WriteOnly));
 }
 
+// EnvironmentGuard 析构时恢复原环境变量，避免影响其他用例
 class EnvironmentGuard {
 public:
     explicit EnvironmentGuard(const char *name)
@@ -45,6 +48,7 @@ class InputMethodSetupTests final : public QObject {
     Q_OBJECT
 
 private slots:
+    // 缺少 fcitx 插件时回退到 ibus，非 Linux 不改动
     void fallsBackToIbusWhenFcitxPluginIsMissing()
     {
         EnvironmentGuard guard("QT_IM_MODULE");
@@ -62,6 +66,7 @@ private slots:
 #endif
     }
 
+    // 已存在 fcitx 的 Qt 插件则保持原设置
     void preservesFcitxWhenItsQtPluginExists()
     {
         EnvironmentGuard guard("QT_IM_MODULE");
@@ -75,6 +80,7 @@ private slots:
         QCOMPARE(qgetenv("QT_IM_MODULE"), QByteArrayLiteral("fcitx"));
     }
 
+    // 用户显式选择的非 fcitx 输入法不被改写
     void preservesAnExplicitNonFcitxChoice()
     {
         EnvironmentGuard guard("QT_IM_MODULE");
@@ -87,6 +93,7 @@ private slots:
         QCOMPARE(qgetenv("QT_IM_MODULE"), QByteArrayLiteral("xim"));
     }
 
+    // 没有可用回退插件时保留原来的取值
     void keepsFcitxWhenNoCompatibleFallbackExists()
     {
         EnvironmentGuard guard("QT_IM_MODULE");

@@ -19,6 +19,7 @@
 #include <functional>
 #include <memory>
 
+// 本文件实现电站地图视图：在线腾讯地图画布或离线绘制演示
 namespace charging::client {
 namespace {
 constexpr double pi = 3.14159265358979323846;
@@ -29,6 +30,7 @@ bool valid(const MapLocation &location)
         && std::abs(location.longitude) <= 180 && std::abs(location.latitude) <= 90;
 }
 
+// 经纬度转墨卡托归一化坐标，纬度先截断到可投影范围
 QPointF project(const MapLocation &location)
 {
     const double latitude = std::clamp(location.latitude, -85.05112878, 85.05112878) * pi / 180;
@@ -41,6 +43,7 @@ QJsonObject coordinate(const MapLocation &location)
     return {{QStringLiteral("lat"), location.latitude}, {QStringLiteral("lng"), location.longitude}};
 }
 
+// 自绘电站标记按钮，颜色区分是否有空闲桩与选中态
 class StationMarker final : public QAbstractButton {
 public:
     explicit StationMarker(QWidget *parent) : QAbstractButton(parent)
@@ -86,6 +89,7 @@ private:
 };
 }  // namespace
 
+// 构造视图：初始化离线预览、缩放与全景等控件
 StationMapView::StationMapView(QWidget *parent) : QWidget(parent)
 {
     setObjectName(QStringLiteral("stationMapView"));
@@ -145,6 +149,7 @@ StationMapView::~StationMapView()
     if (preloadThread_) preloadThread_->wait();
 }
 
+// 设置脚本地址后按需创建网页地图，并接管选中与加载状态
 void StationMapView::setMapScriptUrl(const QUrl &url)
 {
     if (url == scriptUrl_) return;
@@ -186,6 +191,7 @@ void StationMapView::setMapScriptUrl(const QUrl &url)
     update();
 }
 
+// 预热：先算好离线底图，隐藏时也提前给画布定尺寸
 void StationMapView::preload()
 {
     if (preloadStarted_) return;
@@ -200,6 +206,7 @@ void StationMapView::preload()
     const QPointF viewportCenter = center_;
     const double viewportScale = scale_;
     const qreal pixelRatio = devicePixelRatioF();
+    // 底图计算放到后台线程，完成后回主线程替换并重绘
     preloadThread_ = QThread::create([prepared, viewportSize, viewportCenter, viewportScale, pixelRatio] {
         prepared->prepare(viewportSize, viewportCenter, viewportScale, pixelRatio);
     });
@@ -231,6 +238,7 @@ void StationMapView::setCurrentLocation(const std::optional<MapLocation> &locati
     update();
 }
 
+// 接收电站列表，过滤无效坐标并重建标记
 void StationMapView::setStations(const QList<protocol::StationDto> &stations)
 {
     receivedStations_ = true;
@@ -270,6 +278,7 @@ void StationMapView::selectStation(qint64 stationId)
     updateMarkers();
 }
 
+// 点击空白视为取消选择，点中标记则通知外部打开预览
 void StationMapView::activateStation(qint64 stationId)
 {
     if (stationId <= 0) { autoFit_ = false; emit backgroundClicked(); return; }
@@ -289,6 +298,7 @@ QPointF StationMapView::pointForLocation(const MapLocation &location) const
     return QRectF(rect()).center() + (project(location) - center_) * scale_;
 }
 
+// 根据所有电站与当前位置计算合适缩放和中心
 void StationMapView::fitStations()
 {
     autoFit_ = true;
@@ -351,6 +361,7 @@ void StationMapView::setViewportMargins(const QMargins &margins)
     updateControls();
 }
 
+// 把电站、定位、选中和边距整理成JSON场景交给网页地图
 void StationMapView::applyWebScene()
 {
     if (!webMap_ || scriptUrl_.isEmpty() || (!isVisible() && !warming_) || !webSceneDirty_) return;
@@ -381,6 +392,7 @@ void StationMapView::applyWebScene()
     webSceneDirty_ = false;
 }
 
+// 按当前视图重新摆放离线标记，超出视口则隐藏
 void StationMapView::updateMarkers()
 {
     loadingPreview_->update();
@@ -395,6 +407,7 @@ void StationMapView::updateMarkers()
     controls_->raise();
 }
 
+// 网页底图未就绪时显示离线预览并切换版权文案
 void StationMapView::updatePreview()
 {
     const bool preview = !scriptUrl_.isEmpty() && webMap_ && !webMap_->isBaseMapReady();
@@ -419,6 +432,7 @@ void StationMapView::updateControls()
     modeLabel_->raise();
 }
 
+// 尺寸变化时同步内嵌画布与控件位置
 void StationMapView::resizeEvent(QResizeEvent *event)
 {
     QWidget::resizeEvent(event);
@@ -441,6 +455,7 @@ void StationMapView::showEvent(QShowEvent *event)
     applyWebScene();
 }
 
+// 以可用视口中心为锚点缩放，限制最大最小比例
 void StationMapView::changeZoom(int delta)
 {
     autoFit_ = false;
@@ -456,6 +471,7 @@ void StationMapView::beginInteraction()
 }
 void StationMapView::zoomIn() { beginInteraction(); if (webMap_) webMap_->zoomIn(); else changeZoom(1); }
 void StationMapView::zoomOut() { beginInteraction(); if (webMap_) webMap_->zoomOut(); else changeZoom(-1); }
+// 鼠标拖拽平移地图，超过阈值才算拖动而非点击
 void StationMapView::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() != Qt::LeftButton) return;
@@ -501,6 +517,7 @@ void StationMapView::paintEvent(QPaintEvent *)
     paintOfflineMap(painter);
 }
 
+// 离线模式绘制底图，并标出当前选定位置
 void StationMapView::paintOfflineMap(QPainter &painter)
 {
     if (!preloadStarted_) preload();

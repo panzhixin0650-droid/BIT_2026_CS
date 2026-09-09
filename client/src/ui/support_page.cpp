@@ -21,9 +21,11 @@
 
 #include <functional>
 
+// 本文件实现AI充电助手页：知识库问答与转接客服入口
 namespace charging::client {
 namespace {
 
+// 输入框重写回车行为：输入法组字时不误发送
 class ChatInput final : public QPlainTextEdit {
 public:
     explicit ChatInput(QWidget *parent) : QPlainTextEdit(parent) {}
@@ -60,6 +62,7 @@ QLabel *textLabel(const QString &text, QWidget *parent, const QString &name = {}
 
 }  // namespace
 
+// 构造助手页：标题、模式选择、消息区与输入区
 SupportPage::SupportPage(AssistantService &service, QWidget *parent)
     : QWidget(parent), service_(service)
 {
@@ -164,6 +167,7 @@ SupportPage::SupportPage(AssistantService &service, QWidget *parent)
         QStringLiteral("rabbit"), 92, 5, card));
     cardLayout->addWidget(textLabel(QStringLiteral("从找站到结束充电，让每一步更清楚。\n选一个问题，或在下方直接问我。"),
                                    card, QStringLiteral("assistantWelcomeDescription")));
+    // 欢迎卡片列出预置问题，点击即直接提问
     auto *grid = new QGridLayout;
     grid->setSpacing(10);
     const QStringList captions{QStringLiteral("附近充电站\n怎么查找  ↗"),
@@ -188,6 +192,7 @@ SupportPage::SupportPage(AssistantService &service, QWidget *parent)
     messagesLayout_->addStretch(1);
     scroll_->setWidget(canvas_);
     layout->addWidget(scroll_, 1);
+    // 悬浮按钮转到模拟客服与工单，与AI助理是不同模式
     deskEntry_ = new QPushButton(QStringLiteral("真人\n客服"), scroll_->viewport());
     deskEntry_->setObjectName(QStringLiteral("supportDeskEntry"));
     deskEntry_->setFixedSize(58, 58);
@@ -239,6 +244,7 @@ SupportPage::SupportPage(AssistantService &service, QWidget *parent)
         }
         updateControls();
     });
+    // 流式回答更新占位气泡文本
     connect(&service_, &AssistantService::answerUpdated, this,
             [this](quint64 id, const QString &text) {
                 if (id == activeId_ && pendingText_) { pendingText_->setText(text); }
@@ -256,6 +262,7 @@ SupportPage::SupportPage(AssistantService &service, QWidget *parent)
     updateControls();
 }
 
+// 延后滚动到底部，仅在用户本来贴底时生效
 void SupportPage::scrollToBottom()
 {
     QTimer::singleShot(0, this, [this]() {
@@ -266,6 +273,7 @@ void SupportPage::scrollToBottom()
     });
 }
 
+// 追加一条消息气泡，区分用户与助理样式
 QWidget *SupportPage::appendMessage(bool user, const QString &text, QLabel **body)
 {
     auto *row = new QWidget(canvas_);
@@ -292,6 +300,7 @@ QWidget *SupportPage::appendMessage(bool user, const QString &text, QLabel **bod
     return bubble;
 }
 
+// 提交提问：限制字数与轮数，先插占位气泡再等回复
 void SupportPage::submit(const QString &question)
 {
     const QString text = question.trimmed();
@@ -312,6 +321,7 @@ void SupportPage::submit(const QString &question)
     scrollToBottom();
 }
 
+// 回答完成：标注来源模式，提供复制或重试按钮
 void SupportPage::complete(quint64 id, const AssistantResult &result)
 {
     if (id != activeId_ || !pendingBubble_) { return; }
@@ -343,6 +353,7 @@ void SupportPage::complete(quint64 id, const AssistantResult &result)
                 [this, question = pendingQuestion_]() { submit(question); });
         layout->addWidget(retry, 0, Qt::AlignLeft);
     }
+    // 展开显示本次引用的知识条目
     if (!result.sources.isEmpty()) {
         auto *toggle = new QToolButton(pendingBubble_);
         toggle->setObjectName(QStringLiteral("assistantSources"));
@@ -369,6 +380,7 @@ void SupportPage::complete(quint64 id, const AssistantResult &result)
     if (isVisible()) { input_->setFocus(); }
 }
 
+// 根据忙碌状态刷新按钮、字数与隐私提示
 void SupportPage::updateControls()
 {
     const bool busy = activeId_ != 0;
@@ -400,6 +412,7 @@ void SupportPage::updateControls()
         : QStringLiteral("仅查阅本地项目知识，不联网。实时信息以业务页面为准。"));
 }
 
+// 新建对话：先失效当前请求ID再取消，清空消息与历史
 void SupportPage::resetConversation()
 {
     activeId_ = 0; // Invalidate before synchronous cancellation delivery.
@@ -423,6 +436,7 @@ void SupportPage::resetConversation()
     if (isVisible()) { input_->setFocus(); }
 }
 
+// 视口尺寸变化时把客服悬浮按钮固定在右下角
 bool SupportPage::eventFilter(QObject *watched, QEvent *event)
 {
     if (watched == scroll_->viewport() && event->type() == QEvent::Resize && deskEntry_) {

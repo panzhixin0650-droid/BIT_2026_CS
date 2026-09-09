@@ -1,4 +1,6 @@
+<!-- 服务端资源清单：把登录页图片打包进可执行文件 -->
 <RCC>
+    <!-- 资源统一挂在 /server 前缀下，代码按该路径引用 -->
     <qresource prefix="/server">
         <file>login-charging-station.jpg</file>
         <file>login-charging-station-blue.png</file>

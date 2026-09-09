@@ -19,9 +19,11 @@ namespace charging::client {
 
 class PhotoAlbumPage;
 
+// 扫码对话框声明：摄像头预览与图片识别二合一
 class QrScanDialog final : public QDialog {
     Q_OBJECT
 public:
+    // 打开来源：直接开摄像头或先选图片
     enum class Source { Camera, Image };
     explicit QrScanDialog(Source source, QWidget *parent = nullptr, bool immersive = false);
     ~QrScanDialog() override;
@@ -30,6 +32,7 @@ public:
     void done(int result) override;
 
 signals:
+    // 识别成功后向外发出电桩编号
     void pileCodeDecoded(const QString &pileCode);
 
 protected:
@@ -37,6 +40,7 @@ protected:
     void hideEvent(QHideEvent *event) override;
 
 private:
+    // 设备枚举、启停摄像头与异步解码流程
     void refreshCameras();
     void startCamera();
     void stopCamera();
@@ -56,11 +60,13 @@ private:
     QPushButton *imageButton_;
     QLabel *preview_;
     QLabel *status_;
+    // 解码工作线程与限速计时器，避免界面卡顿
     QThread workerThread_;
     QObject *worker_;
     QElapsedTimer frameClock_;
     QElapsedTimer lastFrameClock_;
     QTimer *frameWatchdog_;
+    // 代号用于作废旧回调，标志位控制忙碌与结束
     quint64 generation_ = 0;
     bool immersive_ = false;
     bool busy_ = false;

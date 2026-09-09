@@ -1,3 +1,4 @@
+// 管理端主窗口实现：登录页、导航与各业务页面的构建和刷新
 #include "admin_window.h"
 
 #include "admin_facade.h"
@@ -75,6 +76,7 @@ namespace {
 
 using namespace charging::protocol;
 
+// 生成带样式角色的标题标签，供各页面复用
 QLabel *heading(const QString &text, QWidget *parent, const char *role = "sectionTitle")
 {
     auto *label = new QLabel(text, parent);
@@ -84,6 +86,7 @@ QLabel *heading(const QString &text, QWidget *parent, const char *role = "sectio
 
 // A light content-wide reveal provides refresh feedback without capturing the
 // whole page into an offscreen opacity effect or blocking pointer events.
+// 刷新反馈遮罩：轻量动画提示数据已重新加载
 class PageRefreshFeedback final : public QWidget {
 public:
     explicit PageRefreshFeedback(QWidget *parent) : QWidget(parent), animation_(this)
@@ -102,6 +105,7 @@ public:
         parent->installEventFilter(this);
         hide();
     }
+    // 重新播放动画，并对齐父控件区域
     void replay()
     {
         animation_.stop();
@@ -135,6 +139,7 @@ private:
     QVariantAnimation animation_;
 };
 
+// 登录页背景：渐变加光晕与电路线条，纯手绘无图片依赖
 class LoginBackdrop final : public QWidget {
 public:
     using QWidget::QWidget;
@@ -190,6 +195,7 @@ protected:
 };
 
 // Vector brand artwork stays crisp at desktop scale and never overlaps the form.
+// 登录左侧品牌面板，右侧直角以贴合表单卡片
 class LoginBrandPanel final : public QWidget {
 public:
     explicit LoginBrandPanel(QWidget *parent) : QWidget(parent) {}
@@ -213,6 +219,7 @@ protected:
     }
 };
 
+// 矢量绘制的闪电标识，缩放不失真
 class LoginLogo final : public QWidget {
 public:
     explicit LoginLogo(QWidget *parent) : QWidget(parent)
@@ -236,6 +243,7 @@ protected:
     }
 };
 
+// 密码输入框内置显示或隐藏切换按钮
 class LoginPasswordEdit final : public QLineEdit {
 public:
     explicit LoginPasswordEdit(QWidget *parent) : QLineEdit(parent)
@@ -260,6 +268,7 @@ public:
         });
     }
 protected:
+    // 随控件尺寸变化重新摆放切换按钮
     void resizeEvent(QResizeEvent *event) override
     {
         QLineEdit::resizeEvent(event);
@@ -271,6 +280,7 @@ private:
 
 constexpr int navigationGroupRole = Qt::UserRole + 8;
 
+// 导航项委托：自绘分组标题、图标与选中态
 class NavigationDelegate final : public QStyledItemDelegate {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
@@ -340,6 +350,7 @@ public:
     }
 };
 
+// 按分类给导航项打组标题，隐藏项不占用分组
 void updateNavigationGroups(QListWidget *navigation)
 {
     const QStringList categories{QStringLiteral("总览"), QStringLiteral("总览"),
@@ -355,6 +366,7 @@ void updateNavigationGroups(QListWidget *navigation)
     navigation->doItemsLayout();
 }
 
+// 统一创建白色圆角面板容器
 QFrame *panel(QWidget *parent)
 {
     auto *frame = new QFrame(parent);
@@ -362,6 +374,7 @@ QFrame *panel(QWidget *parent)
     return frame;
 }
 
+// 把图表包进带标题和说明的卡片
 QWidget *chartCard(const QString &title, QWidget *chart, QWidget *parent, const QString &note = {})
 {
     auto *card = panel(parent);
@@ -376,6 +389,7 @@ QWidget *chartCard(const QString &title, QWidget *chart, QWidget *parent, const 
     return card;
 }
 
+// 给分析页加滚动容器并统一背景色
 QWidget *scrollAnalysis(QWidget *page, const QString &name)
 {
     auto *scroll = new QScrollArea;
@@ -391,11 +405,13 @@ QWidget *scrollAnalysis(QWidget *page, const QString &name)
     return scroll;
 }
 
+// 可点击的指标卡：支持鼠标与回车、空格激活
 class MetricActionCard final : public QFrame {
 public:
     using QFrame::QFrame;
     QLabel *value = nullptr;
     std::function<void()> action;
+    // 无权限时禁用点击并去掉焦点
     void setActionPermitted(bool permitted) {
         permitted_ = permitted;
         setProperty("interactive", permitted);
@@ -421,6 +437,7 @@ protected:
         } else QFrame::keyPressEvent(event);
     }
 private:
+    // 只有有权限且已有数值时才触发查看明细的操作
     void trigger() {
         if (permitted_ && action && value && value->text().contains(QRegularExpression(QStringLiteral("[0-9]")))) action();
     }
@@ -428,6 +445,7 @@ private:
     bool pressed_ = false;
 };
 
+// 构建指标卡：色条、标题与带动画的数值标签
 QWidget *metricCard(const QString &title,
                     const QString &accent,
                     QLabel **valueLabel,
@@ -453,6 +471,7 @@ QWidget *metricCard(const QString &title,
     return card;
 }
 
+// 表格单元格统一设为不可编辑
 QTableWidgetItem *item(const QString &text)
 {
     auto *result = new QTableWidgetItem(text);
@@ -460,6 +479,7 @@ QTableWidgetItem *item(const QString &text)
     return result;
 }
 
+// 数字列右对齐并保存原值，便于按数值排序
 QTableWidgetItem *numberItem(qint64 value)
 {
     auto *result = item(QString::number(value));
@@ -468,6 +488,7 @@ QTableWidgetItem *numberItem(qint64 value)
     return result;
 }
 
+// 以下几个函数把协议枚举字符串翻成中文展示
 QString userStatusText(const QString &status)
 {
     return status == QStringLiteral("ACTIVE") ? QStringLiteral("正常")
@@ -511,6 +532,7 @@ QString orderStatusText(const QString &status)
     return QStringLiteral("已取消");
 }
 
+// 按状态给文字上色，直观区分正常与异常
 void colorStatus(QTableWidgetItem *tableItem, const QString &status)
 {
     QColor color("#64748b");
@@ -522,6 +544,7 @@ void colorStatus(QTableWidgetItem *tableItem, const QString &status)
     tableItem->setForeground(color);
 }
 
+// 筛选按钮标题上追加已选数量
 void updateFilterButton(QPushButton *button, int count)
 {
     const QString title = button->property("filterTitle").toString();
@@ -529,6 +552,7 @@ void updateFilterButton(QPushButton *button, int count)
                               : QStringLiteral("%1 ▾").arg(title));
 }
 
+// 为筛选按钮挂多选弹窗：全选、滚动列表与确认后回写
 void installMultiSelectMenu(QPushButton *button,
                             QComboBox *source,
                             const std::function<bool(const QVariant &)> &isSelected,
@@ -585,6 +609,7 @@ void installMultiSelectMenu(QPushButton *button,
         options->setAutoFillBackground(true);
         scroll->setFixedHeight(qMin(qMax(36, boxes.size()*32), qMax(36, qMin(380, available.height()-160))));
         layout->addWidget(scroll);
+        // 任一项取消勾选就同步取消全选状态
         auto syncAll = [all, &boxes] {
             bool every = !boxes.isEmpty();
             for (auto *box : boxes) every = every && box->isChecked();
@@ -603,12 +628,14 @@ void installMultiSelectMenu(QPushButton *button,
         layout->addWidget(buttons);
         QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
         dialog.adjustSize();
+        // 弹窗位置按屏幕可用区域调整，避免超出边界
         QPoint popupPos = button->mapToGlobal(QPoint(0, button->height()+4));
         if (popupPos.y()+dialog.height() > available.bottom()+1)
             popupPos.setY(button->mapToGlobal(QPoint(0,0)).y()-dialog.height()-4);
         popupPos.setX(qBound(available.left(), popupPos.x(), qMax(available.left(),available.right()-dialog.width()+1)));
         popupPos.setY(qBound(available.top(), popupPos.y(), qMax(available.top(),available.bottom()-dialog.height()+1)));
         dialog.move(popupPos);
+        // 取消则不改动筛选条件，确认后重建选中集合
         if (dialog.exec() != QDialog::Accepted) return;
         clear();
         for (int i = 0; i < boxes.size(); ++i) if (boxes[i]->isChecked()) toggle(source->itemData(i + 1), true);
@@ -616,6 +643,7 @@ void installMultiSelectMenu(QPushButton *button,
     });
 }
 
+// 详情弹窗：窗口失去激活即关闭
 class DetailsDialog final : public QDialog {
 public:
     explicit DetailsDialog(QWidget *parent = nullptr) : QDialog(parent)
@@ -640,6 +668,7 @@ protected:
     }
 };
 
+// 站点树委托：父行与子行使用不同字号和行高
 class StationRowDelegate final : public QStyledItemDelegate {
 public:
     explicit StationRowDelegate(QObject *parent = nullptr) : QStyledItemDelegate(parent) {}
@@ -667,6 +696,7 @@ public:
 
 }  // namespace
 
+// 主窗口构造：记录运行信息并搭建登录页与主界面栈
 AdminWindow::AdminWindow(AdminFacade *facade,
                          bool tcpListening,
                          quint16 tcpPort,
@@ -682,11 +712,13 @@ AdminWindow::AdminWindow(AdminFacade *facade,
     const auto available = QGuiApplication::primaryScreen()->availableGeometry().size();
     resize(qMin(1380,available.width()-48), qMin(860,available.height()-48));
     setMinimumSize(1080, 700);
+    // 用堆叠窗口在登录页与已登录界面之间切换
     rootStack_ = new QStackedWidget(this);
     rootStack_->addWidget(buildLoginPage());
     rootStack_->addWidget(buildApplicationPage());
     setCentralWidget(rootStack_);
 
+    // 集中设置全局 QSS，统一配色与控件样式
     setStyleSheet(QStringLiteral(R"(
         QMainWindow, QStackedWidget, QDialog { background: #f3f6fb; }
         QWidget { color: #243044; font-family: "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; font-size: 14px; }
@@ -782,6 +814,7 @@ AdminWindow::AdminWindow(AdminFacade *facade,
     )"));
 }
 
+// 通用详情弹窗：把文本按行解析成表单和表格
 void AdminWindow::showDetails(const QString &title, const QString &content)
 {
     DetailsDialog dialog(this);
@@ -802,9 +835,11 @@ void AdminWindow::showDetails(const QString &title, const QString &content)
     form->setHorizontalSpacing(16);
     form->setVerticalSpacing(10);
     form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+    // 按行解析内容，空行忽略
     const QStringList lines = content.split('\n', Qt::SkipEmptyParts);
     QTableWidget *detailTable = nullptr;
     for (const QString &line : lines) {
+        // 以圆点开头的行汇总成电桩明细表格
         if (line.startsWith(QStringLiteral("• "))) {
             if (detailTable == nullptr) {
                 detailTable = new QTableWidget(card);
@@ -825,6 +860,7 @@ void AdminWindow::showDetails(const QString &title, const QString &content)
             }
             continue;
         }
+        // 含中文冒号的行拆成标签与可选中的值
         const int sep = line.indexOf(QChar(0xFF1A));
         if (sep > 0) {
             auto *value = new QLabel(line.mid(sep + 1).trimmed(), card);
@@ -844,12 +880,14 @@ void AdminWindow::showDetails(const QString &title, const QString &content)
             form->addRow(section);
         }
     }
+    // 根据列宽估算表格宽度，避免出现横向滚动
     if (detailTable != nullptr) {
         detailTable->resizeColumnsToContents();
         int tableWidth = detailTable->verticalHeader()->width() + 16;
         for (int column = 0; column < detailTable->columnCount(); ++column) {
             tableWidth += detailTable->columnWidth(column);
         }
+        // 按列宽与行数给详情表设定合适的最小最大尺寸
         detailTable->setMinimumWidth(qBound(420, tableWidth, 680));
         detailTable->setMinimumHeight(qMin(300, 42 + detailTable->rowCount() * 36));
         detailTable->setMaximumHeight(qMin(300, 42 + detailTable->rowCount() * 36));
@@ -857,6 +895,7 @@ void AdminWindow::showDetails(const QString &title, const QString &content)
     scroll->setWidget(card);
     layout->addWidget(scroll, 1);
     card->adjustSize();
+    // 依据屏幕可用区域推算弹窗宽高，避免超出屏幕
     const QSize available = QGuiApplication::primaryScreen()->availableGeometry().size();
     const int preferredWidth = card->sizeHint().width() + 28;
     const int preferredHeight = card->sizeHint().height() + 82;
@@ -864,12 +903,14 @@ void AdminWindow::showDetails(const QString &title, const QString &content)
     const int height = qBound(220, preferredHeight, qMin(700, available.height() - 100));
     dialog.resize(width, height);
     dialog.enableClickToClose();
+    // 用局部事件循环等待对话框关闭后再返回
     QEventLoop loop;
     connect(&dialog, &QDialog::finished, &loop, &QEventLoop::quit);
     dialog.show();
     loop.exec();
 }
 
+// 构建登录页：左侧品牌展示，右侧账号密码表单
 QWidget *AdminWindow::buildLoginPage()
 {
     auto *page = new LoginBackdrop(this);
@@ -932,6 +973,7 @@ QWidget *AdminWindow::buildLoginPage()
     passwordEdit_->setAccessibleName(QStringLiteral("密码"));
     passwordLabel->setBuddy(passwordEdit_);
     formLayout->addWidget(passwordEdit_);
+    // 固定高度的错误提示标签，出错时不挤动布局
     loginError_ = new QLabel(surface);
     loginError_->setObjectName(QStringLiteral("loginError"));
     loginError_->setTextFormat(Qt::PlainText);
@@ -943,6 +985,7 @@ QWidget *AdminWindow::buildLoginPage()
     loginButton->setObjectName(QStringLiteral("loginSubmit"));
     loginButton->setFixedHeight(52);
     loginButton->setCursor(Qt::PointingHandCursor);
+    // 点击按钮或密码框回车都触发登录
     connect(loginButton, &QPushButton::clicked, this, &AdminWindow::attemptLogin);
     connect(passwordEdit_, &QLineEdit::returnPressed, this, &AdminWindow::attemptLogin);
     connect(usernameEdit_, &QLineEdit::returnPressed, passwordEdit_, [this] { passwordEdit_->setFocus(); });
@@ -953,6 +996,7 @@ QWidget *AdminWindow::buildLoginPage()
     return page;
 }
 
+// 组装主界面：左侧导航栏加右侧内容区
 QWidget *AdminWindow::buildApplicationPage()
 {
     auto *page = new QWidget(this);
@@ -970,6 +1014,7 @@ QWidget *AdminWindow::buildApplicationPage()
     logo->setStyleSheet(QStringLiteral("color:white;font-size:21px;font-weight:600;padding:4px 8px;"));
     logo->setMinimumHeight(40);
     sidebarLayout->addWidget(logo);
+    // 左侧导航列表，对应八个功能页面
     navigation_ = new QListWidget(sidebar);
     navigation_->setObjectName(QStringLiteral("navigation"));
     navigation_->addItems({QStringLiteral("运营监控"), QStringLiteral("营收统计"),
@@ -1004,11 +1049,13 @@ QWidget *AdminWindow::buildApplicationPage()
     accountLayout->addWidget(accountIdentity_);
     changePasswordButton_ = new QPushButton(QStringLiteral("修改密码"), accountPanel);
     changePasswordButton_->setObjectName(QStringLiteral("adminChangePassword"));
+    // 侧栏修改密码入口，非强制修改场景
     connect(changePasswordButton_, &QPushButton::clicked, this, [this] {
         showChangePasswordDialog(false);
     });
     accountLayout->addWidget(changePasswordButton_);
     auto *logoutButton = new QPushButton(QStringLiteral("退出登录"), accountPanel);
+    // 退出登录：清空当前管理员身份与历史并回到登录页
     connect(logoutButton, &QPushButton::clicked, this, [this] {
         if (facade_ != nullptr) facade_->logout();
         currentAdminId_ = 0;
@@ -1034,6 +1081,7 @@ QWidget *AdminWindow::buildApplicationPage()
     pageTitle_->setProperty("role", "pageTitle");
     topBar->addWidget(pageTitle_);
     topBar->addStretch();
+    // 标题栏右侧的后退、刷新、前进三个工具按钮
     backButton_ = new QToolButton(mainArea);
     backButton_->setObjectName(QStringLiteral("adminPageBack"));
     backButton_->setIcon(style()->standardIcon(QStyle::SP_ArrowBack));
@@ -1070,11 +1118,13 @@ QWidget *AdminWindow::buildApplicationPage()
     connect(backButton_, &QToolButton::clicked, this, &AdminWindow::navigateBack);
     connect(refreshButton_, &QToolButton::clicked, this, &AdminWindow::refreshCurrentPage);
     connect(forwardButton_, &QToolButton::clicked, this, &AdminWindow::navigateForward);
+    // Alt+左右方向键作为前进后退快捷键
     auto *backShortcut = new QShortcut(QKeySequence(Qt::ALT | Qt::Key_Left), this);
     auto *forwardShortcut = new QShortcut(QKeySequence(Qt::ALT | Qt::Key_Right), this);
     connect(backShortcut, &QShortcut::activated, this, &AdminWindow::navigateBack);
     connect(forwardShortcut, &QShortcut::activated, this, &AdminWindow::navigateForward);
     mainLayout->addLayout(topBar);
+    // 按导航顺序把各功能页依次加入内容栈
     contentStack_ = new QStackedWidget(mainArea);
     contentStack_->addWidget(buildOperationsPage());
     contentStack_->addWidget(buildDashboardPage());
@@ -1091,6 +1141,7 @@ QWidget *AdminWindow::buildApplicationPage()
     refreshFeedback_ = new PageRefreshFeedback(contentStack_);
     mainLayout->addWidget(contentStack_, 1);
     layout->addWidget(mainArea, 1);
+    // 导航选中行变化时切换到对应页面
     connect(navigation_, &QListWidget::currentRowChanged,
             this, &AdminWindow::selectPage);
     navigation_->setCurrentRow(0);
@@ -1099,6 +1150,7 @@ QWidget *AdminWindow::buildApplicationPage()
     return page;
 }
 
+// 营收统计页：日期区间筛选加指标卡与图表
 QWidget *AdminWindow::buildDashboardPage()
 {
     auto *page = new QWidget(this);
@@ -1118,12 +1170,14 @@ QWidget *AdminWindow::buildDashboardPage()
     customRow->setContentsMargins(0, 0, 0, 0);
     customRow->addStretch();
     dashboardCustomRange_->hide();
+    // 预设近7/30/60/90日，另提供自定义区间
     dashboardDays_ = new AdminComboBox(page);
     dashboardDays_->addItem(QStringLiteral("近 7 日"), 7);
     dashboardDays_->addItem(QStringLiteral("近 30 日"), 30);
     dashboardDays_->addItem(QStringLiteral("近 60 日"), 60);
     dashboardDays_->addItem(QStringLiteral("近 90 日"), 90);
     dashboardDays_->addItem(QStringLiteral("自定义"), -1);
+    // 默认区间按北京时间取最近七天
     dashboardStartDate_ = new QDateEdit(QDateTime::currentDateTimeUtc().toTimeZone(QTimeZone("Asia/Shanghai")).date().addDays(-6), page);
     dashboardStartDate_->setCalendarPopup(true);
     dashboardStartDate_->setDisplayFormat(QStringLiteral("yyyy-MM-dd"));
@@ -1138,6 +1192,7 @@ QWidget *AdminWindow::buildDashboardPage()
                              static_cast<QWidget *>(dashboardEndLabel_),
                              static_cast<QWidget *>(dashboardEndDate_),
                              static_cast<QWidget *>(dashboardApplyButton_)}) control->hide();
+    // 仅自定义时显示日期控件，其余选项立即刷新
     connect(dashboardDays_, &QComboBox::currentIndexChanged,
             this, [this] {
                 const bool custom = dashboardDays_->currentData().toInt() < 0;
@@ -1164,6 +1219,7 @@ QWidget *AdminWindow::buildDashboardPage()
     customRow->addWidget(dashboardApplyButton_);
     layout->addLayout(rangeRow);
     layout->addWidget(dashboardCustomRange_);
+    // 上排为累计类指标卡，下排为所选区间指标卡
     auto *metrics = new QGridLayout;
     metrics->setSpacing(14);
     metrics->addWidget(metricCard(QStringLiteral("今日营收"), QStringLiteral("#2f6fed"), &todayRevenue_, page), 0, 0);
@@ -1186,6 +1242,7 @@ QWidget *AdminWindow::buildDashboardPage()
     auto *charts = new QGridLayout;
     charts->setSpacing(16);
     charts->setColumnStretch(0,1); charts->setColumnStretch(1,1);
+    // 每日实收、站点排名等多张营收分析图表
     revenueChart_ = new RevenueChart(page);
     charts->addWidget(chartCard(QStringLiteral("每日实收"),revenueChart_,page),0,0);
     stationRevenueChart_ = new AnalysisBarChart(page);
@@ -1208,6 +1265,7 @@ QWidget *AdminWindow::buildDashboardPage()
     return scrollAnalysis(page, "revenueAnalysisScroll");
 }
 
+// 运营监控页：当前时间、状态指标与站点明细
 QWidget *AdminWindow::buildOperationsPage()
 {
     auto *page = new QWidget;
@@ -1230,6 +1288,7 @@ QWidget *AdminWindow::buildOperationsPage()
     clockRow->addWidget(operationsClock_);
     clockRow->addStretch();
     layout->addLayout(clockRow);
+    // 每秒刷新时钟文本，仅在可见时更新
     auto *clockTimer = new QTimer(page);
     clockTimer->setInterval(1000);
     connect(clockTimer, &QTimer::timeout, page, [this, updateClock] {
@@ -1249,6 +1308,7 @@ QWidget *AdminWindow::buildOperationsPage()
     operationsSummary_->hide();
     auto *charts = new QGridLayout;
     charts->setSpacing(16); charts->setColumnStretch(0,1); charts->setColumnStretch(1,1);
+    // 电桩状态、站点占用率、故障站点等运营图表
     pileStatusChart_ = new PileStatusChart(page);
     charts->addWidget(chartCard(QStringLiteral("电桩当前状态"),pileStatusChart_,page),0,0);
     stationOccupancyChart_ = new PileStatusChart(page);
@@ -1264,6 +1324,7 @@ QWidget *AdminWindow::buildOperationsPage()
     orderStatesChart_->setCaption(QStringLiteral("订单总数"), true);
     charts->addWidget(chartCard(QStringLiteral("全部订单当前状态"),orderStatesChart_,page),1,1);
     layout->addLayout(charts);
+    // 站点电桩明细表，单元格可点击打开详情
     operationsTable_ = new QTableWidget(page);
     operationsTable_->setObjectName("operationsStationTable");
     prepareTable(operationsTable_, {QStringLiteral("站点"),QStringLiteral("总数"),QStringLiteral("空闲"),
@@ -1280,6 +1341,7 @@ QWidget *AdminWindow::buildOperationsPage()
     return scrollAnalysis(page,"operationsAnalysisScroll");
 }
 
+// 充电站管理页：搜索、多条件筛选与站点树表
 QWidget *AdminWindow::buildStationsPage()
 {
     auto *page = new QWidget(this);
@@ -1301,6 +1363,7 @@ QWidget *AdminWindow::buildStationsPage()
     stationStatus_->addItem(QStringLiteral("启用"), QStringLiteral("ACTIVE"));
     stationStatus_->addItem(QStringLiteral("停用"), QStringLiteral("DISABLED"));
     auto *resetButton = new QPushButton(QStringLiteral("重置"), page);
+    // 搜索框输入即时触发站点列表刷新
     connect(stationSearch_, &QLineEdit::textChanged, this, [this](const QString &text) {
         appliedStationSearch_ = text.trimmed();
         refreshStations();
@@ -1308,6 +1371,7 @@ QWidget *AdminWindow::buildStationsPage()
     connect(stationSearchField_, &QComboBox::currentIndexChanged, this, [this] {
         if (stationSearch_ != nullptr && !stationSearch_->text().isEmpty()) refreshStations();
     });
+    // 重置按钮清空搜索、筛选与树的展开状态
     connect(resetButton, &QPushButton::clicked, this, [this] {
         const QSignalBlocker fieldBlocker(stationSearchField_);
         const QSignalBlocker textBlocker(stationSearch_);
@@ -1326,6 +1390,7 @@ QWidget *AdminWindow::buildStationsPage()
     auto *createButton = new QPushButton(QStringLiteral("＋ 新增充电站"), page);
     createButton->setProperty("primary", true);
     connect(createButton, &QPushButton::clicked, this, &AdminWindow::showCreateStationDialog);
+    // 一键全部展开或收起站点树
     stationExpandToggle_ = new QPushButton(QStringLiteral("全部展开"), page);
     connect(stationExpandToggle_, &QPushButton::clicked, this, [this] {
         bool anyExpanded = false;
@@ -1342,6 +1407,7 @@ QWidget *AdminWindow::buildStationsPage()
     stationStatusFilter_ = new QPushButton(page);
     stationStatusFilter_->setProperty("filterTitle", QStringLiteral("状态"));
     updateFilterButton(stationStatusFilter_, 0);
+    // 区域与状态用多选下拉菜单筛选
     installMultiSelectMenu(stationRegionFilter_, stationRegion_,
         [this](const QVariant &v){ return selectedStationRegions_.contains(v.toString()); },
         [this](const QVariant &v, bool on){ if(on) selectedStationRegions_.insert(v.toString()); else selectedStationRegions_.remove(v.toString()); updateFilterButton(stationRegionFilter_, selectedStationRegions_.size()); },
@@ -1358,6 +1424,7 @@ QWidget *AdminWindow::buildStationsPage()
     stationOccupancyFilter_->setObjectName(QStringLiteral("stationOccupancyFilter"));
     stationOccupancyFilter_->setProperty("filterTitle",QStringLiteral("占用率"));
     updateFilterButton(stationOccupancyFilter_,0);
+    // 占用率筛选菜单，分五档且为单选
     connect(stationOccupancyFilter_,&QPushButton::clicked,this,[this] {
         QMenu menu(stationOccupancyFilter_);
         for (int band=-1;band<5;++band) {
@@ -1373,6 +1440,7 @@ QWidget *AdminWindow::buildStationsPage()
     controls->addWidget(stationExpandToggle_);
     controls->addWidget(createButton);
     layout->addLayout(controls);
+    // 站点树表：父行是站点，子行是站内电桩
     stationsTable_ = new QTreeWidget(page);
     // Keep station rows aligned with the other management tables (48 px),
     // while retaining a slightly denser 40 px height for expanded pile rows.
@@ -1402,6 +1470,7 @@ QWidget *AdminWindow::buildStationsPage()
     stationsTable_->setContextMenuPolicy(Qt::CustomContextMenu);
     stationRegion_->hide(); stationStatus_->hide();
     stationsTable_->setIndentation(24);
+    // 双击父行看站点详情，双击子行跳转电桩管理
     connect(stationsTable_, &QTreeWidget::itemDoubleClicked, this,
             [this](QTreeWidgetItem *clicked, int) {
                 if (!clicked) return;
@@ -1425,6 +1494,7 @@ QWidget *AdminWindow::buildStationsPage()
         for (int i = 0; i < stationsTable_->topLevelItemCount(); ++i) if (stationsTable_->topLevelItem(i)->isExpanded()) { anyExpanded = true; break; }
         if (stationExpandToggle_ != nullptr) stationExpandToggle_->setText(anyExpanded ? QStringLiteral("全部收起") : QStringLiteral("全部展开"));
     });
+    // 右键菜单：站点行与电桩行提供不同操作项
     connect(stationsTable_, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
         auto *it = stationsTable_->itemAt(pos); if (!it) return;
         stationsTable_->setCurrentItem(it); const qint64 id = it->parent() ? it->data(0, Qt::UserRole).toLongLong() : it->data(0, Qt::UserRole).toLongLong();
@@ -1441,6 +1511,7 @@ QWidget *AdminWindow::buildStationsPage()
                 showEditStationDialog(it->data(0, Qt::UserRole).toLongLong());
             });
             const qint64 stationId = it->data(0, Qt::UserRole).toLongLong();
+            // 依当前状态显示启用或停用充电站动作
             const bool active = it->text(6) == QStringLiteral("启用");
             menu.addAction(active ? QStringLiteral("停用充电站") : QStringLiteral("启用充电站"),
                            this, [this, stationId, active] {
@@ -1457,6 +1528,7 @@ QWidget *AdminWindow::buildStationsPage()
     return page;
 }
 
+// 充电桩管理页：搜索筛选加电桩列表
 QWidget *AdminWindow::buildPilesPage()
 {
     auto *page = new QWidget(this);
@@ -1487,6 +1559,7 @@ QWidget *AdminWindow::buildPilesPage()
     connect(pileSearchField_, &QComboBox::currentIndexChanged, this, [this] {
         if (pileSearch_ != nullptr && !pileSearch_->text().isEmpty()) refreshPiles();
     });
+    // 重置清空搜索关键字与站点、状态筛选
     connect(resetButton, &QPushButton::clicked, this, [this] {
         const QSignalBlocker fieldBlocker(pileSearchField_);
         const QSignalBlocker textBlocker(pileSearch_);
@@ -1515,6 +1588,7 @@ QWidget *AdminWindow::buildPilesPage()
     connect(pilesTable_, &QTableWidget::cellDoubleClicked, this, [this](int row, int){ if (row >= 0) showPileDetails(pilesTable_->item(row,0)->data(Qt::UserRole).toLongLong()); });
     pilesTable_->setContextMenuPolicy(Qt::CustomContextMenu);
     pileStation_->hide(); pileStatus_->hide();
+    // 电桩右键菜单，按当前状态决定可用操作
     connect(pilesTable_, &QTableWidget::customContextMenuRequested, this, [this](const QPoint &pos){
         const int row = pilesTable_->rowAt(pos.y()); if (row < 0) return; pilesTable_->selectRow(row);
         const QString status = pilesTable_->item(row, 4)->data(Qt::UserRole).toString();
@@ -1530,6 +1604,7 @@ QWidget *AdminWindow::buildPilesPage()
         connect(edit, &QAction::triggered, this, [this,row]{
             showEditPileDialog(pilesTable_->item(row, 0)->data(Qt::UserRole).toLongLong());
         });
+        // 上线、下线、重启、标记故障各自限定前置状态
         auto *on = menu.addAction(QStringLiteral("开机/上线")); on->setEnabled(status == QStringLiteral("OFFLINE"));
         connect(on, &QAction::triggered, this, [this,row]{ auto x=facade_->setPileStatus(pilesTable_->item(row,0)->data(Qt::UserRole).toLongLong(),PileStatus::Idle); if(!x.ok())showServiceError(x.code,x.message); else refreshAll(); });
         auto *off = menu.addAction(QStringLiteral("关机/下线")); off->setEnabled(status == QStringLiteral("IDLE"));
@@ -1557,6 +1632,7 @@ QWidget *AdminWindow::buildPilesPage()
     return page;
 }
 
+// 用户管理页：手机号昵称搜索与状态筛选
 QWidget *AdminWindow::buildUsersPage()
 {
     auto *page = new QWidget(this);
@@ -1597,6 +1673,7 @@ QWidget *AdminWindow::buildUsersPage()
     controls->addWidget(resetButton);
     controls->addStretch();
     layout->addLayout(controls);
+    // 用户表显示余额与状态，双击查看详情
     usersTable_ = new QTableWidget(page);
     prepareTable(usersTable_, {QStringLiteral("ID"), QStringLiteral("手机号"), QStringLiteral("昵称"), QStringLiteral("余额"), QStringLiteral("状态")});
     usersTable_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
@@ -1610,6 +1687,7 @@ QWidget *AdminWindow::buildUsersPage()
     return page;
 }
 
+// 订单管理页：多条件组合筛选订单列表
 QWidget *AdminWindow::buildOrdersPage()
 {
     auto *page = new QWidget(this);
@@ -1631,6 +1709,7 @@ QWidget *AdminWindow::buildOrdersPage()
     auto *resetButton = new QPushButton(QStringLiteral("重置"), page);
     orderStatus_ = new AdminComboBox(page);
     orderStatus_->addItem(QStringLiteral("全部状态"), QString{});
+    // 订单状态与充电模式下拉，供多选筛选使用
     for (const QString &status : {QStringLiteral("RESERVED"), QStringLiteral("CHARGING"), QStringLiteral("PENDING_PAYMENT"), QStringLiteral("COMPLETED"), QStringLiteral("CANCELLED")}) {
         orderStatus_->addItem(orderStatusText(status), status);
     }
@@ -1647,6 +1726,7 @@ QWidget *AdminWindow::buildOrdersPage()
     });
     connect(orderStatus_, &QComboBox::currentIndexChanged, this, &AdminWindow::refreshOrders);
     connect(orderMode_, &QComboBox::currentIndexChanged, this, &AdminWindow::refreshOrders);
+    // 重置订单页的搜索关键字与全部筛选条件
     connect(resetButton, &QPushButton::clicked, this, [this] {
         const QSignalBlocker fieldBlocker(orderSearchField_);
         const QSignalBlocker textBlocker(orderSearch_);
@@ -1679,6 +1759,7 @@ QWidget *AdminWindow::buildOrdersPage()
     orderPeriodFilter_->setProperty("filterTitle", QStringLiteral("时段"));
     orderPeriodFilter_->setToolTip(QStringLiteral("按充电开始时段筛选（北京时间），支持单选"));
     updateFilterButton(orderPeriodFilter_,0);
+    // 时段筛选按北京时间每四小时一段，单选
     connect(orderPeriodFilter_, &QPushButton::clicked, this, [this] {
         QMenu menu(orderPeriodFilter_);
         menu.setObjectName(QStringLiteral("orderPeriodMenu"));
@@ -1713,9 +1794,11 @@ QWidget *AdminWindow::buildOrdersPage()
     ordersTable_->horizontalHeader()->setSortIndicatorShown(true);
     ordersTable_->horizontalHeaderItem(8)->setToolTip(QStringLiteral("默认按创建时间从新到旧排列（北京时间）"));
     ordersTable_->verticalHeader()->setDefaultSectionSize(48);
+    // 双击订单行按隐藏在首列的订单 ID 打开详情
     connect(ordersTable_, &QTableWidget::cellDoubleClicked, this, [this](int row,int){ if(row>=0) showOrderDetails(ordersTable_->item(row,0)->data(Qt::UserRole).toLongLong()); });
     ordersTable_->setContextMenuPolicy(Qt::CustomContextMenu);
     orderStatus_->hide(); orderMode_->hide();
+    // 订单右键菜单：查看详情、复制单号，管理员还可跳转站点或电桩
     connect(ordersTable_, &QTableWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
         const int row = ordersTable_->rowAt(pos.y());
         if (row < 0) return;
@@ -1751,6 +1834,7 @@ QWidget *AdminWindow::buildOrdersPage()
     return page;
 }
 
+// 构建管理员管理页：搜索、角色状态筛选与新增入口
 QWidget *AdminWindow::buildAdminsPage()
 {
     auto *page = new QWidget(this);
@@ -1776,6 +1860,7 @@ QWidget *AdminWindow::buildAdminsPage()
     adminRoleFilter_ = new QPushButton(page);
     adminRoleFilter_->setProperty("filterTitle", QStringLiteral("角色"));
     updateFilterButton(adminRoleFilter_, 0);
+    // 角色下拉转为多选菜单，勾选后写入筛选集合并刷新列表
     installMultiSelectMenu(
         adminRoleFilter_, adminRole_,
         [this](const QVariant &value) {
@@ -1817,6 +1902,7 @@ QWidget *AdminWindow::buildAdminsPage()
         [this] { refreshAdmins(); });
     adminStatus_->hide();
     controls->addWidget(adminStatusFilter_);
+    // 重置按钮清空搜索框与全部筛选条件后重新查询
     auto *resetButton = new QPushButton(QStringLiteral("重置"), page);
     connect(resetButton, &QPushButton::clicked, this, [this] {
         const QSignalBlocker blocker(adminSearch_);
@@ -1838,6 +1924,7 @@ QWidget *AdminWindow::buildAdminsPage()
     controls->addWidget(createButton);
     layout->addLayout(controls);
 
+    // 管理员表格列定义，站点范围与最后登录列自适应拉伸
     adminsTable_ = new QTableWidget(page);
     adminsTable_->setObjectName(QStringLiteral("adminsTable"));
     prepareTable(adminsTable_, {QStringLiteral("ID"), QStringLiteral("账号"),
@@ -1856,6 +1943,7 @@ QWidget *AdminWindow::buildAdminsPage()
                 }
             });
     adminsTable_->setContextMenuPolicy(Qt::CustomContextMenu);
+    // 管理员行右键菜单：查看详情或打开编辑对话框
     connect(adminsTable_, &QTableWidget::customContextMenuRequested, this,
             [this](const QPoint &pos) {
                 const int row = adminsTable_->rowAt(pos.y());
@@ -1875,6 +1963,7 @@ QWidget *AdminWindow::buildAdminsPage()
     return page;
 }
 
+// 设置登录错误文案，并重刷样式以触发 QSS 动态属性
 void AdminWindow::setLoginError(const QString &message)
 {
     if (loginError_ == nullptr) return;
@@ -1889,6 +1978,7 @@ void AdminWindow::setLoginError(const QString &message)
     loginError_->update();
 }
 
+// 登录流程：先做非空校验，再清空上一位管理员的会话状态
 void AdminWindow::attemptLogin()
 {
     passwordEdit_->findChild<QToolButton *>("loginPasswordToggle")->setChecked(false);
@@ -1908,6 +1998,7 @@ void AdminWindow::attemptLogin()
     backHistory_.clear();
     forwardHistory_.clear();
     rootStack_->setCurrentIndex(0);
+    // 调用服务门面校验账号密码，失败只提示不区分具体原因
     const ServiceResult result = facade_->login(usernameEdit_->text().trimmed(), passwordEdit_->text());
     if (!result.ok()) {
         setLoginError(QStringLiteral("账号或密码错误，请重试"));
@@ -1920,6 +2011,7 @@ void AdminWindow::attemptLogin()
     currentAdminRole_ = admin.value(QStringLiteral("role")).toString();
     applyAdminPermissions(admin);
     setLoginError(QString());
+    // 仍是初始密码时先强制改密，未完成则登出返回登录页
     if (admin.value(QStringLiteral("mustChangePassword")).toBool()) {
         if (!showChangePasswordDialog(true)) {
             facade_->logout();
@@ -1943,6 +2035,7 @@ void AdminWindow::attemptLogin()
     playAnalysisIntro(contentStack_->currentIndex());
 }
 
+// 按角色控制导航项显隐与卡片权限，实现菜单级权限
 void AdminWindow::applyAdminPermissions(const QJsonObject &admin)
 {
     if (navigation_ == nullptr) return;
@@ -1972,6 +2065,7 @@ void AdminWindow::applyAdminPermissions(const QJsonObject &admin)
     }
 }
 
+// 修改密码对话框，强制改密时隐藏取消和关闭按钮
 bool AdminWindow::showChangePasswordDialog(bool required)
 {
     if (facade_ == nullptr || currentAdminId_ <= 0) return false;
@@ -2011,6 +2105,7 @@ bool AdminWindow::showChangePasswordDialog(bool required)
     layout->addWidget(buttons);
     dialog.setMinimumWidth(440);
 
+    // 循环校验长度与两次输入一致，改密成功后退回登录页
     while (dialog.exec() == QDialog::Accepted) {
         if (newPassword->text().size() < 6 || newPassword->text().size() > 128) {
             QMessageBox::warning(&dialog, QStringLiteral("密码不符合要求"),
@@ -2043,6 +2138,7 @@ bool AdminWindow::showChangePasswordDialog(bool required)
     return false;
 }
 
+// 切换页面：隐藏页不可进入，并按需记录导航历史
 void AdminWindow::selectPage(int index)
 {
     if (index < 0 || contentStack_ == nullptr || index >= contentStack_->count()) return;
@@ -2077,6 +2173,7 @@ void AdminWindow::selectPage(int index)
         updateNavigationButtons();
         return;
     }
+    // 根据页面索引触发对应的数据刷新
     switch (index) {
     case 0: refreshOperations(); break;
     case 1: refreshDashboard(); break;
@@ -2095,6 +2192,7 @@ void AdminWindow::selectPage(int index)
     updateNavigationButtons();
 }
 
+// 跳转到分析目标页前先压入历史，便于返回
 void AdminWindow::navigateToAnalysisPage(const PageState &state)
 {
     if (currentAdminId_<=0 || state.pageIndex<0 || state.pageIndex>=navigation_->count()
@@ -2103,6 +2201,7 @@ void AdminWindow::navigateToAnalysisPage(const PageState &state)
     restorePageState(state);
 }
 
+// 按站点和状态筛选打开充电桩页
 void AdminWindow::openAnalysisPiles(qint64 stationId, const QSet<QString> &statuses, bool activeOnly)
 {
     PageState state;
@@ -2111,6 +2210,7 @@ void AdminWindow::openAnalysisPiles(qint64 stationId, const QSet<QString> &statu
     navigateToAnalysisPage(state);
 }
 
+// 营收查看订单明细：把业务日按上海时区换算成 UTC 时间区间
 void AdminWindow::openRevenueOrders(const QDate &start, const QDate &end, qint64 stationId,
                                    const QString &stationName, const QString &mode, int startPeriod)
 {
@@ -2130,6 +2230,7 @@ void AdminWindow::openRevenueOrders(const QDate &start, const QDate &end, qint64
     navigateToAnalysisPage(state);
 }
 
+// 把指标卡片与图表的点击绑定到对应的查看明细的操作
 void AdminWindow::wireAnalysisActions()
 {
     const auto bind = [](QLabel *value, const QString &key, const QString &hint, std::function<void()> action) {
@@ -2186,12 +2287,14 @@ void AdminWindow::wireAnalysisActions()
         bind(entry.first,entry.second,QStringLiteral("查看所选支付日期范围内的已完成订单"),[this] {
             openRevenueOrders(revenueStartDate_,revenueEndDate_);
         });
+    // 点击营收类图表的日期，跳转当天已完成订单
     for (auto *chart : {revenueChart_,paidOrdersChart_,energyChart_}) {
         connect(chart,&RevenueChart::dateClicked,this,[this](const QString &text) {
             const auto date=QDate::fromString(text,Qt::ISODate);
             if (date.isValid()) openRevenueOrders(date,date);
         });
     }
+    // 点击站点柱状条，按站点过滤当前日期范围的订单
     connect(stationRevenueChart_,&AnalysisBarChart::barClicked,this,[this](const QString &key) {
         for (const auto &bar : stationRevenueChart_->bars())
             if (bar.key==key) { openRevenueOrders(revenueStartDate_,revenueEndDate_,key.toLongLong(),bar.label); return; }
@@ -2215,6 +2318,7 @@ void AdminWindow::wireAnalysisActions()
         if (!QSet<QString>{"RESERVED","CHARGING","PENDING_PAYMENT","COMPLETED","CANCELLED"}.contains(key)) return;
         PageState state; state.pageIndex=5; state.orderStatuses={key}; navigateToAnalysisPage(state);
     });
+    // 运营表格首列进站点页，其余列按状态打开电桩页
     const auto stationCell = [this](QTableWidgetItem *item) {
         if (!item || contentStack_->currentIndex()!=0) return;
         const auto id=operationsTable_->item(item->row(),0)->data(Qt::UserRole).toLongLong();
@@ -2229,6 +2333,7 @@ void AdminWindow::wireAnalysisActions()
     connect(operationsTable_,&QTableWidget::itemActivated,this,stationCell);
 }
 
+// 首次进入分析页时播放指标与图表的入场动画
 void AdminWindow::playAnalysisIntro(int page)
 {
     if (page < 0 || page > 1 || currentAdminId_ <= 0
@@ -2241,6 +2346,7 @@ void AdminWindow::playAnalysisIntro(int page)
     for (auto *chart : content->findChildren<AnalysisBarChart *>()) chart->playIntro();
 }
 
+// 登录后按角色批量刷新其可访问的页面数据
 void AdminWindow::refreshAll()
 {
     refreshDashboard();
@@ -2258,6 +2364,7 @@ void AdminWindow::refreshAll()
     if (currentAdminRole_ == QStringLiteral("SYS_ADMIN") && currentAdminAccountsAvailable_) refreshAdmins();
 }
 
+// 刷新当前页：屏蔽信号重置控件后重新取数，不改导航历史
 void AdminWindow::refreshCurrentPage()
 {
     if (contentStack_ == nullptr) return;
@@ -2286,6 +2393,7 @@ void AdminWindow::refreshCurrentPage()
         refreshDashboard();
         break;
     }
+    // 站点页重置搜索、筛选与展开状态
     case 2: { // 充电站管理
         const QSignalBlocker searchBlocker(stationSearch_);
         const QSignalBlocker fieldBlocker(stationSearchField_);
@@ -2357,6 +2465,7 @@ void AdminWindow::refreshCurrentPage()
         refreshUsers();
         break;
     }
+    // 订单页重置搜索、状态模式筛选及时间范围
     case 5: { // 订单管理
         const QSignalBlocker searchBlocker(orderSearch_);
         const QSignalBlocker fieldBlocker(orderSearchField_);
@@ -2404,6 +2513,7 @@ void AdminWindow::refreshCurrentPage()
     updateNavigationButtons();
 }
 
+// 拉取管理员列表，角色与状态筛选在本地完成
 void AdminWindow::refreshAdmins()
 {
     if (facade_ == nullptr || adminsTable_ == nullptr
@@ -2428,6 +2538,7 @@ void AdminWindow::refreshAdmins()
             && !selectedAdminStatuses_.contains(status)) continue;
         const QString role = admin.value(QStringLiteral("role")).toString();
         if (!selectedAdminRoles_.isEmpty() && !selectedAdminRoles_.contains(role)) continue;
+        // 把授权站点 ID 翻译成站点名称展示
         QStringList scopes;
         for (const QJsonValue &stationValue
              : admin.value(QStringLiteral("stationIds")).toArray()) {
@@ -2459,6 +2570,7 @@ void AdminWindow::refreshAdmins()
     }
 }
 
+// 从列表结果中找到目标管理员并展示只读详情
 void AdminWindow::showAdminDetails(qint64 adminId)
 {
     const auto result = facade_->listAdmins();
@@ -2501,6 +2613,7 @@ void AdminWindow::showAdminDetails(qint64 adminId)
                 timestamp(QStringLiteral("updatedAt"), QStringLiteral("—"))));
 }
 
+// 新增管理员对话框，先取站点列表用于授权范围选择
 void AdminWindow::showCreateAdminDialog()
 {
     const ServiceResult stationResult = facade_->listStations();
@@ -2538,6 +2651,7 @@ void AdminWindow::showCreateAdminDialog()
     confirm->setEchoMode(QLineEdit::Password);
     username->setPlaceholderText(QStringLiteral("3 至 32 位字母、数字、点、横线或下划线"));
     password->setPlaceholderText(QStringLiteral("6 至 128 个字符"));
+    // 可选角色三类，站点管理员需另行勾选授权站点
     role->addItem(QStringLiteral("系统管理员"), QStringLiteral("SYS_ADMIN"));
     role->addItem(QStringLiteral("站点管理员"), QStringLiteral("STATION_ADMIN"));
     role->addItem(QStringLiteral("用户管理员"), QStringLiteral("USER_ADMIN"));
@@ -2548,6 +2662,7 @@ void AdminWindow::showCreateAdminDialog()
     form->addRow(QStringLiteral("角色"), role);
     cardLayout->addLayout(form);
     auto *scopeLabel = new QLabel(QStringLiteral("授权站点（站点管理员至少选择一个）"), &dialog);
+    // 创建站点授权列表，供新管理员选择可管理的站点
     auto *stationList = new QListWidget(&dialog);
     stationList->setObjectName(QStringLiteral("adminScopeList"));
     stationList->setMinimumHeight(140);
@@ -2557,6 +2672,7 @@ void AdminWindow::showCreateAdminDialog()
         "QListWidget::item { padding:7px 9px; border-radius:4px; color:#243044; }"
         "QListWidget::item:selected { background:#e8f0ff; color:#183b70; }"
         "QListWidget:disabled { background:#f3f6fb; color:#8793a7; }"));
+    // 站点列表支持多选，用于站点管理员的授权范围
     stationList->setSelectionMode(QAbstractItemView::MultiSelection);
     for (const QJsonValue &value : stationResult.data.value(QStringLiteral("items")).toArray()) {
         const QJsonObject station = value.toObject();
@@ -2567,6 +2683,7 @@ void AdminWindow::showCreateAdminDialog()
             stationList);
         entry->setData(Qt::UserRole, station.value(QStringLiteral("stationId")).toInteger());
     }
+    // 角色切换时联动开关站点授权区，非站点管理员清空选择
     const auto updateScopeEnabled = [role, scopeLabel, stationList] {
         const bool enabled = role->currentData().toString() == QStringLiteral("STATION_ADMIN");
         scopeLabel->setEnabled(enabled);
@@ -2598,6 +2715,7 @@ void AdminWindow::showCreateAdminDialog()
     cancel->setMinimumHeight(26);
     save->setDefault(true);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    // 提交前校验账号长度、显示名与两次密码一致
     connect(buttons, &QDialogButtonBox::accepted, &dialog, [&] {
         if (username->text().trimmed().size() < 3
             || displayName->text().trimmed().isEmpty()
@@ -2606,6 +2724,7 @@ void AdminWindow::showCreateAdminDialog()
                                  QStringLiteral("请检查账号、显示名和两次输入的初始密码。"));
             return;
         }
+        // 站点管理员至少要授权一个站点
         if (role->currentData().toString() == QStringLiteral("STATION_ADMIN")
             && stationList->selectedItems().isEmpty()) {
             QMessageBox::warning(&dialog, QStringLiteral("请选择站点"),
@@ -2621,6 +2740,7 @@ void AdminWindow::showCreateAdminDialog()
     for (QListWidgetItem *entry : stationList->selectedItems()) {
         stationIds.append(entry->data(Qt::UserRole).toLongLong());
     }
+    // 调用服务端创建管理员，授权站点一并提交
     const ServiceResult result = facade_->createAdmin({
         {QStringLiteral("username"), username->text().trimmed()},
         {QStringLiteral("initialPassword"), password->text()},
@@ -2634,6 +2754,7 @@ void AdminWindow::showCreateAdminDialog()
                              QStringLiteral("管理员已创建，首次登录时必须修改初始密码。"));
 }
 
+// 编辑管理员：先在列表中按ID找到目标记录
 void AdminWindow::showEditAdminDialog(qint64 adminId)
 {
     const ServiceResult adminsResult = facade_->listAdmins();
@@ -2677,6 +2798,7 @@ void AdminWindow::showEditAdminDialog(qint64 adminId)
     status->addItem(QStringLiteral("启用"), QStringLiteral("ACTIVE"));
     status->addItem(QStringLiteral("停用"), QStringLiteral("DISABLED"));
     status->setCurrentIndex(status->findData(target.value(QStringLiteral("status")).toString()));
+    // 编辑自己时禁改角色和状态，避免误锁自身权限
     const bool editingSelf = adminId == currentAdminId_;
     role->setEnabled(!editingSelf);
     status->setEnabled(!editingSelf);
@@ -2701,6 +2823,7 @@ void AdminWindow::showEditAdminDialog(qint64 adminId)
         "QListWidget:disabled { background:#f3f6fb; color:#8793a7; }"));
     stationList->setSelectionMode(QAbstractItemView::MultiSelection);
     QSet<qint64> selectedIds;
+    // 预先勾选该管理员当前已授权的站点
     for (const QJsonValue &value : target.value(QStringLiteral("stationIds")).toArray()) {
         selectedIds.insert(value.toInteger());
     }
@@ -2746,6 +2869,7 @@ void AdminWindow::showEditAdminDialog(qint64 adminId)
     save->setDefault(true);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     connect(buttons, &QDialogButtonBox::accepted, &dialog, [&] {
+        // 显示名和变更原因必填，便于留下变更痕迹
         if (displayName->text().trimmed().isEmpty() || reason->text().trimmed().isEmpty()) {
             QMessageBox::warning(&dialog, QStringLiteral("输入不完整"),
                                  QStringLiteral("显示名和变更原因不能为空。"));
@@ -2766,6 +2890,7 @@ void AdminWindow::showEditAdminDialog(qint64 adminId)
     for (QListWidgetItem *entry : stationList->selectedItems()) {
         stationIds.append(entry->data(Qt::UserRole).toLongLong());
     }
+    // 提交更新，站点列表覆盖原有授权
     const ServiceResult result = facade_->updateAdmin({
         {QStringLiteral("adminId"), adminId},
         {QStringLiteral("displayName"), displayName->text().trimmed()},
@@ -2778,6 +2903,7 @@ void AdminWindow::showEditAdminDialog(qint64 adminId)
     refreshAdmins();
 }
 
+// 刷新首页看板：营收指标、趋势与分析图表
 void AdminWindow::refreshDashboard()
 {
     if (facade_ == nullptr || dashboardDays_ == nullptr) return;
@@ -2795,12 +2921,14 @@ void AdminWindow::refreshDashboard()
         analysisSummary_->setText(message);
         analysisSummary_->show();
     };
+    // 按预设天数或自定义区间取数，业务日以北京时间为准
     const int days = dashboardDays_->currentData().toInt();
     const QDate today = QDateTime::currentDateTimeUtc().toTimeZone(QTimeZone("Asia/Shanghai")).date();
     const ServiceResult result = days < 0
         ? facade_->getDashboard(dashboardStartDate_->date(), dashboardEndDate_->date())
         : days > 30 ? facade_->getDashboard(today.addDays(1-days), today)
                     : facade_->getDashboard(days);
+    // 取数失败时把指标和图表清空并给出提示
     if (!result.ok()) {
         for (auto *label : {todayRevenue_, monthRevenue_, totalRevenue_, resourceCount_})
             label->setText(QStringLiteral("—"));
@@ -2817,6 +2945,7 @@ void AdminWindow::refreshDashboard()
     resourceCount_->setText(QStringLiteral("%1 / %2")
         .arg(data.value(QStringLiteral("stationCount")).toInt())
         .arg(data.value(QStringLiteral("pileCount")).toInt()));
+    // 把每日营收点位转换为折线图数据
     QList<RevenuePoint> points;
     for (const QJsonValue &value : data.value(QStringLiteral("revenuePoints")).toArray()) {
         const QJsonObject point = value.toObject();
@@ -2831,6 +2960,7 @@ void AdminWindow::refreshDashboard()
     revenueEndDate_ = points.isEmpty() ? QDate() : QDate::fromString(points.last().date,Qt::ISODate);
     revenueSnapshotDate_ = today;
     revenueChart_->setPoints(std::move(points));
+    // 再取订单明细做区间维度分析
     const auto orders = facade_->listOrders();
     if (!orders.ok()) {
         clearAnalysis(QStringLiteral("订单分析暂不可用，请刷新重试"));
@@ -2843,6 +2973,7 @@ void AdminWindow::refreshDashboard()
     }
     const QDate start = QDate::fromString(dates.first().toObject().value("date").toString(), Qt::ISODate);
     const QDate end = QDate::fromString(dates.last().toObject().value("date").toString(), Qt::ISODate);
+    // 在营收区间内聚合订单，得到单量、电量与分站数据
     const auto analysis = analyzeRevenue(orders.data.value("items").toArray(), start, end);
     if (!analysis.valid) {
         clearAnalysis(QStringLiteral("订单分析数据异常，请刷新重试"));
@@ -2860,6 +2991,7 @@ void AdminWindow::refreshDashboard()
     for (auto it=analysis.dailyEnergy.cbegin();it!=analysis.dailyEnergy.cend();++it)
         energyPoints.append({it.key().toString(Qt::ISODate),it.value()});
     paidOrdersChart_->setPoints(orderPoints); energyChart_->setPoints(energyPoints);
+    // 站点营收排行按金额降序，取前八名展示
     QList<AnalysisBar> ranking;
     for (auto it=analysis.stationRevenue.cbegin();it!=analysis.stationRevenue.cend();++it)
         ranking.append({analysis.stationNames.value(it.key()),double(it.value()),moneyText(it.value()),QColor("#2f6fed"),QString::number(it.key())});
@@ -2868,12 +3000,14 @@ void AdminWindow::refreshDashboard()
     modeRevenueChart_->setSlices({
         {"DIRECT",QStringLiteral("直接充电"),analysis.modeRevenue.value("DIRECT"),QColor("#2f6fed")},
         {"RESERVATION",QStringLiteral("预约充电"),analysis.modeRevenue.value("RESERVATION"),QColor("#7463c7")}});
+    // 按四小时一段统计充电开始时段分布
     QList<AnalysisBar> periods;
     for (int i=0;i<6;++i) periods.append({QStringLiteral("%1:00–%2:00").arg(i*4,2,10,QChar('0')).arg((i+1)*4,2,10,QChar('0')),
         double(analysis.startPeriods[i]),QString::number(analysis.startPeriods[i])+QStringLiteral(" 单"),QColor("#159b8d"),QString::number(i)});
     startPeriodChart_->setBars(periods);
 }
 
+// 刷新运营页：站点与电桩状态分布及异常排行
 void AdminWindow::refreshOperations()
 {
     if (facade_ == nullptr || pileStatusChart_ == nullptr || operationsTable_ == nullptr) return;
@@ -2895,6 +3029,7 @@ void AdminWindow::refreshOperations()
         return showServiceError(failure.code, failure.message);
     }
 
+    // 分站点计数器，累计总数与各状态电桩数
     struct Counters { qint64 total = 0; qint64 idle = 0; qint64 inUse = 0; qint64 offline = 0; qint64 fault = 0; };
     QHash<qint64, QString> stationNames;
     QHash<qint64, Counters> byStation;
@@ -2911,6 +3046,7 @@ void AdminWindow::refreshOperations()
         byStation.insert(stationId, Counters{});
         if (station.value("status").toString()=="ACTIVE") activeStations.insert(stationId);
     }
+    // 遍历电桩，同时累加全局与分站点状态计数
     for (const QJsonValue &value : pileResult.data.value(QStringLiteral("items")).toArray()) {
         const QJsonObject pile = value.toObject();
         const QString status = pile.value(QStringLiteral("status")).toString();
@@ -2939,6 +3075,7 @@ void AdminWindow::refreshOperations()
     operationsAbnormal_->setText(QStringLiteral("%1 / %2").arg(fault).arg(offline));
     operationsSummary_->clear();
     operationsSummary_->hide();
+    // 计算各站占用率分档，并收集故障离线站点
     QList<AnalysisBar> abnormal;
     QList<qint64> occupancyCounts{0,0,0,0,0};
     for (auto it=stationNames.cbegin();it!=stationNames.cend();++it) {
@@ -2955,6 +3092,7 @@ void AdminWindow::refreshOperations()
     for (int band=0;band<5;++band) occupancy.append({QString::number(band),stationOccupancyLabel(band),occupancyCounts[band],colors[band]});
     stationOccupancyChart_->setSlices(occupancy);
     stationFaultChart_->setBars(abnormal.mid(0,8));
+    // 附带统计订单状态分布，失败时只提示不阻断
     const auto orders=facade_->listOrders();
     if (orders.ok()) {
         QMap<QString,qint64> states;
@@ -2969,6 +3107,7 @@ void AdminWindow::refreshOperations()
         operationsSummary_->setText(QStringLiteral("订单状态读取失败，请刷新"));
         operationsSummary_->show();
     }
+    // 按站点名排序后逐行填充运营明细表
     operationsTable_->setRowCount(0);
     auto stationIds = stationNames.keys();
     std::sort(stationIds.begin(),stationIds.end(),[&](qint64 a,qint64 b) {
@@ -2988,6 +3127,7 @@ void AdminWindow::refreshOperations()
     }
 }
 
+// 刷新站点树；若按占用率筛选需先统计各站电桩
 void AdminWindow::refreshStations()
 {
     if (facade_ == nullptr || stationsTable_ == nullptr) return;
@@ -3004,6 +3144,7 @@ void AdminWindow::refreshStations()
             if (pile.value("status").toString()=="CHARGING" || pile.value("status").toString()=="RESERVED") ++counts.first;
         }
     }
+    // 记录当前展开的站点，刷新后恢复展开状态
     QSet<qint64> expandedIds;
     if (restoreExpandedStationsPending_) {
         expandedIds = pendingExpandedStations_;
@@ -3021,6 +3162,7 @@ void AdminWindow::refreshStations()
     const QJsonArray rows = result.data.value(QStringLiteral("items")).toArray();
     // Use all authorized stations, before search/status filtering, so a new
     // region becomes available without changing source code or restarting.
+    // 区域下拉由当前站点数据动态生成，无需改代码
     QSet<QString> regions = selectedStationRegions_;
     for (const auto &value : rows) {
         const QString regionName = value.toObject().value(QStringLiteral("region")).toString();
@@ -3035,6 +3177,7 @@ void AdminWindow::refreshStations()
         for (const auto &name : regionNames) stationRegion_->addItem(name, name);
     }
     stationsTable_->clear();
+    // 逐条应用搜索、状态、区域和占用率筛选
     for (const QJsonValue &value : rows) {
         const QJsonObject station = value.toObject();
         const QString status = station.value(QStringLiteral("status")).toString();
@@ -3074,6 +3217,7 @@ void AdminWindow::refreshStations()
             stationItem->setSizeHint(column, QSize(-1, 48));
         }
 
+        // 为站点加载电桩作为子节点，展示类型功率与状态
         const ServiceResult pileResult = facade_->listPiles(stationId);
         if (pileResult.ok()) {
             for (const QJsonValue &pileValue : pileResult.data.value(QStringLiteral("items")).toArray()) {
@@ -3105,6 +3249,7 @@ void AdminWindow::refreshStations()
     expandStationAfterRefresh_ = 0;
 }
 
+// 刷新电桩表：先重建站点下拉并尽量保留原选择
 void AdminWindow::refreshPiles()
 {
     if (facade_ == nullptr || pilesTable_ == nullptr) return;
@@ -3132,6 +3277,7 @@ void AdminWindow::refreshPiles()
     if (!result.ok()) return showServiceError(result.code, result.message);
     const QJsonArray rows = result.data.value(QStringLiteral("items")).toArray();
     pilesTable_->setRowCount(0);
+    // 按活跃站点、搜索词、站点与状态过滤电桩行
     for (const QJsonValue &value : rows) {
         const QJsonObject pile = value.toObject();
         const QString status = pile.value(QStringLiteral("status")).toString();
@@ -3156,6 +3302,7 @@ void AdminWindow::refreshPiles()
         pilesTable_->setItem(row, 4, statusItem);
         const qint64 pileId = pile.value(QStringLiteral("pileId")).toInteger();
 
+        // 如有跳转目标，选中该行并滚动到视图中间
         if (focusPileAfterRefresh_ == pileId) {
             pilesTable_->selectRow(row);
             pilesTable_->scrollToItem(pilesTable_->item(row, 1),
@@ -3165,6 +3312,7 @@ void AdminWindow::refreshPiles()
     }
 }
 
+// 按桩编码查找并跳转，工单定位电桩时使用
 void AdminWindow::navigateToTicketPile(const QString &pileCode)
 {
     const auto result = facade_->listPiles();
@@ -3181,6 +3329,7 @@ void AdminWindow::navigateToTicketPile(const QString &pileCode)
         QStringLiteral("当前可查看的电桩中未找到 %1，请刷新后重试。").arg(pileCode));
 }
 
+// 由电桩反查所属站点，跳到站点页并展开
 void AdminWindow::navigateToPileStation(qint64 pileId)
 {
     const auto result = facade_->listPiles();
@@ -3202,6 +3351,7 @@ void AdminWindow::navigateToPileStation(qint64 pileId)
                              QStringLiteral("当前电桩已不可查看，请刷新后重试。"));
 }
 
+// 跳转到电桩页：清掉可能隐藏目标的筛选再定位
 void AdminWindow::navigateToPile(qint64 pileId, qint64 stationId)
 {
     if (pileId <= 0 || stationId <= 0 || pileStation_ == nullptr
@@ -3238,6 +3388,7 @@ void AdminWindow::navigateToPile(qint64 pileId, qint64 stationId)
     }
 }
 
+// 刷新用户列表，应用手机号或昵称搜索与状态筛选
 void AdminWindow::refreshUsers()
 {
     if (facade_ == nullptr || usersTable_ == nullptr) return;
@@ -3269,6 +3420,7 @@ void AdminWindow::refreshUsers()
     }
 }
 
+// 根据当前时间筛选更新按钮状态与提示文案
 void AdminWindow::updateOrderTimeFilterButton()
 {
     updateFilterButton(orderTimeFilter_, orderTimeHours_ == 0 ? 0 : 1);
@@ -3288,6 +3440,7 @@ void AdminWindow::resetOrderTimeFilter()
     updateOrderTimeFilterButton();
 }
 
+// 支付时间筛选弹窗：可选预设区间或自定义起止
 void AdminWindow::showOrderTimeFilter()
 {
     QDialog dialog(orderTimeFilter_);
@@ -3322,6 +3475,7 @@ void AdminWindow::showOrderTimeFilter()
     customLayout->setSpacing(6);
     const QTimeZone zone("Asia/Shanghai");
     const auto now = QDateTime::currentDateTimeUtc();
+    // 生成日期时间输入框，界面按北京时间显示
     const auto makeTime = [&](const QString &name, const QString &caption, const QDateTime &value) {
         customLayout->addWidget(new QLabel(caption, custom));
         auto *edit = new QDateTimeEdit(custom);
@@ -3375,6 +3529,7 @@ void AdminWindow::showOrderTimeFilter()
         custom->setVisible(button->property("rangeHours").toInt() < 0);
         error->hide(); confirm->setEnabled(true); positionPopup();
     });
+    // 确认前校验自定义区间的起止顺序
     connect(confirm, &QPushButton::clicked, &dialog, [&] {
         if (!choices->checkedButton()) return;
         if (choices->checkedButton()->property("rangeHours").toInt() < 0
@@ -3387,6 +3542,7 @@ void AdminWindow::showOrderTimeFilter()
     connect(buttons->button(QDialogButtonBox::Reset), &QPushButton::clicked, &dialog, [&] { dialog.done(2); });
     positionPopup();
     const int result = dialog.exec();
+    // 返回码2表示清除筛选；自定义时间转回UTC保存
     if (result == 2) resetOrderTimeFilter();
     else if (result == QDialog::Accepted && choices->checkedButton()) {
         orderTimeHours_ = choices->checkedButton()->property("rangeHours").toInt();
@@ -3399,6 +3555,7 @@ void AdminWindow::showOrderTimeFilter()
     refreshOrders();
 }
 
+// 刷新订单表：拉取订单后按筛选条件与关键字逐行渲染
 void AdminWindow::refreshOrders()
 {
     if (facade_ == nullptr || ordersTable_ == nullptr) return;
@@ -3406,6 +3563,7 @@ void AdminWindow::refreshOrders()
     updateFilterButton(orderPeriodFilter_,orderStartPeriod_<0 ? 0 : 1);
     orderPeriodFilter_->setToolTip(orderStartPeriod_<0 ? QStringLiteral("按充电启动时段筛选（北京时间）")
         : QStringLiteral("充电启动时段：%1:00–%2:00（北京时间）").arg(orderStartPeriod_*4,2,10,QChar('0')).arg((orderStartPeriod_+1)*4,2,10,QChar('0')));
+    // 读取当前管理员可见的订单，失败则清空表格并提示
     const ServiceResult result = facade_->listOrders();
     if (!result.ok()) { ordersTable_->setRowCount(0); return showServiceError(result.code, result.message); }
     QList<QPair<QDateTime, QJsonObject>> rows;
@@ -3413,6 +3571,7 @@ void AdminWindow::refreshOrders()
         const auto order = value.toObject();
         rows.append({QDateTime::fromString(order.value(QStringLiteral("createdAt")).toString(), Qt::ISODate), order});
     }
+    // 创建时间倒序；无效时间放后面，同刻按订单ID倒序
     std::sort(rows.begin(), rows.end(), [](const auto &left, const auto &right) {
         if (left.first.isValid() != right.first.isValid()) return left.first.isValid();
         if (left.first.isValid() && left.first != right.first) return left.first > right.first;
@@ -3428,11 +3587,13 @@ void AdminWindow::refreshOrders()
         orderStation_->clear(); orderStation_->addItem(QStringLiteral("全部站点"),QVariant());
         for (auto it=stationChoices.cbegin();it!=stationChoices.cend();++it) orderStation_->addItem(it.value(),it.key());
     }
+    // 时间筛选：选了最近N小时就用相对区间，否则用自定义起止
     const auto now = QDateTime::currentDateTimeUtc();
     const auto start = orderTimeHours_ > 0 ? now.addSecs(-qint64(orderTimeHours_) * 3600) : orderStartTime_;
     const auto end = orderTimeHours_ > 0 ? now : orderEndTime_;
     QHash<qint64, QString> userNames;
     QHash<qint64, QString> userPhones;
+    // 预取用户列表，建立用户ID到昵称和手机号的映射
     const ServiceResult userResult = facade_->listUsers();
     if (userResult.ok()) {
         for (const QJsonValue &value : userResult.data.value(QStringLiteral("items")).toArray()) {
@@ -3448,6 +3609,7 @@ void AdminWindow::refreshOrders()
         const auto &order = entry.second;
 
         const auto paid = QDateTime::fromString(order.value("paidAt").toString(),Qt::ISODate);
+        // 按支付时间落在筛选区间内保留该订单
         if (orderTimeHours_ != 0 && (!paid.isValid() || paid < start || paid > end)) continue;
         if (!selectedOrderStations_.isEmpty() && !selectedOrderStations_.contains(order.value("stationId").toInteger())) continue;
         if (orderStartPeriod_>=0) {
@@ -3467,6 +3629,7 @@ void AdminWindow::refreshOrders()
         if (!selectedOrderModes_.isEmpty() && !selectedOrderModes_.contains(order.value(QStringLiteral("mode")).toString())) continue;
         const int row = ordersTable_->rowCount();
         ordersTable_->insertRow(row);
+        // 逐列写入订单信息，站点和电桩列附带ID便于跳转
         ordersTable_->setItem(row, 0, numberItem(order.value(QStringLiteral("orderId")).toInteger()));
         ordersTable_->setItem(row, 1, item(order.value(QStringLiteral("orderNo")).toString()));
         const QString userDisplay = userNames.value(order.value(QStringLiteral("userId")).toInteger());
@@ -3486,6 +3649,7 @@ void AdminWindow::refreshOrders()
     }
 }
 
+// 新增充电站对话框：填写站点信息并可同时创建初始电桩
 void AdminWindow::showCreateStationDialog()
 {
     QDialog dialog(this);
@@ -3536,6 +3700,7 @@ void AdminWindow::showCreateStationDialog()
     pileTable->setAlternatingRowColors(true);
     dialogLayout->addWidget(pileTable, 1);
 
+    // 生成一行默认电桩：编号带时间戳，功率随快慢充给默认值
     const auto addDefaultPileRow = [pileTable](int row) {
         pileTable->insertRow(row);
         auto *code = new QLineEdit(pileTable);
@@ -3575,6 +3740,7 @@ void AdminWindow::showCreateStationDialog()
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     dialogLayout->addWidget(buttons);
     if (dialog.exec() != QDialog::Accepted) return;
+    // 收集表格中的电桩，校验编号非空且不重复
     QJsonArray piles;
     QSet<QString> codes;
     for (int row = 0; row < pileTable->rowCount(); ++row) {
@@ -3596,6 +3762,7 @@ void AdminWindow::showCreateStationDialog()
             {QStringLiteral("ratedPowerKw"), power->value()},
         });
     }
+    // 提交建站请求，成功后清空筛选并刷新，展开新站点
     const ServiceResult result = facade_->createStation({
         {QStringLiteral("name"), name->text().trimmed()}, {QStringLiteral("region"), region->currentText()},
         {QStringLiteral("address"), address->text().trimmed()}, {QStringLiteral("longitude"), longitude->value()},
@@ -3612,6 +3779,7 @@ void AdminWindow::showCreateStationDialog()
     refreshAll();
 }
 
+// 编辑站点对话框：先按ID找到当前站点数据再回填表单
 void AdminWindow::showEditStationDialog(qint64 stationId)
 {
     const ServiceResult stationResult = facade_->listStations({}, {});
@@ -3675,6 +3843,7 @@ void AdminWindow::showEditStationDialog(qint64 stationId)
         return;
     }
 
+    // 提交更新，状态沿用原值不在此处修改
     const ServiceResult result = facade_->updateStation({
         {QStringLiteral("stationId"), stationId},
         {QStringLiteral("name"), name->text().trimmed()},
@@ -3690,11 +3859,13 @@ void AdminWindow::showEditStationDialog(qint64 stationId)
     refreshAll();
 }
 
+// 从站点跳转到该站点的电桩分析视图
 void AdminWindow::navigateToStationPiles(qint64 stationId)
 {
     if (stationId>0) openAnalysisPiles(stationId);
 }
 
+// 按电桩状态跳转，使用中包含充电和已预约两种状态
 void AdminWindow::navigateToPileStatus(const QString &statusKey)
 {
     if (statusKey=="IN_USE") openAnalysisPiles(0,{"CHARGING","RESERVED"});
@@ -3702,6 +3873,7 @@ void AdminWindow::navigateToPileStatus(const QString &statusKey)
         openAnalysisPiles(0,{statusKey});
 }
 
+// 记录当前页码、搜索词、筛选和选中行，用于前进后退还原
 AdminWindow::PageState AdminWindow::capturePageState() const
 {
     PageState state;
@@ -3767,6 +3939,7 @@ AdminWindow::PageState AdminWindow::capturePageState() const
     return state;
 }
 
+// 压入一条历史记录，超过上限丢弃最旧的并清空前进栈
 void AdminWindow::pushNavigationHistory()
 {
     if (!historyReady_ || restoringHistory_) return;
@@ -3777,6 +3950,7 @@ void AdminWindow::pushNavigationHistory()
     updateNavigationButtons();
 }
 
+// 还原一条历史状态：只恢复目标页面的筛选，再统一刷新一次
 void AdminWindow::restorePageState(const PageState &state)
 {
     if (state.pageIndex < 0 || state.pageIndex >= navigation_->count()
@@ -3795,6 +3969,7 @@ void AdminWindow::restorePageState(const PageState &state)
         const QSignalBlocker blocker(combo);
         combo->setCurrentIndex(value);
     };
+    // 按页面索引分别还原各自的搜索框与筛选条件
     switch (state.pageIndex) {
     case 1: {
         index(dashboardDays_, dashboardDays_->findData(state.dashboardDays));
@@ -3863,6 +4038,7 @@ void AdminWindow::restorePageState(const PageState &state)
     }
     // Also refresh when the history entry targets the current page with a
     // different filter; currentRowChanged would not fire in that case.
+    // 切换到目标页并恢复滚动位置
     selectPage(state.pageIndex);
     if (state.pageIndex<=1) {
         if (auto *scroll = qobject_cast<QScrollArea *>(contentStack_->widget(state.pageIndex)))
@@ -3878,6 +4054,7 @@ void AdminWindow::restorePageState(const PageState &state)
             }
         }
     };
+    // 站点页需在树中定位站点，必要时展开并选中子电桩
     if (state.pageIndex == 2 && state.selectedStationId > 0) {
         for (int row = 0; row < stationsTable_->topLevelItemCount(); ++row) {
             auto *station = stationsTable_->topLevelItem(row);
@@ -3906,6 +4083,7 @@ void AdminWindow::restorePageState(const PageState &state)
     updateNavigationButtons();
 }
 
+// 后退：当前状态入前进栈，再还原上一条记录
 void AdminWindow::navigateBack()
 {
     if (backHistory_.isEmpty()) return;
@@ -3930,6 +4108,7 @@ void AdminWindow::updateNavigationButtons()
     if (forwardButton_ != nullptr) forwardButton_->setEnabled(!forwardHistory_.isEmpty());
 }
 
+// 启用或停用站点，先弹窗确认再调用服务层
 void AdminWindow::toggleStationStatus(qint64 stationId, bool currentlyActive)
 {
     const QString action = currentlyActive ? QStringLiteral("停用") : QStringLiteral("启用");
@@ -3945,6 +4124,7 @@ void AdminWindow::toggleStationStatus(qint64 stationId, bool currentlyActive)
     refreshAll();
 }
 
+// 新增电桩对话框：只能挂到启用中的站点，可锁定指定站点
 void AdminWindow::showCreatePileDialog(qint64 fixedStationId)
 {
     const ServiceResult stationResult = facade_->listStations({}, {});
@@ -3996,6 +4176,7 @@ void AdminWindow::showCreatePileDialog(qint64 fixedStationId)
         QMessageBox::warning(this, QStringLiteral("无法创建"), QStringLiteral("请选择有效的充电站。"));
         return;
     }
+    // 提交建桩请求，成功后刷新并展开所属站点
     const ServiceResult result = facade_->createPile({
         {QStringLiteral("stationId"), station->currentData().toLongLong()},
         {QStringLiteral("pileCode"), code->text().trimmed()},
@@ -4007,6 +4188,7 @@ void AdminWindow::showCreatePileDialog(qint64 fixedStationId)
     refreshAll();
 }
 
+// 修改电桩对话框：站点和状态只读，可改编号、类型与功率
 void AdminWindow::showEditPileDialog(qint64 pileId)
 {
     if (pileId <= 0) return;
@@ -4075,6 +4257,7 @@ void AdminWindow::showEditPileDialog(qint64 pileId)
     refreshAll();
 }
 
+// 站点详情：汇总站点基础信息并列出其全部电桩
 void AdminWindow::showStationDetails(qint64 stationId)
 {
     const ServiceResult stationResult = facade_->listStations({}, {});
@@ -4086,6 +4269,7 @@ void AdminWindow::showStationDetails(qint64 stationId)
         if (value.toObject().value(QStringLiteral("stationId")).toInteger() == stationId) station = value.toObject();
     }
     if (station.isEmpty()) return;
+    // 金额单价按分转元展示，坐标保留六位小数
     QString text = QStringLiteral("站点：%1\nID：%2\n区域：%3\n地址：%4\n坐标：%5, %6\n基础电价：¥%7/度\n状态：%8\n可用/总数：%9/%10\n在线率：%11%\n\n所属电桩：")
         .arg(station.value(QStringLiteral("name")).toString()).arg(stationId)
         .arg(station.value(QStringLiteral("region")).toString()).arg(station.value(QStringLiteral("address")).toString())
@@ -4107,6 +4291,7 @@ void AdminWindow::showStationDetails(qint64 stationId)
     showDetails(QStringLiteral("站点详情"), text);
 }
 
+// 电桩详情：展示规格、状态与累计充电次数和时长
 void AdminWindow::showPileDetails(qint64 pileId)
 {
     const ServiceResult result = facade_->listPiles();
@@ -4127,6 +4312,7 @@ void AdminWindow::showPileDetails(qint64 pileId)
     }
 }
 
+// 用户详情：结合订单列表统计该用户的下单与消费情况
 void AdminWindow::showUserDetails(qint64 userId)
 {
     const ServiceResult users = facade_->listUsers();
@@ -4156,6 +4342,7 @@ void AdminWindow::showUserDetails(qint64 userId)
             .arg(adminTimeText(user.value(QStringLiteral("createdAt")).toString())).arg(userId).arg(count).arg(moneyText(spent)));
 }
 
+// 订单详情：展示时间、时长、电量与开始充电时锁定的单价
 void AdminWindow::showOrderDetails(qint64 orderId)
 {
     const ServiceResult result = facade_->listOrders();
@@ -4188,6 +4375,7 @@ void AdminWindow::showOrderDetails(qint64 orderId)
     }
 }
 
+// 删除所选站点：选中子行时上溯到父站点，删除前需确认
 void AdminWindow::deleteSelectedStation()
 {
     QTreeWidgetItem *selected = stationsTable_->currentItem();
@@ -4209,6 +4397,7 @@ void AdminWindow::deleteSelectedStation()
         return;
     }
 
+    // 有历史或进行中订单时服务端拒绝删除，单独提示原因
     const ServiceResult result = facade_->deleteStation(stationId);
     if (!result.ok()) {
         if (result.code == ErrorCode::IllegalOrderState) {
@@ -4226,6 +4415,7 @@ void AdminWindow::deleteSelectedStation()
                              QStringLiteral("站点及其无订单电桩已删除。"));
 }
 
+// 重启所选电桩，成功后电桩恢复空闲
 void AdminWindow::restartSelectedPile()
 {
     const int row = pilesTable_->currentRow();
@@ -4240,6 +4430,7 @@ void AdminWindow::restartSelectedPile()
     QMessageBox::information(this, QStringLiteral("重启电桩"), QStringLiteral("电桩已恢复为空闲状态。"));
 }
 
+// 删除所选电桩，先校验是否已选中行
 void AdminWindow::deleteSelectedPile()
 {
     const int row = pilesTable_->currentRow();
@@ -4249,6 +4440,7 @@ void AdminWindow::deleteSelectedPile()
     }
     const qint64 pileId = pilesTable_->item(row, 0)->data(Qt::UserRole).toLongLong();
     const QString code = pilesTable_->item(row, 1)->text();
+    // 删除电桩前先弹窗确认，服务端仍会校验是否可删
     if (QMessageBox::question(this, QStringLiteral("删除电桩"),
             QStringLiteral("确定删除电桩“%1”吗？\n存在订单或正在使用时不能删除。").arg(code),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
@@ -4257,6 +4449,7 @@ void AdminWindow::deleteSelectedPile()
     refreshAll();
 }
 
+// 按当前状态取反：正常则冻结，冻结则恢复正常
 void AdminWindow::toggleSelectedUserStatus()
 {
     const int row = usersTable_->currentRow();
@@ -4272,6 +4465,7 @@ void AdminWindow::toggleSelectedUserStatus()
     refreshUsers();
 }
 
+// 把服务端错误码或英文错误串翻译成用户能看懂的提示
 void AdminWindow::showServiceError(int code, const QString &message)
 {
     qWarning().noquote() << QStringLiteral("Administrator operation failed: %1 %2")
@@ -4299,6 +4493,7 @@ void AdminWindow::showServiceError(int code, const QString &message)
     QMessageBox::warning(this, QStringLiteral("操作失败"), detail);
 }
 
+// 统一设置表格列宽、选中方式等外观，避免各页重复代码
 void AdminWindow::prepareTable(QTableWidget *table, const QStringList &headers)
 {
     table->setColumnCount(headers.size());
@@ -4326,6 +4521,7 @@ void AdminWindow::prepareTable(QTableWidget *table, const QStringList &headers)
     table->horizontalHeader()->setStretchLastSection(false);
 }
 
+// 金额以整数分存储，显示时转成两位小数的元
 QString AdminWindow::moneyText(qint64 cents)
 {
     return QStringLiteral("¥ %1").arg(cents / 100.0, 0, 'f', 2);

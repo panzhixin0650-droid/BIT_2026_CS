@@ -1,3 +1,4 @@
+// 单价旁的问号按钮：点击弹出计价规则说明
 #include "ui/pricing_info_button.h"
 
 #include <QDialog>
@@ -7,6 +8,7 @@
 
 namespace charging::client {
 
+// 构造成小圆问号按钮，无规则时隐藏
 PricingInfoButton::PricingInfoButton(QWidget *parent) : QToolButton(parent)
 {
     setText(QStringLiteral("?"));
@@ -20,6 +22,7 @@ PricingInfoButton::PricingInfoButton(QWidget *parent) : QToolButton(parent)
     connect(this, &QToolButton::clicked, this, &PricingInfoButton::showRules);
 }
 
+// 规则文本变化时先关闭旧弹窗再更新
 void PricingInfoButton::setRules(const QString &rules)
 {
     if (rules_ != rules) {
@@ -29,6 +32,7 @@ void PricingInfoButton::setRules(const QString &rules)
     setVisible(!rules_.isEmpty());
 }
 
+// 以非模态对话框展示规则，避免阻塞刷新
 void PricingInfoButton::showRules()
 {
     if (rules_.isEmpty() || !isVisible() || dialog_) return;
@@ -64,6 +68,7 @@ void PricingInfoButton::showRules()
     dialog->open();
 }
 
+// 主动关闭已打开的规则弹窗
 void PricingInfoButton::closeRules()
 {
     if (!dialog_) return;
@@ -71,6 +76,7 @@ void PricingInfoButton::closeRules()
     dialog_.clear();
 }
 
+// 按钮隐藏时同步关闭弹窗
 void PricingInfoButton::hideEvent(QHideEvent *event)
 {
     closeRules();

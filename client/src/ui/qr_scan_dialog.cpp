@@ -22,9 +22,11 @@
 #include <QVideoFrame>
 #include <QVideoSink>
 
+// 扫码对话框：摄像头或相册图片识别充电桩二维码
 namespace charging::client {
 
 namespace {
+// 取景框装饰层，只画四角与扫描线，不拦鼠标
 class ScanGuide final : public QWidget {
 public:
     explicit ScanGuide(QWidget *parent) : QWidget(parent)
@@ -55,6 +57,7 @@ protected:
 };
 } // namespace
 
+// 构造：搭建预览、设备选择与相册入口，可选全屏沉浸模式
 QrScanDialog::QrScanDialog(Source source, QWidget *parent, bool immersive)
     : QDialog(parent), devices_(new QMediaDevices(this)),
       capture_(new QMediaCaptureSession(this)), sink_(new QVideoSink(this)),
@@ -161,6 +164,7 @@ QrScanDialog::QrScanDialog(Source source, QWidget *parent, bool immersive)
         cameraChoice_->setMinimumContentsLength(12);
         cameraChoice_->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
         actions->addWidget(cameraChoice_);
+        // 沉浸模式提供手动输入电桩编号的兜底入口
         auto *manual = new QPushButton(QStringLiteral("输入电桩编号"), controls);
         manual->setObjectName("qrManualButton");
         actions->addWidget(manual);
@@ -193,6 +197,7 @@ QrScanDialog::QrScanDialog(Source source, QWidget *parent, bool immersive)
     });
     connect(devices_, &QMediaDevices::videoInputsChanged, this, &QrScanDialog::refreshCameras);
     capture_->setVideoSink(sink_);
+    // 每5秒检查摄像头是否持续没有画面，并显示提示
     frameWatchdog_->setInterval(5000);
     connect(frameWatchdog_, &QTimer::timeout, this, [this] {
         if (camera_ && lastFrameClock_.elapsed() >= 5000) {
@@ -201,6 +206,7 @@ QrScanDialog::QrScanDialog(Source source, QWidget *parent, bool immersive)
             status_->setText(QStringLiteral("摄像头已连接但没有传来画面，请切换设备，或检查虚拟机摄像头连接及其他程序占用。"));
         }
     });
+    // 每帧刷新预览，并限速约250毫秒解码一次
     connect(sink_, &QVideoSink::videoFrameChanged, this, [this](const QVideoFrame &frame) {
         if (!camera_ || finished_ || !isVisible()) return;
         const QImage image = frame.toImage();
@@ -213,6 +219,7 @@ QrScanDialog::QrScanDialog(Source source, QWidget *parent, bool immersive)
             decode(image);
         }
     });
+    // 解码放到工作线程，避免阻塞界面
     worker_->moveToThread(&workerThread_);
     connect(&workerThread_, &QThread::finished, worker_, &QObject::deleteLater);
     workerThread_.start();
@@ -225,6 +232,7 @@ QrScanDialog::QrScanDialog(Source source, QWidget *parent, bool immersive)
     }
 }
 
+// 析构先标记结束并停摄像头，再等线程退出
 QrScanDialog::~QrScanDialog()
 {
     finished_ = true;
@@ -233,6 +241,7 @@ QrScanDialog::~QrScanDialog()
     workerThread_.wait();
 }
 
+// 枚举摄像头：保留当前选择，优先彩色设备
 void QrScanDialog::refreshCameras()
 {
     const auto cameras = QMediaDevices::videoInputs();
@@ -270,6 +279,7 @@ void QrScanDialog::refreshCameras()
     else status_->setText(QStringLiteral("选择摄像头后开始扫码，也可以识别图片。"));
 }
 
+// 启动摄像头前先停旧实例，避免设备被占用
 void QrScanDialog::startCamera()
 {
     stopCamera();
@@ -303,6 +313,7 @@ void QrScanDialog::startCamera()
     refreshCameras();
 }
 
+// 停止摄像头并递增代号，作废在途解码回调
 void QrScanDialog::stopCamera()
 {
     ++generation_;
@@ -320,6 +331,7 @@ void QrScanDialog::stopCamera()
     preview_->setText(QStringLiteral("将完整二维码放入画面中"));
 }
 
+// 打开内置相册页，记住是否需要返回后恢复摄像头
 void QrScanDialog::chooseImage()
 {
     if (finished_) return;
@@ -344,6 +356,7 @@ void QrScanDialog::chooseImage()
     album_->setFocus();
 }
 
+// 识别图片：忙碌时先排队，稍后再解码
 void QrScanDialog::readImageFile(const QString &path)
 {
     if (finished_) return;
@@ -356,6 +369,7 @@ void QrScanDialog::readImageFile(const QString &path)
     decode({}, path);
 }
 
+// 同一时刻只提交一帧解码，防止画面积压
 void QrScanDialog::decode(const QImage &image, const QString &path)
 {
     if (busy_ || finished_) return;
@@ -371,6 +385,7 @@ void QrScanDialog::decode(const QImage &image, const QString &path)
     }, Qt::QueuedConnection);
 }
 
+// 解码回调：过期代号丢弃，成功则回传编号并关闭
 void QrScanDialog::decoded(const QrDecodeResult &result, quint64 generation)
 {
     busy_ = false;
@@ -407,6 +422,7 @@ void QrScanDialog::resizeEvent(QResizeEvent *event)
     if (immersive_) { preview_->setGeometry(rect()); preview_->lower(); }
 }
 
+// 隐藏时立即释放摄像头资源
 void QrScanDialog::hideEvent(QHideEvent *event)
 {
     finished_ = true;

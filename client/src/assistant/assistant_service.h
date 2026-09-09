@@ -1,3 +1,4 @@
+// 本文件声明 AI 助理服务及其会话与结果数据结构
 #pragma once
 
 #include "assistant/assistant_config.h"
@@ -21,13 +22,16 @@ class AssistantRequestWorker;
 // Test/embedding seam: invoked on the IO thread; return a newly created manager.
 using AssistantNetworkFactory = std::function<QNetworkAccessManager *()>;
 
+// AssistantTurn 保存一轮问答，用作上下文
 struct AssistantTurn {
     QString question;
     QString answer;
 };
 
+// 三种用途：通用助理、模拟客服、工单摘要
 enum class AssistantPurpose { General, SupportDesk, TicketSummary };
 
+// AssistantResult 汇总答案、错误、引用知识与状态标志
 struct AssistantResult {
     QString answer;
     QString error;
@@ -41,6 +45,7 @@ struct AssistantResult {
 class AssistantService final : public QObject {
     Q_OBJECT
 public:
+    // 可注入网络管理器或工厂，便于测试与线程切换
     explicit AssistantService(AssistantConfig config = {}, QObject *parent = nullptr,
                               QNetworkAccessManager *network = nullptr,
                               AssistantPurpose purpose = AssistantPurpose::General,
@@ -49,6 +54,7 @@ public:
     const AssistantConfig &config() const { return config_; }
     const KnowledgeBase &knowledgeBase() const { return knowledge_; }
     bool isBusy() const { return activeId_ != 0; }
+    // ask 发起一次问答，useModel 决定是否调用远端模型
     quint64 ask(const QString &question, const QList<AssistantTurn> &history,
                 bool useModel);
     void cancel();
@@ -61,6 +67,7 @@ private:
     QString redact(QString text) const;
     QJsonObject requestBody(const QString &question,
                             const QList<AssistantTurn> &history) const;
+    // 私有方法负责流式读取、事件解析与统一收尾
     void readAvailable();
     void networkFinished();
     void consumeEvent(const QByteArray &data);
@@ -85,6 +92,7 @@ private:
     quint64 sequence_ = 0;
     quint64 activeId_ = 0;
     AssistantResult result_;
+    // buffer_ 和 eventData_ 暂存尚未解析完的流式字节
     QByteArray buffer_;
     QByteArray eventData_;
     qint64 receivedBytes_ = 0;

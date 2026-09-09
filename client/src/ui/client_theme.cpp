@@ -1,3 +1,4 @@
+// 文件用途：客户端统一主题样式表与代码绘制的导航图标
 #include "ui/client_theme.h"
 
 #include <QColor>
@@ -8,6 +9,7 @@
 namespace charging::client {
 namespace {
 
+// 按枚举用 QPainter 画出对应图标位图
 QPixmap navigationPixmap(NavigationIcon icon,
                          const QColor &color,
                          bool selected)
@@ -19,6 +21,7 @@ QPixmap navigationPixmap(NavigationIcon icon,
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing);
 
+    // 扫码图标额外画圆底，线条颜色随选中态变化
     QColor strokeColor = color;
     if (icon == NavigationIcon::Scan) {
         painter.setPen(Qt::NoPen);
@@ -31,6 +34,7 @@ QPixmap navigationPixmap(NavigationIcon icon,
     painter.setPen(pen);
     painter.setBrush(Qt::NoBrush);
 
+    // 分支里分别绘制各图标的线条与路径
     switch (icon) {
     case NavigationIcon::Location:
         painter.drawEllipse(QRectF(16, 16, 32, 32));
@@ -141,6 +145,7 @@ QPixmap navigationPixmap(NavigationIcon icon,
 
 }  // namespace
 
+// 返回全局 QSS：配色、卡片、按钮与导航栏样式
 QString clientThemeStyleSheet()
 {
     return QStringLiteral(R"QSS(
@@ -484,6 +489,7 @@ QToolTip {
 )QSS");
 }
 
+// 个人中心服务卡的局部样式
 QString profileServicesStyleSheet()
 {
     // Apply to the service card only, never the profile root or nested detail pages.
@@ -507,6 +513,7 @@ QFrame#profileServicesCard QPushButton[role="profileService"]:focus { border-col
 )QSS");
 }
 
+// 钱包卡片样式：余额、金额按钮与充值按钮
 QString profileWalletStyleSheet()
 {
     return QStringLiteral(R"QSS(
@@ -549,6 +556,7 @@ QFrame#profileWalletCard QPushButton#rechargeButton:disabled {
 )QSS");
 }
 
+// 为普通、悬停、选中、禁用四态各生成一张图标
 QIcon clientNavigationIcon(NavigationIcon icon)
 {
     QIcon result;

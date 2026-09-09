@@ -1,9 +1,11 @@
+// 本文件实现 TCP 网关：管理连接、分帧并收发协议消息
 #include "tcp_gateway.h"
 
 #include <QJsonObject>
 
 namespace charging::server {
 
+// 构造时把新连接信号接到接受连接的槽
 TcpGateway::TcpGateway(RequestRouter *router, QObject *parent)
     : QObject(parent)
     , router_(router)
@@ -12,6 +14,7 @@ TcpGateway::TcpGateway(RequestRouter *router, QObject *parent)
             this, &TcpGateway::acceptPendingConnections);
 }
 
+// 开始监听指定端口，已在监听则返回失败
 bool TcpGateway::start(quint16 port, const QHostAddress &address, QString *error)
 {
     if (server_.isListening()) {
@@ -34,6 +37,7 @@ bool TcpGateway::start(quint16 port, const QHostAddress &address, QString *error
     return false;
 }
 
+// 停止服务：断开并释放所有客户端后关闭监听
 void TcpGateway::stop()
 {
     const auto clients = decoders_.keys();
@@ -55,6 +59,7 @@ quint16 TcpGateway::serverPort() const noexcept
     return server_.serverPort();
 }
 
+// 为每个新连接建立独立解码器并接好读写信号
 void TcpGateway::acceptPendingConnections()
 {
     while (server_.hasPendingConnections()) {
@@ -71,6 +76,7 @@ void TcpGateway::acceptPendingConnections()
     }
 }
 
+// 读取字节交给解码器，帧非法则断开该连接
 void TcpGateway::readClientData()
 {
     auto *socket = qobject_cast<QTcpSocket *>(sender());
@@ -87,6 +93,7 @@ void TcpGateway::readClientData()
         return;
     }
 
+    // 逐条解析请求信封，解析失败或无路由即断开
     for (const QJsonObject &json : decoded.messages) {
         charging::protocol::RequestEnvelope request;
         QString parseError;
@@ -104,6 +111,7 @@ void TcpGateway::readClientData()
     }
 }
 
+// 客户端断开后移除解码器并延迟释放对象
 void TcpGateway::removeClient()
 {
     auto *socket = qobject_cast<QTcpSocket *>(sender());
@@ -114,6 +122,7 @@ void TcpGateway::removeClient()
     socket->deleteLater();
 }
 
+// 仅在连接可用时把响应编码成帧写出
 void TcpGateway::sendResponse(
     QTcpSocket *socket,
     const charging::protocol::ResponseEnvelope &response)

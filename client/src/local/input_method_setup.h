@@ -1,3 +1,4 @@
+// 本文件声明启动前调整输入法环境的辅助函数
 #pragma once
 
 #include <QString>

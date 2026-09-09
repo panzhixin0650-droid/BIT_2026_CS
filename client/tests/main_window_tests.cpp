@@ -1,3 +1,4 @@
+// 本文件测试主窗口端到端流程：登录、导航、充电、订单与个人中心
 #include "api/mock_charging_api.h"
 #include "navigation_paint_helpers.h"
 #include "ui/main_window.h"
@@ -43,6 +44,7 @@
 
 using namespace charging::client;
 
+// 主窗口界面测试集合
 class MainWindowTests : public QObject {
     Q_OBJECT
 
@@ -84,6 +86,7 @@ private slots:
 
 namespace {
 
+// 辅助函数：用固定手机号和验证码登录演示账号
 void loginFixtureUser(MainWindow &window)
 {
     auto *phoneInput = window.findChild<QLineEdit *>(QStringLiteral("phoneInput"));
@@ -102,6 +105,7 @@ void openPreviewDetails(MainWindow &window)
     QTest::mouseClick(details, Qt::LeftButton);
 }
 
+// 展开首页的当前订单折叠卡片
 void expandCurrentOrder(MainWindow &window)
 {
     auto *toggle = window.findChild<QPushButton *>(QStringLiteral("currentOrderToggle"));
@@ -109,6 +113,7 @@ void expandCurrentOrder(MainWindow &window)
     if (!toggle->isChecked()) QTest::mouseClick(toggle, Qt::LeftButton);
 }
 
+// 轮询等待指定弹窗出现，再交回调处理
 void handleDialogWhenShown(MainWindow &window,
                            const QString &objectName,
                            std::function<void(QMessageBox *)> handler)
@@ -130,6 +135,7 @@ void handleDialogWhenShown(MainWindow &window,
 
 }  // namespace
 
+// 客服台是内嵌页面，返回后未发送内容与报修草稿仍保留
 void MainWindowTests::supportDeskUsesInAppPageAndPreservesDraft()
 {
     MockChargingApi api; MainWindow window(api);
@@ -180,6 +186,7 @@ void MainWindowTests::supportDeskUsesInAppPageAndPreservesDraft()
     QCOMPARE(created.count(), 0);
 }
 
+// 头像改由共享相册页选择，确认后刷新缩略图与大图
 void MainWindowTests::profileAvatarUsesSharedAlbum()
 {
     const auto originalName = QCoreApplication::applicationName();
@@ -277,6 +284,7 @@ void MainWindowTests::profileAvatarUsesSharedAlbum()
     QCOMPARE(selected.count(), 1); // Image selection does not emit a bogus path.
 }
 
+// 扫码页报修写入共享工单；桩号不存在时返回未找到
 void MainWindowTests::scanRepairSubmitsToSharedTickets()
 {
     MockChargingApi api;
@@ -307,6 +315,7 @@ void MainWindowTests::scanRepairSubmitsToSharedTickets()
              charging::protocol::ErrorCode::NotFound);
 }
 
+// 小窗口下充电页进度环足够大且结束按钮可滚动到可见
 void MainWindowTests::chargingLayoutFitsSmallWindow()
 {
     MockChargingApi api;
@@ -331,6 +340,7 @@ void MainWindowTests::chargingLayoutFitsSmallWindow()
     }
 }
 
+// 高峰参考单价展示与计价说明，开始充电后单价锁定全单
 void MainWindowTests::peakQuoteAndLockedPriceFitSmallWindow()
 {
     auto now = QDateTime::fromString(QStringLiteral("2026-09-08T02:59:00Z"), Qt::ISODate);
@@ -406,6 +416,7 @@ void MainWindowTests::peakQuoteAndLockedPriceFitSmallWindow()
     QCOMPARE(price->text(), QStringLiteral("本单锁定单价：¥1.62/度"));
 }
 
+// 初始界面为仅验证码登录页及其控件
 void MainWindowTests::constructsCodeOnlyLoginPage()
 {
     MockChargingApi api;
@@ -434,6 +445,7 @@ void MainWindowTests::constructsCodeOnlyLoginPage()
     QCOMPARE(loginButton->text(), QStringLiteral("登录"));
 }
 
+// 已注册手机号输入六位验证码可直接登录
 void MainWindowTests::existingUserCanLogin()
 {
     MockChargingApi api;
@@ -458,6 +470,7 @@ void MainWindowTests::existingUserCanLogin()
     QVERIFY(codeInput->text().isEmpty());
 }
 
+// 新手机号自动注册，再次登录不再标记为新用户
 void MainWindowTests::newUserIsAutomaticallyRegistered()
 {
     MockChargingApi api;
@@ -507,6 +520,7 @@ void MainWindowTests::newUserIsAutomaticallyRegistered()
     QCOMPARE(noticeLabel->text(), QStringLiteral("登录成功"));
 }
 
+// 手机号格式错误时留在登录页并提示
 void MainWindowTests::invalidPhoneStaysOnLoginPage()
 {
     MockChargingApi api;
@@ -528,6 +542,7 @@ void MainWindowTests::invalidPhoneStaysOnLoginPage()
     QVERIFY(loginButton->isEnabled());
 }
 
+// 小窗口下验证码输入框与发送按钮不重叠、可见
 void MainWindowTests::verificationCodeRowFitsSmallWindow()
 {
     MockChargingApi api;
@@ -552,6 +567,7 @@ void MainWindowTests::verificationCodeRowFitsSmallWindow()
     QTRY_VERIFY(loginButton->visibleRegion().contains(loginButton->rect().center()));
 }
 
+// 登录后底部五个导航入口存在且宽度均分
 void MainWindowTests::authenticatedShellHasFiveBottomEntries()
 {
     MockChargingApi api;
@@ -593,6 +609,7 @@ void MainWindowTests::authenticatedShellHasFiveBottomEntries()
     QVERIFY(maximumTabWidth - minimumTabWidth <= 1);
 }
 
+// 悬浮导航随窗口缩放，各入口整块区域都能点击
 void MainWindowTests::floatingNavigationResizesAndKeepsEntriesClickable()
 {
     MockChargingApi api;
@@ -678,6 +695,7 @@ void MainWindowTests::floatingNavigationResizesAndKeepsEntriesClickable()
     QVERIFY(!container->isVisible());
 }
 
+// 局部重绘验证用的三种窗口尺寸
 void MainWindowTests::floatingNavigationSurvivesPartialRepaints_data()
 {
     QTest::addColumn<QSize>("size");
@@ -686,6 +704,7 @@ void MainWindowTests::floatingNavigationSurvivesPartialRepaints_data()
     QTest::newRow("wide") << QSize(900, 760);
 }
 
+// 局部重绘、最小化恢复与重新登录后导航内容不丢失
 void MainWindowTests::floatingNavigationSurvivesPartialRepaints()
 {
     QFETCH(QSize, size);
@@ -761,6 +780,7 @@ void MainWindowTests::floatingNavigationSurvivesPartialRepaints()
     QVERIFY2(missing.isEmpty(), qPrintable(missing));
 }
 
+// 客户端统一主题样式与关键文案字号
 void MainWindowTests::clientUsesConsistentVisualTheme()
 {
     MockChargingApi api;
@@ -801,6 +821,7 @@ void MainWindowTests::clientUsesConsistentVisualTheme()
     QCOMPARE(balance->font().pointSize(), 30);
 }
 
+// 定位可修改并能恢复默认坐标，取消编辑不生效
 void MainWindowTests::stationLocationCanChangeAndRestoreDefault()
 {
     MockChargingApi api; MainWindow window(api);
@@ -828,6 +849,7 @@ void MainWindowTests::stationLocationCanChangeAndRestoreDefault()
     QVERIFY(page->stationQuery().longitude.has_value());
 }
 
+// 首页地图点选标记后弹出站点预览卡片
 void MainWindowTests::chargingHomeMapFiltersAndOpensStationDetail()
 {
     MockChargingApi api;
@@ -851,6 +873,7 @@ void MainWindowTests::chargingHomeMapFiltersAndOpensStationDetail()
     QVERIFY(window.findChild<QLabel *>(QStringLiteral("stationPreviewPrediction"))->text().contains(QStringLiteral("推荐")));
     openPreviewDetails(window);
 
+    // 进入站点详情页，核对站名与各桩状态文案
     auto *detailPage =
         window.findChild<QWidget *>(QStringLiteral("stationDetailPage"));
     auto *detailName =
@@ -865,6 +888,7 @@ void MainWindowTests::chargingHomeMapFiltersAndOpensStationDetail()
     QVERIFY(chargingStatus != nullptr);
     QCOMPARE(idleStatus->text(), QStringLiteral("闲置 · 可预约"));
     QCOMPARE(chargingStatus->text(), QStringLiteral("使用中"));
+    // 闲置桩可预约，使用中的桩预约按钮应禁用
     auto *idleReserveButton =
         window.findChild<QPushButton *>(QStringLiteral("reserveButton_PILE-A-01"));
     auto *chargingReserveButton =
@@ -872,6 +896,7 @@ void MainWindowTests::chargingHomeMapFiltersAndOpensStationDetail()
     QVERIFY(idleReserveButton->isEnabled());
     QVERIFY(!chargingReserveButton->isEnabled());
 
+    // 详情页可进导航页，再返回仍停在详情
     auto *detailNavigate = window.findChild<QPushButton *>(
         QStringLiteral("stationDetailNavigationButton"));
     QTest::mouseClick(detailNavigate, Qt::LeftButton);
@@ -888,6 +913,7 @@ void MainWindowTests::chargingHomeMapFiltersAndOpensStationDetail()
     QTest::mouseClick(backButton, Qt::LeftButton);
     QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationMarker_1")) != nullptr);
 
+    // 关键词搜索：换区域后地图标记随之变化
     auto *keywordInput =
         window.findChild<QLineEdit *>(QStringLiteral("stationKeywordInput"));
     auto *refreshButton =
@@ -903,12 +929,14 @@ void MainWindowTests::chargingHomeMapFiltersAndOpensStationDetail()
 
     auto *message =
         window.findChild<QLabel *>(QStringLiteral("stationListMessage"));
+    // 搜到空结果时给出无匹配提示
     keywordInput->setText(QStringLiteral("不存在的站点"));
     QTest::mouseClick(refreshButton, Qt::LeftButton);
     QTRY_COMPARE(message->text(), QStringLiteral("没有找到符合条件的充电站"));
     QVERIFY(window.findChild<QLabel *>("stationSearchMessage")->text().contains(QStringLiteral("0")));
 }
 
+// 用例：详情页直充只跳充电页，不自动发起开始请求
 void MainWindowTests::stationDetailCanPrepareDirectCharging()
 {
     MockChargingApi api;
@@ -922,6 +950,7 @@ void MainWindowTests::stationDetailCanPrepareDirectCharging()
     QVERIFY(!window.findChild<ScanPage *>()->isVisible());
 }
 
+// 用例：开始充电后仍留在充电标签页并显示进度环
 void MainWindowTests::chargingStartLeavesNavigationForHomeOverview()
 {
     MockChargingApi api;
@@ -940,6 +969,7 @@ void MainWindowTests::chargingStartLeavesNavigationForHomeOverview()
     QVERIFY(window.findChild<QWidget *>("chargingProgressRing")->isVisible());
 }
 
+// 用例：定位解析与Mock路线规划
 void MainWindowTests::locationCanResolveAndOpenMockRoute()
 {
     MockChargingApi api;
@@ -949,6 +979,7 @@ void MainWindowTests::locationCanResolveAndOpenMockRoute()
     loginFixtureUser(window);
     window.findChild<QPushButton *>(QStringLiteral("stationLocationEntry"))->click();
 
+    // 取定位页控件：预设地址、输入框、解析按钮与提示
     auto *preset =
         window.findChild<QComboBox *>(QStringLiteral("locationPresetCombo"));
     auto *address =
@@ -966,6 +997,7 @@ void MainWindowTests::locationCanResolveAndOpenMockRoute()
     QVERIFY(address->placeholderText().contains(QStringLiteral("城市")));
     QVERIFY(locationHint->text().contains(QStringLiteral("城市和地址")));
 
+    // 选预设自动填地址，手动改动后切为手动输入项
     preset->setCurrentIndex(1);
     QCOMPARE(address->text(), QStringLiteral("沈阳市和平区"));
     address->setFocus();
@@ -981,6 +1013,7 @@ void MainWindowTests::locationCanResolveAndOpenMockRoute()
     QVERIFY(summary->text().contains(QStringLiteral("沈阳市和平区")));
     QCOMPARE(window.findChild<StationBrowserPage *>()->currentLocation().longitude, 123.4);
 
+    // 地址无法解析时保留原位置并提示
     address->setText(QStringLiteral("无法解析的位置"));
     QTest::mouseClick(resolve, Qt::LeftButton);
     QTRY_VERIFY(locationMessage->text().contains(QStringLiteral("未能解析")));
@@ -991,6 +1024,7 @@ void MainWindowTests::locationCanResolveAndOpenMockRoute()
     QTest::mouseClick(window.findChild<QAbstractButton *>(QStringLiteral("stationMarker_2")), Qt::LeftButton);
     auto *navigate = window.findChild<QPushButton *>(QStringLiteral("stationPreviewNavigationButton"));
     QTest::mouseClick(navigate, Qt::LeftButton);
+    // 从站点预览进入导航页，检查布局尺寸与终点文案
     auto *navigationPage =
         window.findChild<QWidget *>(QStringLiteral("stationNavigationPage"));
     auto *routeStart =
@@ -1024,6 +1058,7 @@ void MainWindowTests::locationCanResolveAndOpenMockRoute()
     QVERIFY(!destination->text().contains(QStringLiteral("123.4000")));
     QCOMPARE(routeMode->count(), 4);
 
+    // 切换出行方式后重新生成对应的Mock路线
     routeMode->setCurrentIndex(1);
     routeStart->setText(QStringLiteral("沈阳市浑南区"));
     QTest::mouseClick(routeButton, Qt::LeftButton);
@@ -1044,6 +1079,7 @@ void MainWindowTests::locationCanResolveAndOpenMockRoute()
     QTRY_VERIFY(routeDisplay->text().contains(QStringLiteral("骑行路线")));
     QVERIFY(routeButton->isEnabled());
 
+    // 起点无法解析时提示错误且按钮仍可用
     routeStart->setText(QStringLiteral("无法解析的位置"));
     QTest::mouseClick(routeButton, Qt::LeftButton);
     QTRY_VERIFY(routeMessage->text().contains(QStringLiteral("未能解析")));
@@ -1057,6 +1093,7 @@ void MainWindowTests::locationCanResolveAndOpenMockRoute()
     QVERIFY(stationListPage->isVisible());
 }
 
+// 用例：预约展示在首页当前订单卡并可取消
 void MainWindowTests::reservationAppearsOnHomeAndCanBeCancelled()
 {
     MockChargingApi api;
@@ -1074,6 +1111,7 @@ void MainWindowTests::reservationAppearsOnHomeAndCanBeCancelled()
     auto *reserveButton =
         window.findChild<QPushButton *>(QStringLiteral("reserveButton_PILE-A-01"));
     QVERIFY(reserveButton->isEnabled());
+    // 预约成功弹窗提示需在30分钟内开始充电
     bool reservationDialogSeen = false;
     handleDialogWhenShown(
         window,
@@ -1091,6 +1129,7 @@ void MainWindowTests::reservationAppearsOnHomeAndCanBeCancelled()
     QTest::mouseClick(reserveButton, Qt::LeftButton);
     QTRY_VERIFY(reservationDialogSeen);
 
+    // 当前订单卡摘要显示桩号、预约中与北京时间
     auto *currentOrderCard =
         window.findChild<QWidget *>(QStringLiteral("currentOrderCard"));
     auto *currentOrderSummary =
@@ -1104,6 +1143,7 @@ void MainWindowTests::reservationAppearsOnHomeAndCanBeCancelled()
     QVERIFY(currentOrderSummary->text().contains(QStringLiteral("北京时间")));
     QCOMPARE(actionMessage->text(), QStringLiteral("预约成功"));
 
+    // 已预约的桩显示开始充电，不能再次预约
     QTRY_VERIFY(window.findChild<QWidget *>(
                     QStringLiteral("stationMarker_1")) != nullptr);
     QTest::mouseClick(
@@ -1131,6 +1171,7 @@ void MainWindowTests::reservationAppearsOnHomeAndCanBeCancelled()
     QTRY_VERIFY(currentOrderCard->isVisible());
     expandCurrentOrder(window);
 
+    // 当前订单卡的导航按钮跳到该站点路线页
     auto *currentOrderNavigate = window.findChild<QPushButton *>(
         QStringLiteral("currentOrderNavigationButton"));
     QVERIFY(currentOrderNavigate->isVisible());
@@ -1147,6 +1188,7 @@ void MainWindowTests::reservationAppearsOnHomeAndCanBeCancelled()
     QTRY_VERIFY(currentOrderCard->isVisible());
     expandCurrentOrder(window);
 
+    // 已有进行中订单时再预约其他桩会被拒绝
     QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationMarker_2")) != nullptr);
     auto *stationTwoCard =
         window.findChild<QWidget *>(QStringLiteral("stationMarker_2"));
@@ -1164,6 +1206,7 @@ void MainWindowTests::reservationAppearsOnHomeAndCanBeCancelled()
     QCOMPARE(actionMessage->text(),
              QStringLiteral("您已有进行中的订单，请先处理当前订单"));
 
+    // 预约卡开始充电按钮跳充电页并带上原桩号
     auto *reservationScanButton = window.findChild<QPushButton *>(
         QStringLiteral("startReservedChargingButton"));
     QVERIFY(reservationScanButton->isVisible());
@@ -1176,6 +1219,7 @@ void MainWindowTests::reservationAppearsOnHomeAndCanBeCancelled()
     QTRY_VERIFY(currentOrderCard->isVisible());
     expandCurrentOrder(window);
 
+    // 取消预约后提示更新且当前订单卡隐藏
     auto *cancelButton =
         window.findChild<QPushButton *>(QStringLiteral("cancelReservationButton"));
     QVERIFY(cancelButton->isVisible());
@@ -1183,6 +1227,7 @@ void MainWindowTests::reservationAppearsOnHomeAndCanBeCancelled()
     QTRY_COMPARE(actionMessage->text(), QStringLiteral("预约已取消"));
     QTRY_VERIFY(!currentOrderCard->isVisible());
 
+    // 取消后原桩恢复为可预约状态
     QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("stationMarker_1")) != nullptr);
     stationOneCard =
         window.findChild<QWidget *>(QStringLiteral("stationMarker_1"));
@@ -1195,6 +1240,7 @@ void MainWindowTests::reservationAppearsOnHomeAndCanBeCancelled()
     QVERIFY(reserveButton->isEnabled());
 }
 
+// 用例：订单页的历史详情与预约状态变化
 void MainWindowTests::ordersPageShowsHistoryDetailAndReservationChanges()
 {
     MockChargingApi api;
@@ -1210,6 +1256,7 @@ void MainWindowTests::ordersPageShowsHistoryDetailAndReservationChanges()
         window.findChild<QLabel *>(QStringLiteral("orderStatus_101"));
     QCOMPARE(completedStatus->text(), QStringLiteral("已完成"));
 
+    // 历史订单卡可点击进详情，无按钮只有提示
     auto *historyCard =
         window.findChild<QWidget *>(QStringLiteral("orderCard_101"));
     QVERIFY(historyCard != nullptr);
@@ -1244,10 +1291,12 @@ void MainWindowTests::ordersPageShowsHistoryDetailAndReservationChanges()
         QStringLiteral("订单金额：¥6.75")));
     QVERIFY(detailBody->accessibleDescription().contains(
         QStringLiteral("充电量：5.00 度")));
+    // 已完成订单不显示导航按钮
     auto *detailNavigation = window.findChild<QPushButton *>(
         QStringLiteral("orderDetailNavigationButton"));
     QVERIFY(!detailNavigation->isVisible());
 
+    // 返回站点页新建预约，首页出现当前订单卡
     auto *orderBackButton =
         window.findChild<QPushButton *>(QStringLiteral("orderDetailBackButton"));
     QTest::mouseClick(orderBackButton, Qt::LeftButton);
@@ -1271,6 +1320,7 @@ void MainWindowTests::ordersPageShowsHistoryDetailAndReservationChanges()
     QTest::mouseClick(reserveButton, Qt::LeftButton);
     QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("currentOrderCard"))->isVisible());
 
+    // 订单列表中预约单排首位并高亮
     navigation->setCurrentIndex(4);
     window.findChild<QPushButton *>("profileOrdersButton")->click();
     QTRY_VERIFY(window.findChild<QWidget *>(QStringLiteral("orderCard_1001")) != nullptr);
@@ -1288,6 +1338,7 @@ void MainWindowTests::ordersPageShowsHistoryDetailAndReservationChanges()
     QTRY_COMPARE(detailStatus->text(), QStringLiteral("预约中"));
     QVERIFY(cancelButton->isVisible());
     QVERIFY(detailNavigation->isVisible());
+    // 详情页导航按钮切回站点标签并显示路线
     QTest::mouseClick(detailNavigation, Qt::LeftButton);
     auto *stationNavigationPage =
         window.findChild<QWidget *>(QStringLiteral("stationNavigationPage"));
@@ -1309,6 +1360,7 @@ void MainWindowTests::ordersPageShowsHistoryDetailAndReservationChanges()
     QTRY_VERIFY(orderRefreshButton->isEnabled());
     QTRY_VERIFY(window.findChild<QWidget *>(
                     QStringLiteral("orderCard_1001")) != nullptr);
+    // 在详情页取消预约后回列表并刷新为已取消
     reservedCard =
         window.findChild<QWidget *>(QStringLiteral("orderCard_1001"));
     QTest::mouseClick(reservedCard, Qt::LeftButton);
@@ -1326,6 +1378,7 @@ void MainWindowTests::ordersPageShowsHistoryDetailAndReservationChanges()
     QCOMPARE(orderMessage->text(), QStringLiteral("预约已取消，订单状态已刷新"));
 }
 
+// 用例：离开订单详情后列表随充电状态刷新
 void MainWindowTests::leavingOrderDetailRefreshesChangedOrderState()
 {
     MockChargingApi api;
@@ -1353,6 +1406,7 @@ void MainWindowTests::leavingOrderDetailRefreshesChangedOrderState()
     QCOMPARE(window.findChild<QLabel *>("orderStatus_1001")->text(),QStringLiteral("充电中"));
 }
 
+// 用例：模拟扫码开始充电，占用中不再切换到新桩
 void MainWindowTests::simulatedScanStartsChargingAndRefreshesHome()
 {
     MockChargingApi api;
@@ -1374,6 +1428,7 @@ void MainWindowTests::simulatedScanStartsChargingAndRefreshesHome()
     QCOMPARE(requests.count(),1);
 }
 
+// 用例：预约后在充电页启动的仍是同一订单
 void MainWindowTests::reservationStartsSameOrderOnChargingPage()
 {
     MockChargingApi api; MainWindow window(api); window.show(); loginFixtureUser(window);
@@ -1394,6 +1449,7 @@ void MainWindowTests::reservationStartsSameOrderOnChargingPage()
     QVERIFY(result.payload->order.status==charging::protocol::OrderStatus::Charging);
 }
 
+// 用例：Mock时钟推进使预约过期，后台刷新不抢标签页
 void MainWindowTests::reservationExpiryRefreshesHomeWithoutNavigation()
 {
     auto now = QDateTime::fromString(QStringLiteral("2026-09-08T15:45:00Z"), Qt::ISODate);
@@ -1421,6 +1477,7 @@ void MainWindowTests::reservationExpiryRefreshesHomeWithoutNavigation()
     QVERIFY(window.findChild<QPushButton *>("reserveButton_PILE-A-01")->isEnabled());
 }
 
+// 用例：扫码适配器只接受合法桩号文本
 void MainWindowTests::scannerAdapterCanSubmitDecodedPileCode()
 {
     MockChargingApi api;
@@ -1434,6 +1491,7 @@ void MainWindowTests::scannerAdapterCanSubmitDecodedPileCode()
     QCOMPARE(window.findChild<ChargingPage *>()->pileCode(),QStringLiteral("PILE-A-01"));
 }
 
+// 用例：充电进度可刷新，结束需确认对话框
 void MainWindowTests::chargingProgressCanRefreshAndStopWithConfirmation()
 {
     MockChargingApi api;
@@ -1453,6 +1511,7 @@ void MainWindowTests::chargingProgressCanRefreshAndStopWithConfirmation()
     (void)api.getChargingProgress(order.orderId);QTRY_COMPARE(progress.count(),1);
     window.findChild<ChargingController *>()->refresh();
     QTRY_VERIFY(window.findChild<QLabel *>("chargingDuration")->text()!="00:00");
+    // 用定时器自动点掉确认弹窗的“是”
     QTimer::singleShot(10,&window,[]{for(auto*w:QApplication::topLevelWidgets())if(auto*d=qobject_cast<QMessageBox*>(w))if(d->button(QMessageBox::Yes))d->done(QMessageBox::Yes);});
     window.findChild<QPushButton *>("chargingEndButton")->click();
     QTRY_VERIFY(window.findChild<QLabel *>("chargingState")->text().contains(QStringLiteral("已结束")));
@@ -1463,6 +1522,7 @@ void MainWindowTests::chargingProgressCanRefreshAndStopWithConfirmation()
     QCOMPARE(window.findChild<QLabel *>("orderStatus_1001")->text(),QStringLiteral("已完成"));
 }
 
+// 用例：从订单详情进入充电页并结束充电
 void MainWindowTests::stoppingFromOrderDetailRefreshesOpenStationDetail()
 {
     MockChargingApi api;
@@ -1492,6 +1552,7 @@ void MainWindowTests::stoppingFromOrderDetailRefreshesOpenStationDetail()
 
 }
 
+// 用例：待支付订单可跳充值并完成结清
 void MainWindowTests::pendingOrderLinksRechargeAndCanBeSettled()
 {
     MockChargingApi api; MainWindow window(api); window.show();
@@ -1518,6 +1579,7 @@ void MainWindowTests::pendingOrderLinksRechargeAndCanBeSettled()
     QTRY_VERIFY(window.findChild<QPushButton *>("chargingRechargeButton")->isVisible());
     window.findChild<QPushButton *>("chargingRechargeButton")->click();
     QCOMPARE(navigation->currentIndex(),4);
+    // 充值后支付欠款，充电页不再显示充值入口
     QSignalSpy recharged(&api,&IChargingApi::rechargeCompleted);
     (void)api.recharge(1000);QTRY_COMPARE(recharged.count(),1);
     QSignalSpy paid(&api,&IChargingApi::paymentCompleted);(void)api.payOrder(order.orderId);
@@ -1526,6 +1588,7 @@ void MainWindowTests::pendingOrderLinksRechargeAndCanBeSettled()
     QTRY_VERIFY(!window.findChild<QPushButton *>("chargingRechargeButton")->isVisible());
 }
 
+// 用例：个人中心刷新资料、改昵称与充值
 void MainWindowTests::profileCanRefreshUpdateNicknameAndRecharge()
 {
     MockChargingApi api;
@@ -1556,6 +1619,7 @@ void MainWindowTests::profileCanRefreshUpdateNicknameAndRecharge()
     QCOMPARE(phoneLabel->text(), QStringLiteral("手机号：13800000001"));
     QCOMPARE(balanceLabel->text(), QStringLiteral("¥200.00"));
 
+    // 详情页保存昵称后，页头与首页问候同步更新
     window.findChild<QPushButton *>("profileDetailsButton")->click();
     QVERIFY(window.findChild<QWidget *>("profileDetailPage")->isVisible());
     nicknameInput->setText(QStringLiteral("新的昵称"));
@@ -1565,6 +1629,7 @@ void MainWindowTests::profileCanRefreshUpdateNicknameAndRecharge()
     QVERIFY(window.findChild<QPushButton *>("headerAccountButton")->text().contains(QStringLiteral("新的昵称")));
     QCOMPARE(welcomeLabel->text(), QStringLiteral("你好，新的昵称"));
 
+    // 未保存的昵称在返回后被丢弃
     nicknameInput->setText(QStringLiteral("尚未保存的昵称"));
     window.findChild<QPushButton *>("profileDetailBack")->click();
     window.findChild<QPushButton *>("profileDetailsButton")->click();
@@ -1576,6 +1641,7 @@ void MainWindowTests::profileCanRefreshUpdateNicknameAndRecharge()
     navigation->setCurrentIndex(4);
     QTRY_COMPARE(messageLabel->text(), QStringLiteral("资料已刷新"));
 
+    // 充值成功弹窗展示新余额并刷新页面金额
     amountInput->setText(QStringLiteral("10"));
     bool rechargeSuccessDialogSeen = false;
     handleDialogWhenShown(
@@ -1595,6 +1661,7 @@ void MainWindowTests::profileCanRefreshUpdateNicknameAndRecharge()
     QCOMPARE(balanceLabel->text(), QStringLiteral("¥210.00"));
 }
 
+// 用例：非法充值金额被拒绝
 void MainWindowTests::profileRejectsInvalidRechargeAmount()
 {
     MockChargingApi api;
@@ -1612,6 +1679,7 @@ void MainWindowTests::profileRejectsInvalidRechargeAmount()
     navigation->setCurrentIndex(4);
     QTRY_COMPARE(messageLabel->text(), QStringLiteral("资料已刷新"));
 
+    // 输入框过滤科学计数法字符，只留数字
     amountInput->clear();
     amountInput->setFocus();
     QTest::keyClicks(amountInput, QStringLiteral("1e2"));
@@ -1623,10 +1691,12 @@ void MainWindowTests::profileRejectsInvalidRechargeAmount()
     amountInput->setText(QStringLiteral("0"));
     QTest::mouseClick(rechargeButton, Qt::LeftButton);
 
+    // 金额为0时提示允许范围
     QCOMPARE(messageLabel->text(),
              QStringLiteral("请输入0.01元到10000元之间的有效金额"));
 }
 
+// 用例：退出登录回到登录页
 void MainWindowTests::logoutReturnsToLoginPage()
 {
     MockChargingApi api;
@@ -1648,6 +1718,7 @@ void MainWindowTests::logoutReturnsToLoginPage()
     QTRY_COMPARE(pages->currentWidget(), loginPage);
 }
 
+// Qt测试入口与moc生成代码引入
 QTEST_MAIN(MainWindowTests)
 
 #include "main_window_tests.moc"

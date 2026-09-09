@@ -1,3 +1,4 @@
+// 本文件测试二维码识别与扫码页：相册选图、解码容错与相机流程
 #include "local/qr_decoder.h"
 #include "ui/qr_scan_dialog.h"
 #include "ui/scan_page.h"
@@ -28,9 +29,11 @@
 using namespace charging::client;
 
 namespace {
+// 取测试用二维码图片的路径
 QString fixture(const QString &name) { return QStringLiteral(QR_FIXTURE_DIR) + '/' + name + ".png"; }
 }
 
+// 扫码相关测试集合
 class QrScannerTests final : public QObject {
     Q_OBJECT
 private slots:
@@ -48,6 +51,7 @@ private slots:
     void liveCameraKeepsStreamingAfterDeviceRefresh();
 };
 
+// 从内置相册选图可预览并解出桩号
 void QrScannerTests::albumSelectsRealQrAndCanPreview()
 {
     ScanPage page;page.resize(360,640);page.show();
@@ -83,6 +87,7 @@ void QrScannerTests::albumSelectsRealQrAndCanPreview()
     QTRY_VERIFY(dialog.isNull());
 }
 
+// 相册返回不选图，选到空白图应提示未发现二维码
 void QrScannerTests::albumCancellationAndInvalidPhoto()
 {
     QTemporaryDir folder;QVERIFY(folder.isValid());
@@ -109,6 +114,7 @@ void QrScannerTests::albumCancellationAndInvalidPhoto()
     dialog.reject();QVERIFY(!album->isVisible());
 }
 
+// 内置相册含 6 张可识别二维码和 3 张普通照片
 void QrScannerTests::bundledAlbumContainsReadableQrImages()
 {
     PhotoAlbumPage album(nullptr,QStringLiteral(":/demo-album"));album.reload();
@@ -135,6 +141,7 @@ void QrScannerTests::bundledAlbumContainsReadableQrImages()
     QVERIFY(!emptyAlbum.findChild<QPushButton *>("albumConfirm")->isEnabled());
 }
 
+// 旋转与带留白的图片仍能解码
 void QrScannerTests::readsQrPixelsIncludingRotationAndPaddedRows()
 {
     const QImage qr(fixture("PILE-A-01"));
@@ -148,6 +155,7 @@ void QrScannerTests::readsQrPixelsIncludingRotationAndPaddedRows()
     QCOMPARE(decodePileQrFile(fixture("PILE-B-02")).pileCode, QStringLiteral("PILE-B-02"));
 }
 
+// 缺失、超大、空白与含多个二维码的图片都要拒绝
 void QrScannerTests::rejectsMissingInvalidAndAmbiguousImages()
 {
     QVERIFY(!decodePileQr({}).ok());
@@ -168,6 +176,7 @@ void QrScannerTests::rejectsMissingInvalidAndAmbiguousImages()
     QVERIFY(decodePileQr(two).error.contains(QStringLiteral("多个")));
 }
 
+// 视频帧转成图片后同样可以解码
 void QrScannerTests::readsPixelsConvertedFromVideoFrame()
 {
     const QImage qr = QImage(fixture("PILE-A-01")).convertToFormat(QImage::Format_RGBA8888);
@@ -179,6 +188,7 @@ void QrScannerTests::readsPixelsConvertedFromVideoFrame()
     QCOMPARE(decodePileQr(frame.toImage()).pileCode, QStringLiteral("PILE-A-01"));
 }
 
+// 识别成功只回填桩号并发出请求，不直接下单
 void QrScannerTests::recognitionSelectsPileWithoutStartingOrder()
 {
     ScanPage page; page.resize(360, 640); page.show();
@@ -201,6 +211,7 @@ void QrScannerTests::recognitionSelectsPileWithoutStartingOrder()
 
 }
 
+// 全屏相机页提供手动输入桩号入口
 void QrScannerTests::immersiveCameraHasManualEntry()
 {
     ScanPage page; page.resize(360,640); page.show();
@@ -221,6 +232,7 @@ void QrScannerTests::immersiveCameraHasManualEntry()
     QTRY_VERIFY(dialog.isNull());
 }
 
+// 关闭对话框后丢弃在途识别结果
 void QrScannerTests::cancelDiscardsPendingRecognition()
 {
     QrScanDialog dialog(QrScanDialog::Source::Image);
@@ -232,6 +244,7 @@ void QrScannerTests::cancelDiscardsPendingRecognition()
     QCOMPARE(results.count(), 0);
 }
 
+// 离开或隐藏扫码页时关闭扫码对话框并清空输入
 void QrScannerTests::leavingPageClosesScanner()
 {
     ScanPage page; page.show();
@@ -249,6 +262,7 @@ void QrScannerTests::leavingPageClosesScanner()
     QTRY_VERIFY(dialog.isNull());
 }
 
+// 无摄像头时禁用拍照但仍可选图
 void QrScannerTests::noCameraStillAllowsImages()
 {
     if (!QMediaDevices::videoInputs().isEmpty()) QSKIP("No-camera case requires no attached video input");
@@ -258,6 +272,7 @@ void QrScannerTests::noCameraStillAllowsImages()
     QVERIFY(dialog.findChild<QLabel *>("qrScanStatus")->text().contains(QStringLiteral("未检测到")));
 }
 
+// 需真实摄像头：设备列表刷新后画面应继续推送
 void QrScannerTests::liveCameraKeepsStreamingAfterDeviceRefresh()
 {
     if (qEnvironmentVariableIntValue("CHARGING_TEST_CAMERA") != 1)

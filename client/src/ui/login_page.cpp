@@ -1,3 +1,4 @@
+// 文件用途：手机号加验证码的登录页界面
 #include "ui/login_page.h"
 #include "ui/charging_art.h"
 #include "ui/decorative_heading.h"
@@ -15,6 +16,7 @@
 
 namespace charging::client {
 
+// 构造函数搭建可滚动的居中登录布局
 LoginPage::LoginPage(QWidget *parent)
     : QWidget(parent)
 {
@@ -38,6 +40,7 @@ LoginPage::LoginPage(QWidget *parent)
     centerLayout->addStretch();
     contentLayout->setSpacing(18);
     contentLayout->addStretch();
+    // 顶部品牌标语与装饰插图区
     auto *intro = new QWidget(content);
     intro->setMaximumWidth(440);
     auto *introLayout = new QVBoxLayout(intro);
@@ -53,6 +56,7 @@ LoginPage::LoginPage(QWidget *parent)
     introLayout->addWidget(new ChargingArt(ChargingArt::Scene::Welcome, intro));
     contentLayout->addWidget(intro);
 
+    // 登录卡片容器，承载标题与输入项
     auto *card = new QFrame(this);
     card->setObjectName(QStringLiteral("loginCard"));
     card->setMaximumWidth(440);
@@ -81,6 +85,7 @@ LoginPage::LoginPage(QWidget *parent)
     subtitle->setStyleSheet(QStringLiteral("color: #697969;"));
     subtitle->setWordWrap(true);
 
+    // 手机号输入限制为最多11位数字
     auto *phoneLabel = new QLabel(QStringLiteral("手机号"), card);
     phoneInput_ = new QLineEdit(card);
     phoneInput_->setObjectName(QStringLiteral("phoneInput"));
@@ -93,6 +98,7 @@ LoginPage::LoginPage(QWidget *parent)
     phoneInput_->setValidator(new QRegularExpressionValidator(
         QRegularExpression(QStringLiteral("\\d{0,11}")), phoneInput_));
 
+    // 验证码输入限制为最多6位数字
     auto *codeLabel = new QLabel(QStringLiteral("验证码"), card);
     verificationCodeInput_ = new QLineEdit(card);
     verificationCodeInput_->setObjectName(QStringLiteral("verificationCodeInput"));
@@ -105,6 +111,7 @@ LoginPage::LoginPage(QWidget *parent)
         QRegularExpression(QStringLiteral("[0-9]{0,6}")), verificationCodeInput_));
     codeLabel->setBuddy(verificationCodeInput_);
 
+    // 发送验证码为占位功能，只提示演示码
     sendCodeButton_ = new QPushButton(QStringLiteral("发送验证码"), card);
     sendCodeButton_->setObjectName(QStringLiteral("sendVerificationCodeButton"));
     sendCodeButton_->setMinimumHeight(42);
@@ -119,6 +126,7 @@ LoginPage::LoginPage(QWidget *parent)
     codeHintLabel_->setWordWrap(true);
     codeHintLabel_->setStyleSheet(QStringLiteral("color: #697969;"));
 
+    // 错误提示标签与登录主按钮
     errorLabel_ = new QLabel(card);
     errorLabel_->setObjectName(QStringLiteral("loginErrorLabel"));
     errorLabel_->setStyleSheet(QStringLiteral("color: #c62828;"));
@@ -130,6 +138,7 @@ LoginPage::LoginPage(QWidget *parent)
     loginButton_->setMinimumHeight(44);
     loginButton_->setDefault(true);
 
+    // 按顺序把各控件装入卡片布局
     cardLayout->addWidget(brandBadge, 0, Qt::AlignLeft);
     cardLayout->addWidget(title);
     cardLayout->addWidget(subtitle);
@@ -150,6 +159,7 @@ LoginPage::LoginPage(QWidget *parent)
     scroll->setWidget(content);
     pageLayout->addWidget(scroll);
 
+    // 回车与按钮都触发提交，并设定 Tab 顺序
     connect(loginButton_, &QPushButton::clicked, this, &LoginPage::submit);
     connect(phoneInput_, &QLineEdit::returnPressed, this, &LoginPage::submit);
     connect(verificationCodeInput_, &QLineEdit::returnPressed, this, &LoginPage::submit);
@@ -166,6 +176,7 @@ QString LoginPage::phone() const
     return phoneInput_->text().trimmed();
 }
 
+// 展示演示验证码并把焦点移到输入框
 void LoginPage::showDemoVerificationCode(const QString &code)
 {
     codeHintLabel_->setText(QStringLiteral("演示验证码：%1（暂不发送短信）").arg(code));
@@ -177,6 +188,7 @@ void LoginPage::clearVerificationCode()
     verificationCodeInput_->clear();
 }
 
+// 加载中禁用输入并改按钮文案
 void LoginPage::setLoading(bool loading)
 {
     phoneInput_->setDisabled(loading);
@@ -197,6 +209,7 @@ void LoginPage::clearErrorMessage()
     setErrorMessage({});
 }
 
+// 提交前清错误提示，再发出登录信号
 void LoginPage::submit()
 {
     clearErrorMessage();

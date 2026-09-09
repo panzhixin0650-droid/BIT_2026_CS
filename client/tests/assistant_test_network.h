@@ -1,3 +1,4 @@
+// 助理测试用的假网络与 SSE 事件构造工具
 #pragma once
 
 #include "assistant/assistant_config.h"
@@ -13,6 +14,7 @@
 
 namespace assistant_test {
 
+// 生成测试配置：示例地址与非真实密钥
 inline charging::client::AssistantConfig config()
 {
     charging::client::AssistantConfig value;
@@ -22,11 +24,13 @@ inline charging::client::AssistantConfig config()
     return value;
 }
 
+// 把 JSON 对象包装成一帧 SSE data 数据
 inline QByteArray event(const QJsonObject &object)
 {
     return "data: " + QJsonDocument(object).toJson(QJsonDocument::Compact) + "\r\n\r\n";
 }
 
+// 拼出一次成功回答的增量帧加完成帧
 inline QByteArray success(const QString &text = QStringLiteral("请在站点详情选择闲置桩进行预约。[reserve]"))
 {
     return event({{QStringLiteral("type"), QStringLiteral("response.output_text.delta")},
@@ -35,6 +39,7 @@ inline QByteArray success(const QString &text = QStringLiteral("请在站点详�
                  {QStringLiteral("response"), QJsonObject{{QStringLiteral("status"), QStringLiteral("completed")}}}});
 }
 
+// Reply 是假回复，可分块投递、挂起或返回错误
 class Reply final : public QNetworkReply {
 public:
     Reply(const QNetworkRequest &request, QByteArray body, int status,
@@ -49,6 +54,7 @@ public:
         open(QIODevice::ReadOnly | QIODevice::Unbuffered);
         if (!hang) { QTimer::singleShot(0, this, [this]() { deliver(); }); }
     }
+    // abort 直接标记取消并结束，不再投递数据
     void abort() override
     {
         if (isFinished()) { return; }
@@ -70,6 +76,7 @@ protected:
         return size;
     }
 private:
+    // 按 chunkSize 逐块放出数据并发 readyRead，发完再结束
     void deliver()
     {
         if (isFinished()) { return; }
@@ -92,6 +99,7 @@ private:
     NetworkError error_;
 };
 
+// Network 记录每次请求与请求体，并返回假回复
 class Network : public QNetworkAccessManager {
 public:
     QByteArray body = success();

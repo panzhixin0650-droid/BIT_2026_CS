@@ -1,3 +1,4 @@
+// 本地演示相册页：选图用于头像或二维码识别
 #include "ui/photo_album_page.h"
 #include "ui/avatar_art.h"
 
@@ -16,6 +17,7 @@
 #include <QTimer>
 #include <QVBoxLayout>
 
+// 注册内置演示相册的资源文件
 static void initializeAlbumResources()
 {
     Q_INIT_RESOURCE(album_resources);
@@ -26,6 +28,7 @@ namespace {
 constexpr int pathRole = Qt::UserRole;
 constexpr int imageRole = Qt::UserRole + 1;
 
+// 读图前限制文件大小与像素并按需缩放
 QImage readAlbumImage(const QString &path, int maximumSide)
 {
     const QFileInfo file(path);
@@ -39,6 +42,7 @@ QImage readAlbumImage(const QString &path, int maximumSide)
     return reader.read();
 }
 
+// 自绘缩略图、边框与选中标记的委托
 class PhotoDelegate final : public QStyledItemDelegate {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
@@ -81,6 +85,7 @@ public:
 };
 } // namespace
 
+// 构造：按用途设置标题与样式
 PhotoAlbumPage::PhotoAlbumPage(QWidget *parent, const QString &directory, Purpose purpose)
     : QWidget(parent), directory_(directory), purpose_(purpose)
 {
@@ -99,6 +104,7 @@ PhotoAlbumPage::PhotoAlbumPage(QWidget *parent, const QString &directory, Purpos
         #photoAlbumPage QListWidget { background:#f6f7f2; border:none; padding:0; }
         #photoAlbumPage #albumPreviewImage { background:#edf1e8; }
     )QSS"));
+    // 顶部返回、标题与照片数量
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(8);
@@ -122,6 +128,7 @@ PhotoAlbumPage::PhotoAlbumPage(QWidget *parent, const QString &directory, Purpos
     caption->setContentsMargins(16, 0, 16, 0);
     caption->setStyleSheet("color:#71806e;font-size:11px;");
     root->addWidget(caption);
+    // 头像模式额外提供几个内置基础头像
     if (purpose_ == Purpose::Avatar) {
         auto *basicRow = new QHBoxLayout();
         basicRow->setContentsMargins(16, 0, 16, 0);
@@ -140,6 +147,7 @@ PhotoAlbumPage::PhotoAlbumPage(QWidget *parent, const QString &directory, Purpos
         root->addLayout(basicRow);
     }
 
+    // 页面栈：缩略图网格页与大图预览页
     pages_ = new QStackedWidget(this);
     auto *gridPage = new QWidget(pages_);
     auto *gridLayout = new QVBoxLayout(gridPage);
@@ -165,6 +173,7 @@ PhotoAlbumPage::PhotoAlbumPage(QWidget *parent, const QString &directory, Purpos
     pages_->addWidget(preview_);
     root->addWidget(pages_, 1);
 
+    // 底部预览、选择状态与确认按钮
     auto *bottom = new QHBoxLayout;
     bottom->setContentsMargins(16, 8, 16, 16);
     previewButton_ = new QPushButton(QStringLiteral("预览"), this);
@@ -181,6 +190,7 @@ PhotoAlbumPage::PhotoAlbumPage(QWidget *parent, const QString &directory, Purpos
     root->addLayout(bottom);
     for (auto *button : {back_, previewButton_, confirm_}) button->setCursor(Qt::PointingHandCursor);
 
+    // 连接选择、预览、返回与确认动作
     connect(photos_, &QListWidget::itemSelectionChanged, this, &PhotoAlbumPage::updateSelection);
     connect(photos_, &QListWidget::itemDoubleClicked, this, [this] { showPreview(); });
     connect(previewButton_, &QPushButton::clicked, this, &PhotoAlbumPage::showPreview);
@@ -199,6 +209,7 @@ PhotoAlbumPage::PhotoAlbumPage(QWidget *parent, const QString &directory, Purpos
     });
 }
 
+// 扫描相册目录，读入可用图片作为缩略图
 void PhotoAlbumPage::reload()
 {
     pages_->setCurrentIndex(0);
@@ -227,6 +238,7 @@ void PhotoAlbumPage::reload()
     QTimer::singleShot(0, this, &PhotoAlbumPage::layoutGrid);
 }
 
+// 按视口宽度计算列数并预留滚动条空间
 void PhotoAlbumPage::layoutGrid()
 {
     const int width = photos_->viewport()->width();
@@ -238,6 +250,7 @@ void PhotoAlbumPage::layoutGrid()
     updatePreview();
 }
 
+// 根据是否选中更新按钮文案与可用状态
 void PhotoAlbumPage::updateSelection()
 {
     const bool selected = !photos_->selectedItems().isEmpty();
@@ -248,6 +261,7 @@ void PhotoAlbumPage::updateSelection()
         : selected ? QStringLiteral("识别 (1)") : QStringLiteral("识别"));
 }
 
+// 切到预览页查看所选大图
 void PhotoAlbumPage::showPreview()
 {
     if (photos_->selectedItems().isEmpty()) return;
@@ -257,6 +271,7 @@ void PhotoAlbumPage::showPreview()
     updatePreview();
 }
 
+// 按预览区尺寸重新缩放所选图片
 void PhotoAlbumPage::updatePreview()
 {
     if (pages_->currentIndex() != 1 || photos_->selectedItems().isEmpty()) return;
@@ -264,6 +279,7 @@ void PhotoAlbumPage::updatePreview()
     preview_->setPixmap(QPixmap::fromImage(image).scaled(preview_->size()-QSize(24,24), Qt::KeepAspectRatio, Qt::SmoothTransformation));
 }
 
+// 视口尺寸变化后重排网格
 bool PhotoAlbumPage::eventFilter(QObject *watched, QEvent *event)
 {
     if (watched == photos_->viewport() && event->type() == QEvent::Resize)
@@ -271,6 +287,7 @@ bool PhotoAlbumPage::eventFilter(QObject *watched, QEvent *event)
     return QWidget::eventFilter(watched, event);
 }
 
+// 页面缩放后同样重排网格
 void PhotoAlbumPage::resizeEvent(QResizeEvent *event)
 {
     QWidget::resizeEvent(event);

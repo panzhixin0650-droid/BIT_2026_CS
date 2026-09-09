@@ -17,10 +17,12 @@
 #include <QTimer>
 #include <QVBoxLayout>
 
+// 个人中心页面：展示资料、钱包充值入口与头像详情
 namespace charging::client {
 
 namespace {
 
+// 身份卡按钮：让整块卡片可点击且按宽度算高度
 class IdentityButton final : public QPushButton {
 public:
     explicit IdentityButton(QWidget *parent) : QPushButton(parent)
@@ -50,6 +52,7 @@ QFrame *createCard(QWidget *parent)
     return card;
 }
 
+// 生成一行服务入口：图标加文字加右箭头
 QPushButton *createServiceRow(const QString &name, const QString &text,
                              NavigationIcon icon, QWidget *parent)
 {
@@ -79,6 +82,7 @@ QPushButton *createServiceRow(const QString &name, const QString &text,
 
 }  // namespace
 
+// 构造页面：用堆叠布局装概览、详情、头像三个子页
 ProfilePage::ProfilePage(QWidget *parent)
     : QWidget(parent)
 {
@@ -106,6 +110,7 @@ ProfilePage::ProfilePage(QWidget *parent)
     headingFont.setBold(true);
     heading->setFont(headingFont);
 
+    // 顶部身份卡，点击进入详细信息页
     auto *identityCard = new IdentityButton(content);
     identityCard->setObjectName("profileDetailsButton");
     identityCard->setAccessibleName(QStringLiteral("查看个人详细信息"));
@@ -150,6 +155,7 @@ ProfilePage::ProfilePage(QWidget *parent)
     }
     connect(identityCard, &QPushButton::clicked, this, &ProfilePage::openDetails);
 
+    // 服务列表：订单、报修、工单，行间加分隔线
     auto *servicesCard = createCard(content);
     servicesCard->setObjectName(QStringLiteral("profileServicesCard"));
     servicesCard->setStyleSheet(profileServicesStyleSheet());
@@ -178,6 +184,7 @@ ProfilePage::ProfilePage(QWidget *parent)
     connect(repairButton, &QPushButton::clicked, this, &ProfilePage::repairRequested);
     connect(ticketsButton, &QPushButton::clicked, this, &ProfilePage::ticketsRequested);
 
+    // 钱包卡片：余额展示加快捷金额与充值输入
     auto *walletCard = createCard(content);
     walletCard->setObjectName(QStringLiteral("profileWalletCard"));
     walletCard->setStyleSheet(profileWalletStyleSheet());
@@ -225,6 +232,7 @@ ProfilePage::ProfilePage(QWidget *parent)
     rechargeInput_->setMinimumWidth(0);
     rechargeInput_->setFixedHeight(40);
     rechargeInput_->setPlaceholderText(QStringLiteral("输入充值金额（元）"));
+    // 限制充值输入为0.01到10000元、两位小数
     auto *rechargeValidator =
         new QDoubleValidator(0.01, 10000.0, 2, rechargeInput_);
     rechargeValidator->setNotation(QDoubleValidator::StandardNotation);
@@ -248,6 +256,7 @@ ProfilePage::ProfilePage(QWidget *parent)
     walletLayout->addLayout(quickAmounts);
     walletLayout->addLayout(rechargeLayout);
 
+    // 详细信息页：返回按钮、头像入口与昵称修改
     auto *detailPage = new QWidget(sections_);
     detailPage->setObjectName("profileDetailPage");
     sections_->addWidget(detailPage);
@@ -305,6 +314,7 @@ ProfilePage::ProfilePage(QWidget *parent)
     detailMessage_->setWordWrap(true);
     detailsLayout->addWidget(detailMessage_);
     detailsLayout->addStretch();
+    // 头像页：大图预览与从相册更换入口
     auto *avatarPage = new QWidget(sections_);
     avatarPage->setObjectName("profileAvatarPage");
     sections_->addWidget(avatarPage);
@@ -351,6 +361,7 @@ ProfilePage::ProfilePage(QWidget *parent)
     connect(logoutButton_, &QPushButton::clicked, this, &ProfilePage::logoutRequested);
 }
 
+// 填充用户资料并同步余额显示
 void ProfilePage::setUser(const protocol::UserDto &user)
 {
     savedNickname_ = user.nickname;
@@ -366,6 +377,7 @@ void ProfilePage::setBalance(qint64 balanceCents)
     balanceLabel_->setText(formatBalance(balanceCents));
 }
 
+// 重新读取头像文件，缺失时用默认头像
 void ProfilePage::setAvatarPath(const QString &path)
 {
     // Read the file afresh: each user replaces the same PNG on subsequent saves.
@@ -379,6 +391,7 @@ void ProfilePage::setAvatarPath(const QString &path)
     updateFullAvatar();
 }
 
+// 请求中禁用按钮和输入，防止重复提交
 void ProfilePage::setBusy(bool busy)
 {
     refreshButton_->setDisabled(busy);
@@ -389,6 +402,7 @@ void ProfilePage::setBusy(bool busy)
     rechargeInput_->setDisabled(busy);
 }
 
+// 三处提示标签统一显示消息，错误用红色
 void ProfilePage::showMessage(const QString &message, bool error)
 {
     for (auto *label : {detailMessage_, avatarMessage_}) {
@@ -414,6 +428,7 @@ void ProfilePage::showOverview()
     nicknameInput_->setText(savedNickname_);
 }
 
+// 按当前控件尺寸等比缩放头像大图
 void ProfilePage::updateFullAvatar()
 {
     const QPixmap source = QPixmap::fromImage(avatarImage_);
@@ -432,6 +447,7 @@ void ProfilePage::resizeEvent(QResizeEvent *event)
     QTimer::singleShot(0, this, &ProfilePage::updateFullAvatar);
 }
 
+// 整数分转成带两位小数的金额文本
 QString ProfilePage::formatBalance(qint64 balanceCents) const
 {
     return QStringLiteral("¥%1.%2")
