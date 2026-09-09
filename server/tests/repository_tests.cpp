@@ -1,3 +1,4 @@
+// 本文件测试SQLite仓库的打开校验、读写持久化与删除回滚
 #include "persistence/repository.h"
 
 #include "charging/protocol/dto.h"
@@ -15,6 +16,7 @@ namespace {
 
 using namespace charging::protocol;
 
+// 调用外部sqlite3命令执行SQL，失败时回传输出信息
 bool runSql(const QString &databasePath,
             const QByteArray &sql,
             QString *error = nullptr)
@@ -65,6 +67,7 @@ bool runSqlFile(const QString &databasePath,
     return runSql(databasePath, input.readAll(), error);
 }
 
+// 依次执行迁移与种子脚本，准备演示数据库
 bool initializeDemoDatabase(const QString &databasePath, QString *error = nullptr)
 {
     return runSqlFile(databasePath,
@@ -85,6 +88,7 @@ bool contains(const Container &items, Predicate predicate)
 
 }  // namespace
 
+// 仓库层测试用例集合
 class RepositoryTests final : public QObject {
     Q_OBJECT
 
@@ -98,6 +102,7 @@ private slots:
     void managesAdminAccountsPersistently();
 };
 
+// 文件缺失或结构不符都应拒绝打开并给出原因
 void RepositoryTests::rejectsMissingAndWrongSchema()
 {
     QTemporaryDir directory;
@@ -121,6 +126,7 @@ void RepositoryTests::rejectsMissingAndWrongSchema()
     QVERIFY(error.contains(QStringLiteral("schema version")));
 }
 
+// 校验种子数据与派生字段：桩数量、在线率、统计值
 void RepositoryTests::readsSeedAndDerivedFields()
 {
     QTemporaryDir directory;
@@ -174,6 +180,7 @@ void RepositoryTests::readsSeedAndDerivedFields()
     QVERIFY(repository.lastOperationSucceeded());
 }
 
+// 写入后重新打开数据库，确认数据已落盘
 void RepositoryTests::writesPersistAcrossReopen()
 {
     QTemporaryDir directory;
@@ -231,6 +238,7 @@ void RepositoryTests::writesPersistAcrossReopen()
     QCOMPARE(station->availablePileCount, qint64{2});
 }
 
+// 管理员账号与站点范围提交后可持久读取和更新
 void RepositoryTests::managesAdminAccountsPersistently()
 {
     QTemporaryDir directory;
@@ -282,6 +290,7 @@ void RepositoryTests::managesAdminAccountsPersistently()
     QCOMPARE(updated->version, qint64{1});
 }
 
+// 有订单的站点禁止删除，无订单的站点连桩一起删除
 void RepositoryTests::deletesOnlyStationsWithoutOrders()
 {
     QTemporaryDir directory;
@@ -331,6 +340,7 @@ void RepositoryTests::deletesOnlyStationsWithoutOrders()
     QCOMPARE(reopened.listPiles().size(), 12);
 }
 
+// 新建桩可删除，已有订单的桩拒绝删除
 void RepositoryTests::createsAndDeletesPileWithoutOrders()
 {
     QTemporaryDir directory;
@@ -353,6 +363,7 @@ void RepositoryTests::createsAndDeletesPileWithoutOrders()
     QCOMPARE(repository.deletePile(1), DeletePileResult::HasOrders);
 }
 
+// 桩编码冲突时建站整体失败，不留下半条数据
 void RepositoryTests::stationCreationRollsBackCompletely()
 {
     QTemporaryDir directory;

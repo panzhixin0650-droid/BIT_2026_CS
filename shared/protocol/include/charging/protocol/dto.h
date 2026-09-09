@@ -1,3 +1,4 @@
+// 定义客户端与服务端共用的数据结构及其 JSON 互转声明
 #pragma once
 
 #include <QJsonObject>
@@ -8,6 +9,7 @@
 
 namespace charging::protocol {
 
+// 各类业务状态枚举，与协议中的大写字符串一一对应
 enum class UserStatus { Active, Frozen };
 enum class StationStatus { Active, Disabled };
 enum class PileType { Fast, Slow };
@@ -24,6 +26,7 @@ enum class CongestionLevel { Low, Medium, High };
 [[nodiscard]] QString toString(OrderStatus value);
 [[nodiscard]] QString toString(CongestionLevel value);
 
+// 用户信息，余额以整数分表示避免浮点误差
 struct UserDto {
     qint64 userId = 0;
     QString phone;
@@ -33,6 +36,7 @@ struct UserDto {
     QString createdAt;
 };
 
+// 场站信息，距离与拥堵预测为可选字段
 struct StationDto {
     qint64 stationId = 0;
     QString name;
@@ -52,6 +56,7 @@ struct StationDto {
     QString pricingRule;
 };
 
+// 充电桩信息，含累计充电次数与总时长
 struct PileDto {
     qint64 pileId = 0;
     qint64 stationId = 0;
@@ -63,6 +68,7 @@ struct PileDto {
     qint64 totalChargeSeconds = 0;
 };
 
+// 订单快照：时间为 UTC 字符串，电量 Wh，金额分
 struct OrderDto {
     qint64 orderId = 0;
     QString orderNo;
@@ -80,6 +86,7 @@ struct OrderDto {
     std::optional<QString> paidAt;
     qint64 durationSeconds = 0;
     qint64 energyWh = 0;
+    // 充电开始时锁定的单价，尚未开始时可能为空
     std::optional<qint64> unitPriceCentsPerKwh;
     qint64 amountCents = 0;
 };
@@ -89,6 +96,7 @@ struct OrderDto {
 [[nodiscard]] QJsonObject toJson(const PileDto &dto);
 [[nodiscard]] QJsonObject toJson(const OrderDto &dto);
 
+// 从 JSON 解析，失败时通过 error 返回原因
 [[nodiscard]] bool fromJson(const QJsonObject &json, UserDto *dto, QString *error = nullptr);
 [[nodiscard]] bool fromJson(const QJsonObject &json, StationDto *dto, QString *error = nullptr);
 [[nodiscard]] bool fromJson(const QJsonObject &json, PileDto *dto, QString *error = nullptr);

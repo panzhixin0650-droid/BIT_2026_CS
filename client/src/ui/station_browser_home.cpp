@@ -19,8 +19,10 @@
 #include <QKeyEvent>
 #include <QTouchEvent>
 
+// 本文件搭建电站首页地图、底部抽屉与位置设置界面
 namespace charging::client {
 
+// 页面未显示时先强制布局，保证地图预加载尺寸正确
 void StationBrowserPage::prepareHomeMap(const QSize &availableSize)
 {
     if (!isVisible()) {
@@ -36,6 +38,7 @@ void StationBrowserPage::prepareHomeMap(const QSize &availableSize)
     stationMap_->preload();
 }
 
+// 构建地图首页：地图、可拖动底部面板与搜索入口
 void StationBrowserPage::setupMapHome()
 {
     stationMap_ = new StationMapView(listPage_);
@@ -59,6 +62,7 @@ void StationBrowserPage::setupMapHome()
     homeSearchButton_->setMinimumHeight(44);
     connect(homeSearchButton_, &QPushButton::clicked, this, &StationBrowserPage::openSearch);
     homeLayout->addWidget(homeSearchButton_);
+    // 抽屉内用堆叠页在概览列表与电站预览间切换
     sheetPages_ = new QStackedWidget(homeOverlay_);
     sheetPages_->setObjectName("stationSheetPages");
     sheetPages_->setMinimumSize(0, 0);
@@ -99,6 +103,7 @@ void StationBrowserPage::setupMapHome()
     caption->addWidget(homeLocation);
     overviewLayout->addLayout(caption);
 
+    // 搭建搜索页：返回、关键词输入与结果滚动区
     searchPage_ = new QWidget(pages_);
     searchPage_->setObjectName("stationSearchPage");
     auto *searchLayout = new QVBoxLayout(searchPage_);
@@ -152,6 +157,7 @@ void StationBrowserPage::setupMapHome()
     connect(keywordInput_, &QLineEdit::textChanged, this, [this] { renderSearch(); });
     connect(locationEntry_, &QPushButton::clicked, this, &StationBrowserPage::openLocationSettings);
 
+    // 搭建位置设置页：预设地点、手动地址与确定按钮
     locationPage_ = new QWidget(pages_);
     locationPage_->setObjectName("stationLocationPage");
     auto *locationLayout = new QVBoxLayout(locationPage_);
@@ -212,12 +218,14 @@ void StationBrowserPage::setupMapHome()
 
     locationLayout->addWidget(locationScroll_, 1);
 
+    // 恢复默认位置按钮会请求解析演示位置
     auto *restore = new QPushButton(QStringLiteral("恢复默认位置"), locationPage_);
     restore->setObjectName("stationLocationDefault");
     locationLayout->addWidget(restore);
     pages_->addWidget(locationPage_);
     connect(locationBack, &QPushButton::clicked, this, [this] { pages_->setCurrentWidget(locationReturnPage_); });
     connect(restore, &QPushButton::clicked, this, [this] { emit locationResolutionRequested(QStringLiteral("演示位置")); });
+    // 当前订单卡片，可折叠展开导航、取消、充电等操作
     currentOrderCard_ = new QFrame(overviewContent_);
     currentOrderCard_->setObjectName(QStringLiteral("currentOrderCard"));
     auto *currentOrderLayout = new QVBoxLayout(currentOrderCard_);
@@ -266,6 +274,7 @@ void StationBrowserPage::setupMapHome()
     currentOrderDetails_->hide();
     currentOrderCard_->hide();
     overviewLayout->addWidget(currentOrderCard_);
+    // 展开状态变化后重新计算首页浮层高度
     connect(currentOrderToggle_, &QPushButton::toggled, this, [this](bool expanded) {
         if (expanded) locationEntry_->setChecked(false);
         currentOrderDetails_->setVisible(expanded);
@@ -274,6 +283,7 @@ void StationBrowserPage::setupMapHome()
         layoutHomeOverlays();
     });
 
+    // 两个提示标签分别显示操作结果和列表状态
     actionMessageLabel_ = new QLabel(overviewContent_);
     actionMessageLabel_->setObjectName(QStringLiteral("stationActionMessage"));
     listMessageLabel_ = new QLabel(overviewContent_);
@@ -292,6 +302,7 @@ void StationBrowserPage::setupMapHome()
     discoveryLayout->setContentsMargins(0, 0, 0, 0);
     overviewLayout->addWidget(discoveryList_);
     overviewLayout->addStretch();
+    // 接入地图交互信号：拖动收起面板、点击空白切全屏
     stationPreview_ = new StationPreviewCard(sheetPages_);
     sheetPages_->addWidget(stationPreview_);
     connect(stationMap_, &StationMapView::interactionStarted, this, [this] {
@@ -312,11 +323,13 @@ void StationBrowserPage::setupMapHome()
     stationMap_->setCurrentLocation(currentLocation_);
 }
 
+// 设置地图脚本地址，供地图视图加载
 void StationBrowserPage::configureHomeMap(const QUrl &scriptUrl)
 {
     stationMap_->setMapScriptUrl(scriptUrl);
 }
 
+// 选中电站后弹出预览卡并把地图对准该站
 void StationBrowserPage::previewStation(qint64 stationId)
 {
     if (stationId <= 0) { emit detailBackRequested(); return; }
@@ -333,6 +346,7 @@ void StationBrowserPage::previewStation(qint64 stationId)
     }
 }
 
+// 设置抽屉档位：0收起、1常态、2展开
 void StationBrowserPage::setSheetPosition(int position)
 {
     const bool wasFullscreen = sheetHidden_;
@@ -343,6 +357,7 @@ void StationBrowserPage::setSheetPosition(int position)
     layoutHomeOverlays();
 }
 
+// 事件过滤器处理抽屉把手的鼠标、触摸与键盘拖动
 bool StationBrowserPage::eventFilter(QObject *watched, QEvent *event)
 {
     if (watched == sheetHandle_) {
@@ -377,6 +392,7 @@ bool StationBrowserPage::eventFilter(QObject *watched, QEvent *event)
         if (move && sheetDragging_) {
             dragHeight_ = dragStartHeight_ + dragStartY_ - y; layoutHomeOverlays(); return true;
         }
+        // 松手后，轻点循环切档，拖动按方向升降一档
         if (end && sheetDragging_) {
             const int delta = dragHeight_ - dragStartHeight_;
             setSheetPosition(qAbs(delta) < 12 ? (sheetPosition_ + 1) % 3
@@ -384,11 +400,13 @@ bool StationBrowserPage::eventFilter(QObject *watched, QEvent *event)
             return true;
         }
     }
+    // 首页尺寸变化时重新排布浮层
     if (watched == listPage_ && (event->type() == QEvent::Resize || event->type() == QEvent::Show))
         layoutHomeOverlays();
     return QWidget::eventFilter(watched, event);
 }
 
+// 记录底部导航高度，避免浮层被遮挡
 void StationBrowserPage::setBottomNavigationInset(int inset)
 {
     if (bottomNavigationInset_ == inset) return;
@@ -396,6 +414,7 @@ void StationBrowserPage::setBottomNavigationInset(int inset)
     layoutHomeOverlays();
 }
 
+// 按当前档位计算抽屉高度并同步地图可视边距
 void StationBrowserPage::layoutHomeOverlays()
 {
     if (!stationPreview_) return;

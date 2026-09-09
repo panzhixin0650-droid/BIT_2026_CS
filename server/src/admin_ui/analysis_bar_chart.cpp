@@ -1,3 +1,4 @@
+// 管理台横向条形图控件，用于展示分类统计并支持点击查看明细
 #include "analysis_bar_chart.h"
 #include <QPainter>
 #include <QMouseEvent>
@@ -15,12 +16,14 @@ AnalysisBarChart::AnalysisBarChart(QWidget *parent) : QWidget(parent)
     setFocusPolicy(Qt::StrongFocus);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 }
+// 仅在有数据时重播入场动画
 void AnalysisBarChart::playIntro()
 {
     if (!bars_.isEmpty()) intro_->replay();
 }
 
 
+// 更新数据并同步无障碍描述，动画立即结束避免闪动
 void AnalysisBarChart::setBars(QList<AnalysisBar> bars, double fixedMaximum)
 {
     intro_->finish();
@@ -31,6 +34,7 @@ void AnalysisBarChart::setBars(QList<AnalysisBar> bars, double fixedMaximum)
     setAccessibleDescription(description.join(QStringLiteral("；")));
     QToolTip::hideText(); update();
 }
+// 绘制每行标签、数值与进度条，宽度按最大值归一化
 void AnalysisBarChart::paintEvent(QPaintEvent *)
 {
     QPainter p(this); p.setRenderHint(QPainter::Antialiasing);
@@ -63,6 +67,7 @@ void AnalysisBarChart::paintEvent(QPaintEvent *)
         }
     }
 }
+// 鼠标移动时高亮所在行并显示数值提示
 void AnalysisBarChart::mouseMoveEvent(QMouseEvent *event)
 {
     int hovered = -1;
@@ -75,6 +80,7 @@ void AnalysisBarChart::mouseMoveEvent(QMouseEvent *event)
         bar.label.toHtmlEscaped(), bar.formattedValue.toHtmlEscaped(),
         bar.key.isEmpty() ? QString() : QStringLiteral("<br>点击查看明细")), this);
 }
+// 点击带 key 的条目发出信号，交由页面跳转明细
 void AnalysisBarChart::mouseReleaseEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton) {
@@ -87,6 +93,7 @@ void AnalysisBarChart::mouseReleaseEvent(QMouseEvent *event)
     }
     QWidget::mouseReleaseEvent(event);
 }
+// 支持上下键切换选中、回车触发点击，便于键盘操作
 void AnalysisBarChart::keyPressEvent(QKeyEvent *event)
 {
     if (!bars_.isEmpty() && (event->key()==Qt::Key_Down || event->key()==Qt::Key_Up)) {

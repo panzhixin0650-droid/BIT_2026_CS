@@ -1,3 +1,4 @@
+// 腾讯地图适配器：调用 HTTP 接口做地址解析与路线规划
 #include "local/tencent_map_service.h"
 
 #include <QJsonArray>
@@ -15,6 +16,7 @@
 namespace charging::client {
 namespace {
 
+// 校验经纬度是有限值且在合法范围内
 bool validCoordinate(const MapLocation &location)
 {
     return std::isfinite(location.longitude) && std::isfinite(location.latitude)
@@ -29,6 +31,7 @@ QString coordinateText(const MapLocation &location)
         .arg(location.longitude, 0, 'f', 6);
 }
 
+// 集中检查 Key 常见配置错误并给出中文提示
 QString apiKeyConfigurationError(const QString &apiKey)
 {
     if (apiKey.isEmpty()) {
@@ -55,6 +58,7 @@ QString apiKeyConfigurationError(const QString &apiKey)
     return {};
 }
 
+// 腾讯折线为差分压缩，需逐位累加还原成经纬度点
 std::optional<QJsonArray> decodeRoutePolyline(const QJsonArray &encoded)
 {
     if (encoded.size() < 4 || encoded.size() % 2 != 0 || encoded.size() > 100000) {
@@ -89,6 +93,7 @@ std::optional<QJsonArray> decodeRoutePolyline(const QJsonArray &encoded)
     return points;
 }
 
+// 出行方式对应的中文名称
 QString routeModeLabel(RouteMode mode)
 {
     switch (mode) {
@@ -100,6 +105,7 @@ QString routeModeLabel(RouteMode mode)
     return {};
 }
 
+// 出行方式对应的接口路径片段
 QString routeEndpoint(RouteMode mode)
 {
     switch (mode) {
@@ -117,6 +123,7 @@ QString distanceText(double meters)
                           : QStringLiteral("%1 米").arg(qRound(meters));
 }
 
+// 折线解码成功才把一段路径追加到结果
 bool appendPath(const QJsonArray &encoded, bool walking, RouteResult &result)
 {
     const auto points = decodeRoutePolyline(encoded);
@@ -126,6 +133,7 @@ bool appendPath(const QJsonArray &encoded, bool walking, RouteResult &result)
     return true;
 }
 
+// 解析首条路线：校验距离时长，提取折线与文字指引
 bool parseRoute(const QJsonObject &route, RouteMode mode, RouteResult &result)
 {
     const auto distance = route.value(QStringLiteral("distance"));
@@ -143,6 +151,7 @@ bool parseRoute(const QJsonObject &route, RouteMode mode, RouteResult &result)
             const QString instruction = step.toObject().value(QStringLiteral("instruction")).toString().trimmed();
             if (!instruction.isEmpty()) result.instructions.append(instruction);
         }
+    // 公交路线按步行段与乘车段分别处理
     } else {
         if (steps.isEmpty() || steps.size() > 100) return false;
         for (const auto &value : steps) {
@@ -169,6 +178,7 @@ bool parseRoute(const QJsonObject &route, RouteMode mode, RouteResult &result)
                 const QString getoff = line.value(QStringLiteral("getoff")).toObject().value(QStringLiteral("title")).toString();
                 if (title.isEmpty() || geton.isEmpty() || getoff.isEmpty()) return false;
                 result.instructions.append(QStringLiteral("%1：%2 上车 → %3 下车").arg(title, geton, getoff));
+                // 根据线路运营状态追加末班车等风险提示
                 switch (line.value(QStringLiteral("running_status")).toInt()) {
                 case 301: result.instructions.append(QStringLiteral("注意：可能错过末班车")); break;
                 case 302: result.instructions.append(QStringLiteral("注意：首班车还未发出")); break;
@@ -181,6 +191,7 @@ bool parseRoute(const QJsonObject &route, RouteMode mode, RouteResult &result)
         }
     }
     if (result.paths.isEmpty()) return false;
+    // 拼出距离与预计分钟数的路线摘要
     result.summary = QStringLiteral("%1约 %2 · %3 分钟")
         .arg(routeModeLabel(mode), distanceText(distance.toDouble()))
         .arg(static_cast<int>(std::ceil(duration.toDouble())));
@@ -189,6 +200,7 @@ bool parseRoute(const QJsonObject &route, RouteMode mode, RouteResult &result)
 
 }  // namespace
 
+// 构造时保存 Key 与超时，可注入外部网络管理器
 TencentMapService::TencentMapService(QString apiKey,
                                      int requestTimeoutMs,
                                      QObject *parent,
@@ -206,12 +218,14 @@ TencentMapService::TencentMapService(QString apiKey,
     }
 }
 
+// 析构时取消所有仍在进行的请求
 TencentMapService::~TencentMapService()
 {
     const auto requests = activeRequests_.values();
     for (const auto &id : requests) cancel(id);
 }
 
+// Key 配置无效时返回空地址，表示不能加载地图脚本
 QUrl TencentMapService::mapScriptUrl() const
 {
     if (!apiKeyConfigurationError(apiKey_).isEmpty()) return {};
@@ -224,6 +238,7 @@ QUrl TencentMapService::mapScriptUrl() const
     return url;
 }
 
+// 地址解析：先校验地址与 Key，再发起 geocoder 请求
 QString TencentMapService::geocode(const QString &address)
 {
     const QString requestId = nextRequestId();
@@ -251,6 +266,7 @@ QString TencentMapService::geocode(const QString &address)
     request.setTransferTimeout(requestTimeoutMs_);
     QNetworkReply *reply = networkAccess_->get(request);
     replies_.insert(requestId, reply);
+    // 回调中先确认请求未被取消，再解析响应
     connect(reply, &QNetworkReply::finished, this,
             [this, reply, requestId, normalizedAddress]() {
                 replies_.remove(requestId);
@@ -284,6 +300,7 @@ QString TencentMapService::geocode(const QString &address)
                         .toObject();
                 const QJsonValue longitude = location.value(QStringLiteral("lng"));
                 const QJsonValue latitude = location.value(QStringLiteral("lat"));
+                // 状态码非 0 或缺少经纬度都按失败处理
                 if (status != 0 || !longitude.isDouble() || !latitude.isDouble()) {
                     const QString serviceMessage =
                         root.value(QStringLiteral("message")).toString().trimmed();
@@ -313,6 +330,7 @@ QString TencentMapService::geocode(const QString &address)
     return requestId;
 }
 
+// 路线规划：延后一轮事件循环，统一处理参数校验与请求
 QString TencentMapService::openRoute(const MapLocation &start, const MapLocation &end, RouteMode mode)
 {
     const QString requestId = nextRequestId();
@@ -343,6 +361,7 @@ QString TencentMapService::openRoute(const MapLocation &start, const MapLocation
         request.setTransferTimeout(requestTimeoutMs_);
         auto *reply = networkAccess_->get(request);
         replies_.insert(requestId, reply);
+        // 按网络错误、状态码和解析结果给出不同中文提示
         connect(reply, &QNetworkReply::finished, this, [this, reply, requestId, mode]() {
             replies_.remove(requestId);
             reply->deleteLater();
@@ -383,6 +402,7 @@ QString TencentMapService::openRoute(const MapLocation &start, const MapLocation
     return requestId;
 }
 
+// 取消请求：断开信号并中止网络回复
 void TencentMapService::cancel(const QString &requestId)
 {
     activeRequests_.remove(requestId);
@@ -398,6 +418,7 @@ QString TencentMapService::nextRequestId()
     return QStringLiteral("map-tencent-%1").arg(nextRequestNumber_++);
 }
 
+// 失败也异步回报，保持与网络回调一致的时序
 void TencentMapService::emitGeocodeFailure(const QString &requestId,
                                            const QString &message)
 {

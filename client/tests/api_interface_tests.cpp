@@ -8,8 +8,10 @@
 
 using namespace charging;
 
+// 本文件测试IChargingApi接口约定：请求ID与异步结果信号
 namespace {
 
+// 测试替身：只实现接口，登录返回固定演示数据
 class FakeChargingApi final : public client::IChargingApi {
 public:
     using IChargingApi::IChargingApi;
@@ -36,12 +38,14 @@ public:
             },
         };
 
+        // 延迟到事件循环再发信号，模拟异步返回
         QTimer::singleShot(0, this, [this, result]() {
             emit loginCompleted(result);
         });
         return requestId;
     }
 
+    // 其余接口只返回新请求ID，不产生业务结果
     QString logout() override
     {
         return nextRequestId();
@@ -126,6 +130,7 @@ public:
     }
 
 private:
+    // 生成递增的假请求ID，便于比对回调归属
     QString nextRequestId()
     {
         return QStringLiteral("fake-%1").arg(++requestSequence_);
@@ -145,6 +150,7 @@ private slots:
     void loginReturnsIdAndEmitsTypedCompletion();
 };
 
+// 结果携带Ok码和载荷时才算成功
 void ApiInterfaceTests::successResultReportsSuccess()
 {
     client::LoginResult result;
@@ -155,6 +161,7 @@ void ApiInterfaceTests::successResultReportsSuccess()
     QVERIFY(result.payload.has_value());
 }
 
+// 默认构造的结果视为失败且无载荷
 void ApiInterfaceTests::defaultResultDoesNotReportSuccess()
 {
     const client::LoginResult result;
@@ -163,6 +170,7 @@ void ApiInterfaceTests::defaultResultDoesNotReportSuccess()
     QVERIFY(!result.payload.has_value());
 }
 
+// 验证登录同步返回ID、异步回信号且内容匹配
 void ApiInterfaceTests::loginReturnsIdAndEmitsTypedCompletion()
 {
     qRegisterMetaType<client::LoginResult>();

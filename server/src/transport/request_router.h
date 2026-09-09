@@ -1,3 +1,4 @@
+// 本文件声明消息类型到应用服务调用的路由器
 #pragma once
 
 #include "application/application_service.h"
@@ -13,6 +14,7 @@ class RequestRouter final {
 public:
     explicit RequestRouter(ApplicationService *service);
 
+    // route 只做分发，返回可直接发送的响应信封
     [[nodiscard]] charging::protocol::ResponseEnvelope route(
         const charging::protocol::RequestEnvelope &request) const;
 

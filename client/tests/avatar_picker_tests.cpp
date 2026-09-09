@@ -1,3 +1,4 @@
+// 本文件测试头像选择对话框与本地头像存储的配合
 #include "api/mock_charging_api.h"
 #include "local/avatar_storage.h"
 #include "ui/avatar_art.h"
@@ -16,6 +17,7 @@
 
 using namespace charging::client;
 
+// 头像选择测试集合
 class AvatarPickerTests : public QObject {
     Q_OBJECT
 
@@ -27,6 +29,7 @@ private slots:
     void smallWindowAndHighDpiRendering();
 };
 
+// 内置头像保存到本地并立即刷新显示，切换账号各自独立
 void AvatarPickerTests::basicAvatarsPersistAndRefreshImmediately()
 {
     QTemporaryDir dir;
@@ -77,6 +80,7 @@ void AvatarPickerTests::basicAvatarsPersistAndRefreshImmediately()
     QCOMPARE(profileRequests.count(), 0);
 }
 
+// 本地图片预览、缺失或损坏文件的提示与缩放上限
 void AvatarPickerTests::localImagePreviewAndInvalidSelection()
 {
     QTemporaryDir dir;
@@ -135,6 +139,7 @@ void AvatarPickerTests::localImagePreviewAndInvalidSelection()
     QCOMPARE(QImage(savedPath), expected);
 }
 
+// 取消、Esc、关闭或切换账号都要放弃本次选择
 void AvatarPickerTests::cancellationAndAccountChangeDiscardSelection()
 {
     ProfilePage page;
@@ -163,6 +168,7 @@ void AvatarPickerTests::cancellationAndAccountChangeDiscardSelection()
     }
 }
 
+// 小窗口下控件不越界，高 DPI 圆形头像尺寸正确
 void AvatarPickerTests::smallWindowAndHighDpiRendering()
 {
     AvatarPickerDialog picker(basicAvatars()[0].image);

@@ -24,12 +24,14 @@ class StationMapView;
 class StationPreviewCard;
 class PricingInfoButton;
 
+// 本文件声明电站浏览页：地图首页、搜索、详情、定位与路线
 class StationBrowserPage final : public QWidget {
     Q_OBJECT
 
 public:
     explicit StationBrowserPage(QWidget *parent = nullptr);
 
+    // 对外接口：由主窗口喂入查询结果、订单和定位状态
     [[nodiscard]] StationQuery stationQuery() const;
     [[nodiscard]] MapLocation currentLocation() const;
     void setUserId(qint64 userId);
@@ -65,6 +67,7 @@ public:
     void showRouteResult(const RouteResult &result);
     void reset();
 
+// 信号只上报用户意图，实际请求由上层调用API完成
 signals:
     void mapFullscreenChanged(bool fullscreen);
     void refreshRequested();
@@ -86,6 +89,7 @@ signals:
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
+// 私有部分负责首页发现、搜索渲染与地图布局
 private:
     void openSearch();
     void openLocationSettings();
@@ -126,6 +130,7 @@ private:
     void updateLocationSummary();
     void updateRouteControls();
 
+    // 以下为各页面控件指针与页面状态缓存
     QStackedWidget *pages_ = nullptr;
     QWidget *listPage_ = nullptr;
     StationMapView *stationMap_ = nullptr;
@@ -186,6 +191,7 @@ private:
     QList<QPushButton *> reservationButtons_;
     QList<QPushButton *> directChargingButtons_;
     std::optional<protocol::OrderDto> currentOrder_;
+    // 默认演示定位为沈阳附近坐标，仅用于Demo
     MapLocation currentLocation_{QStringLiteral("演示位置"), 123.42, 41.70};
     protocol::StationDto navigationStation_;
     bool reservationBusy_ = false;

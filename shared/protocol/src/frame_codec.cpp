@@ -1,3 +1,4 @@
+// 长度前缀加JSON体的帧编解码实现，供TCP通信复用
 #include "charging/protocol/frame_codec.h"
 
 #include "charging/protocol/protocol_constants.h"
@@ -8,6 +9,7 @@
 namespace charging::protocol {
 namespace {
 
+// 把帧错误枚举转成可读英文提示，便于日志排查
 QString frameErrorMessage(FrameError error)
 {
     switch (error) {
@@ -23,6 +25,7 @@ QString frameErrorMessage(FrameError error)
     return QStringLiteral("unknown frame error");
 }
 
+// 读取前4字节大端长度，得到消息体字节数
 quint32 readBigEndianLength(const QByteArray &bytes)
 {
     const auto *data = reinterpret_cast<const unsigned char *>(bytes.constData());
@@ -44,9 +47,11 @@ bool DecodeResult::ok() const noexcept
     return error == FrameError::None;
 }
 
+// 把 JSON 写成紧凑格式，再加上 4 字节的长度头
 QByteArray encodeFrame(const QJsonObject &message)
 {
     const QByteArray body = QJsonDocument(message).toJson(QJsonDocument::Compact);
+    // 空体或超出最大长度视为非法，返回空字节表示失败
     if (body.isEmpty() || body.size() > static_cast<qsizetype>(kMaxFrameBodyBytes)) {
         return {};
     }
@@ -62,6 +67,7 @@ QByteArray encodeFrame(const QJsonObject &message)
     return frame;
 }
 
+// 把新收到的数据接在缓冲末尾，再逐条取出完整消息
 DecodeResult FrameDecoder::append(const QByteArray &bytes)
 {
     if (failure_ != FrameError::None) {
@@ -73,6 +79,7 @@ DecodeResult FrameDecoder::append(const QByteArray &bytes)
 
     while (buffer_.size() >= 4) {
         const quint32 bodyLength = readBigEndianLength(buffer_);
+        // 长度非法则标记失败并丢弃缓冲，后续调用直接报错
         if (bodyLength == 0 || bodyLength > kMaxFrameBodyBytes) {
             failure_ = FrameError::InvalidLength;
             buffer_.clear();
@@ -80,6 +87,7 @@ DecodeResult FrameDecoder::append(const QByteArray &bytes)
         }
 
         const qsizetype frameLength = 4 + static_cast<qsizetype>(bodyLength);
+        // 帧体还没收齐就先退出，等下次数据到达再解析
         if (buffer_.size() < frameLength) {
             break;
         }
@@ -106,6 +114,7 @@ DecodeResult FrameDecoder::append(const QByteArray &bytes)
     return result;
 }
 
+// 重连或复用解码器前清空缓冲与错误状态
 void FrameDecoder::reset()
 {
     buffer_.clear();

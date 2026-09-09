@@ -1,3 +1,4 @@
+// 本文件测试界面在超时、会话失效等异常后的恢复行为
 #include "api/i_charging_api.h"
 #include "ui/main_window.h"
 #include "ui/charging_controller.h"
@@ -30,6 +31,7 @@ public:
     QHash<QString, int> calls;
     int serial = 0;
     QString reservedPileCode;
+    // 生成递增请求号并统计各类型调用次数
     QString request(const char *type) {
         const QString key = QString::fromLatin1(type);
         ++calls[key];
@@ -54,6 +56,7 @@ public:
     QString stopCharging(qint64) override { return request("order.stop"); }
     QString payOrder(qint64) override { return request("order.pay"); }
 
+    // 按指定错误码构造一个响应结果
     template<class T> T reply(const char *type, int code = protocol::ErrorCode::Ok) {
         T result;
         result.response = {latest[QString::fromLatin1(type)], QString::fromLatin1(type), code,
@@ -63,9 +66,11 @@ public:
     }
 };
 
+// 界面恢复测试类
 class UiRecoveryTests : public QObject {
     Q_OBJECT
 private:
+    // 辅助：检查计价说明弹窗内容与高峰提示
     void verifyPricingRules(ChargingPage &page, bool hasPeak) {
         auto *help = page.findChild<QToolButton *>("chargingPricingInfoButton");
         QVERIFY(help && help->isVisible());
@@ -82,6 +87,7 @@ private:
         QTRY_VERIFY(!page.findChild<QDialog *>("pricingRulesDialog"));
     }
 
+    // 辅助：用固定验证码完成登录流程
     void login(MainWindow &window, DeferredApi &api, qint64 userId = 1) {
         window.findChild<LoginPage *>()->loginRequested(QStringLiteral("13800000001"),
                                                        QStringLiteral("123456"));
@@ -92,12 +98,14 @@ private:
         emit api.loginCompleted(result);
     }
 private slots:
+    // 数据驱动：预约在检查前或检查后过期
     void expiredReservationNeverFallsBackToDirectStart_data() {
         QTest::addColumn<bool>("expiresDuringStart");
         QTest::newRow("gone-at-current-check") << false;
         QTest::newRow("expires-after-check-before-start") << true;
     }
 
+    // 用例：预约过期不能退化成直接启动充电
     void expiredReservationNeverFallsBackToDirectStart() {
         QFETCH(bool, expiresDuringStart);
         DeferredApi api;
@@ -137,6 +145,7 @@ private slots:
                 "order.start", protocol::ErrorCode::IllegalOrderState));
             emit api.currentOrderCompleted(api.reply<CurrentOrderResult>("order.current"));
         }
+        // 过期情形下最多只发出一次启动请求
         QCOMPARE(api.calls["order.start"], expiresDuringStart ? 1 : 0);
         QVERIFY(!start->isEnabled());
         QCOMPARE(api.calls["order.list"], 1);
@@ -157,6 +166,7 @@ private slots:
         QVERIFY(page.pileCode().isEmpty());
     }
 
+    // 用例：过期的报价响应要丢弃，启动后按锁定单价显示
     void chargingQuoteRejectsStaleResponsesAndUsesLockedApiPrice() {
         DeferredApi api;
         ChargingPage page;
@@ -205,6 +215,7 @@ private slots:
         // Deliberately not the quote: the UI must display the start response verbatim.
         started.payload->order.unitPriceCentsPerKwh = 149;
         emit api.chargingStartCompleted(started);
+        // 界面直接显示服务端返回的锁定单价
         QCOMPARE(price->text(), QStringLiteral("本单锁定单价：¥1.49/度"));
         verifyPricingRules(page, false);
         emit api.stationDetailCompleted(quote);
@@ -215,6 +226,7 @@ private slots:
         QVERIFY(!start->isEnabled());
     }
 
+    // 用例：报价失败可重试，会话失效则重置页面
     void chargingQuoteFailureCanRetryAndSessionFailureResets() {
         DeferredApi api;
         ChargingPage page;
@@ -251,6 +263,7 @@ private slots:
         QCOMPARE(api.calls["order.start"], 0);
     }
 
+    // 用例：重试只重新加载报价，需再次点击才启动
     void quoteRetryOnlyLoadsPriceUntilUserStartsAgain() {
         DeferredApi api;
         ChargingPage page;
@@ -286,6 +299,7 @@ private slots:
         QCOMPARE(api.calls["order.start"], 1);
     }
 
+    // 用例：规则为空或未知时不擅自显示高峰价
     void oldOrUnknownPricingRuleDoesNotInventPeakPrice() {
         ChargingPage page;
         page.show();
@@ -301,6 +315,7 @@ private slots:
         }
     }
 
+    // 用例：报价或会话变化时自动关闭计价弹窗
     void pricingRulesCloseWhenQuoteOrSessionChanges() {
         ChargingPage page;
         page.show();
@@ -328,6 +343,7 @@ private slots:
         QVERIFY(!help->isVisible());
     }
 
+    // 数据驱动：各种不合法或错误的验证码
     void invalidVerificationCodeDoesNotCallApi_data() {
         QTest::addColumn<QString>("code");
         QTest::addColumn<QString>("message");
@@ -337,6 +353,7 @@ private slots:
         QTest::newRow("wrong") << QStringLiteral("654321") << QStringLiteral("验证码不正确，请重试");
     }
 
+    // 用例：验证码不合法时不调用登录接口
     void invalidVerificationCodeDoesNotCallApi() {
         QFETCH(QString, code);
         QFETCH(QString, message);
@@ -353,6 +370,7 @@ private slots:
         QVERIFY(input->isEnabled());
     }
 
+    // 用例：发送验证码只是演示提示，不真的发短信
     void sendCodeIsOnlyADemoHint() {
         DeferredApi api;
         MainWindow window(api);
@@ -375,12 +393,14 @@ private slots:
         QVERIFY(send->isEnabled());
     }
 
+    // 数据驱动：网络失败与账号被禁两种错误码
     void verificationLoginFailureRestoresAllControls_data() {
         QTest::addColumn<int>("errorCode");
         QTest::newRow("network") << protocol::ErrorCode::ServiceUnavailable;
         QTest::newRow("frozen") << protocol::ErrorCode::Forbidden;
     }
 
+    // 用例：登录失败后恢复全部输入控件且不重复请求
     void verificationLoginFailureRestoresAllControls() {
         QFETCH(int, errorCode);
         DeferredApi api;
@@ -412,6 +432,7 @@ private slots:
         QCOMPARE(api.calls[QStringLiteral("auth.user.login")], 2);
     }
 
+    // 用例：会话过期后丢弃其他页面的在途结果
     void sessionExpiryDiscardsOtherPagesPendingResults() {
         DeferredApi api;
         MainWindow window(api);
@@ -442,6 +463,7 @@ private slots:
         QVERIFY(window.findChild<QPushButton *>(QStringLiteral("scanStartButton"))->isEnabled());
     }
 
+    // 用例：登出后忽略首页在途的响应
     void logoutDiscardsPendingHomeResponse() {
         DeferredApi api;
         MainWindow window(api);
@@ -459,6 +481,7 @@ private slots:
         QCOMPARE(window.findChild<QStackedWidget *>(QStringLiteral("applicationPages"))->currentWidget(), tabs);
     }
 
+    // 用例：超时后恢复控件，但不重复发写操作
     void timeoutRestoresControlsWithoutRepeatingWrites() {
         DeferredApi api;
         MainWindow window(api);
@@ -490,6 +513,7 @@ private slots:
         QCOMPARE(api.calls[QStringLiteral("order.start")], 0);
     }
 
+    // 用例：迟到的进度响应不重开或覆盖当前详情
     void lateProgressDoesNotReopenOrReplaceDetail() {
         DeferredApi api;
         OrderPage page;
@@ -520,6 +544,7 @@ private slots:
         QCOMPARE(page.findChild<QLabel *>(QStringLiteral("orderDetailNumber"))->text(), QStringLiteral("订单 SECOND"));
     }
 
+    // 用例：预约校验期间只保留第一次提交
     void reservationCheckKeepsFirstSubmission() {
         DeferredApi api;
         StationBrowserPage page;
@@ -535,6 +560,7 @@ private slots:
         QCOMPARE(api.calls[QStringLiteral("order.current")], 2);
     }
 
+    // 用例：离开订单页后放弃原来的跳转意图
     void leavingOrdersDiscardsNavigationIntent() {
         DeferredApi api;
         MainWindow window(api);
@@ -551,5 +577,6 @@ private slots:
     }
 };
 
+// 测试程序入口
 QTEST_MAIN(UiRecoveryTests)
 #include "ui_recovery_tests.moc"

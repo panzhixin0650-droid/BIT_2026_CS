@@ -1,3 +1,4 @@
+// 服务端应用层：处理用户与管理端各业务请求并返回统一结果
 #include "application_service.h"
 
 #include "application/session_store.h"
@@ -36,6 +37,7 @@ constexpr int kAdminNotFound = 40406;
 constexpr int kDuplicateUsername = 40907;
 constexpr int kLastSystemAdmin = 40911;
 
+// 几个常用失败结果的快捷构造，统一错误码与消息
 ServiceResult invalidRequest()
 {
     return ServiceResult::failure(ErrorCode::InvalidRequest,
@@ -53,6 +55,7 @@ ServiceResult forbidden(const QString &message = QStringLiteral("ROLE_FORBIDDEN"
     return ServiceResult::failure(kRoleForbidden, message);
 }
 
+// 手写 HMAC-SHA256，供密码派生使用
 QByteArray hmacSha256(const QByteArray &key, const QByteArray &message)
 {
     QByteArray normalizedKey = key;
@@ -74,6 +77,7 @@ QByteArray hmacSha256(const QByteArray &key, const QByteArray &message)
         QCryptographicHash::Sha256);
 }
 
+// PBKDF2 派生：对密码反复哈希并异或，提高破解成本
 QByteArray derivePbkdf2Sha256(const QByteArray &password,
                               const QByteArray &salt,
                               int iterations)
@@ -91,6 +95,7 @@ QByteArray derivePbkdf2Sha256(const QByteArray &password,
     return result;
 }
 
+// 生成随机盐并输出带算法、迭代次数的密码哈希串
 QString hashAdminPassword(const QString &password)
 {
     constexpr int iterations = 20000;
@@ -107,6 +112,7 @@ QString hashAdminPassword(const QString &password)
         .arg(QString::fromLatin1(digest.toHex()));
 }
 
+// 等长内容逐字节比对，不因中途不同而提前返回
 bool constantTimeEquals(const QByteArray &left, const QByteArray &right)
 {
     if (left.size() != right.size()) return false;
@@ -117,6 +123,7 @@ bool constantTimeEquals(const QByteArray &left, const QByteArray &right)
     return difference == 0;
 }
 
+// 校验管理员密码，兼容旧的 SHA256 存量哈希
 bool verifyAdminPassword(const AdminRecord &admin, const QString &password)
 {
     if (admin.passwordAlgorithm == QStringLiteral("SHA256_LEGACY")) {
@@ -139,6 +146,7 @@ bool verifyAdminPassword(const AdminRecord &admin, const QString &password)
         && constantTimeEquals(expected, actual);
 }
 
+// 把管理员记录转成对外 JSON，不包含密码字段
 QJsonObject adminToJson(const AdminRecord &admin, bool accountsAvailable = true)
 {
     QJsonArray scopes;
@@ -160,6 +168,7 @@ QJsonObject adminToJson(const AdminRecord &admin, bool accountsAvailable = true)
     };
 }
 
+// 取当前操作管理员并校验启用状态与是否必须改密
 std::optional<AdminRecord> activeAdmin(IRepository *repository,
                                        qint64 adminId,
                                        ServiceResult *failure,
@@ -194,6 +203,7 @@ bool hasRole(const AdminRecord &admin, std::initializer_list<const char *> roles
     });
 }
 
+// 系统管理员不限站点，站点管理员只能操作授权站
 bool canAccessStation(const AdminRecord &admin, qint64 stationId)
 {
     return admin.role == QStringLiteral("SYS_ADMIN")
@@ -252,6 +262,7 @@ double degreesToRadians(double degrees)
     return degrees * 3.14159265358979323846 / 180.0;
 }
 
+// 用 Haversine 公式估算站点距离，保留两位小数
 double distanceKm(double fromLongitude,
                   double fromLatitude,
                   double toLongitude,
@@ -289,6 +300,7 @@ QJsonArray pilesToJson(const QList<PileDto> &piles)
 
 }  // namespace
 
+// 注入仓储、会话、电桩网关与预测提供者，时钟可注入便于测试
 ApplicationService::ApplicationService(IRepository *repository,
                                        SessionStore *sessions,
                                        IPileGateway *pileGateway,
@@ -321,6 +333,7 @@ ServiceResult ApplicationService::ping(const QJsonObject &input) const
     return ServiceResult::success(std::move(data));
 }
 
+// 手机号登录：号码不存在则自动建号，冻结用户拒绝登录
 ServiceResult ApplicationService::loginUser(const QJsonObject &input)
 {
     if (repository_ == nullptr || sessions_ == nullptr) {
@@ -364,6 +377,7 @@ ServiceResult ApplicationService::loginUser(const QJsonObject &input)
     });
 }
 
+// 注销即删除会话令牌
 ServiceResult ApplicationService::logout(const QString &token)
 {
     if (sessions_ == nullptr || token.isEmpty()
@@ -396,6 +410,7 @@ ServiceResult ApplicationService::getProfile(const QString &token) const
     return ServiceResult::success({{QStringLiteral("user"), toJson(*user)}});
 }
 
+// 修改昵称，长度限制1到32个字符
 ServiceResult ApplicationService::updateProfile(const QString &token,
                                                 const QJsonObject &input)
 {
@@ -427,6 +442,7 @@ ServiceResult ApplicationService::updateProfile(const QString &token,
     return ServiceResult::success({{QStringLiteral("user"), toJson(*user)}});
 }
 
+// 充值金额以分为单位，限制在1分到1万元之间
 ServiceResult ApplicationService::recharge(const QString &token,
                                            const QJsonObject &input)
 {
@@ -452,6 +468,7 @@ ServiceResult ApplicationService::recharge(const QString &token,
     });
 }
 
+// 站点列表：支持坐标算距离、地区与关键字过滤
 ServiceResult ApplicationService::listStations(const QString &token,
                                                const QJsonObject &input) const
 {
@@ -494,6 +511,7 @@ ServiceResult ApplicationService::listStations(const QString &token,
         return invalidRequest();
     }
 
+    // 查询前取消已超时的预约，让返回的空闲状态与预约一致
     if (expireDueReservations(nowUtc()) < 0) return internalError();
     const QList<StationDto> storedStations = repository_->listActiveStations();
     if (!repository_->lastOperationSucceeded()) {
@@ -511,6 +529,7 @@ ServiceResult ApplicationService::listStations(const QString &token,
             && !station.address.contains(keyword, Qt::CaseInsensitive)) {
             continue;
         }
+        // 按当前时刻换算高峰或平时单价后再返回给客户端
         const auto price = chargingUnitPriceCents(station.priceCentsPerKwh, quotedAt);
         if (!price.has_value()) return internalError();
         station.priceCentsPerKwh = *price;
@@ -535,6 +554,7 @@ ServiceResult ApplicationService::listStations(const QString &token,
                   return left.stationId < right.stationId;
               });
 
+    // 给第一个低拥堵站点打推荐标记，拥堵度来自模拟预测
     auto recommended = std::find_if(stations.begin(), stations.end(),
                                     [](const StationDto &station) {
                                         return station.predictedCongestion
@@ -549,6 +569,7 @@ ServiceResult ApplicationService::listStations(const QString &token,
     });
 }
 
+// 站点详情：返回站点信息与其下所有电桩
 ServiceResult ApplicationService::getStation(const QString &token,
                                              const QJsonObject &input) const
 {
@@ -594,6 +615,7 @@ ServiceResult ApplicationService::getStation(const QString &token,
     });
 }
 
+// 按令牌解析用户并校验存在与未冻结，失败时写入错误结果
 std::optional<qint64> ApplicationService::authenticatedUserId(
     const QString &token,
     ServiceResult *failure) const
@@ -629,6 +651,7 @@ std::optional<qint64> ApplicationService::authenticatedUserId(
     return userId;
 }
 
+// 管理员登录：校验密码、状态，旧哈希会升级为 PBKDF2
 ServiceResult ApplicationService::loginAdmin(const QString &username,
                                              const QString &password)
 {
@@ -659,6 +682,7 @@ ServiceResult ApplicationService::loginAdmin(const QString &username,
     }
     updated.lastLoginAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
     updated.updatedAt = updated.lastLoginAt;
+    // 用仓储事务包裹登录时间更新与审计写入
     RepositoryTransaction transaction(repository_);
     if (!transaction.active() || !repository_->updateAdmin(updated)
         || !repository_->appendAdminAudit(updated.adminId,
@@ -682,6 +706,7 @@ ServiceResult ApplicationService::getAdminProfile(qint64 actorAdminId) const
         : failure;
 }
 
+// 仅系统管理员可查看管理员列表，支持关键字与状态过滤
 ServiceResult ApplicationService::listAdminAccounts(qint64 actorAdminId,
                                                     const QString &keyword,
                                                     const QString &status) const
@@ -707,6 +732,7 @@ ServiceResult ApplicationService::listAdminAccounts(qint64 actorAdminId,
     return ServiceResult::success({{QStringLiteral("items"), items}});
 }
 
+// 新建管理员：校验账号格式与角色所需的站点范围
 ServiceResult ApplicationService::createAdminAccount(qint64 actorAdminId,
                                                       const QJsonObject &input)
 {
@@ -753,6 +779,7 @@ ServiceResult ApplicationService::createAdminAccount(qint64 actorAdminId,
                                           QStringLiteral("STATION_NOT_FOUND"));
         }
     }
+    // 初始密码标记为必须修改，并写入站点授权范围
     const QString now = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
     AdminRecord admin;
     admin.username = username;
@@ -781,6 +808,7 @@ ServiceResult ApplicationService::createAdminAccount(qint64 actorAdminId,
     return ServiceResult::success({{QStringLiteral("admin"), adminToJson(admin)}});
 }
 
+// 编辑管理员：不能停用自己，也不能改自己的角色
 ServiceResult ApplicationService::updateAdminAccount(qint64 actorAdminId,
                                                       const QJsonObject &input)
 {
@@ -831,6 +859,7 @@ ServiceResult ApplicationService::updateAdminAccount(qint64 actorAdminId,
                                           QStringLiteral("STATION_NOT_FOUND"));
         }
     }
+    // 降级或停用前检查，至少保留一名启用的系统管理员
     if (target->role == QStringLiteral("SYS_ADMIN")
         && target->status == QStringLiteral("ACTIVE")
         && (role != QStringLiteral("SYS_ADMIN") || status != QStringLiteral("ACTIVE"))) {
@@ -852,6 +881,7 @@ ServiceResult ApplicationService::updateAdminAccount(qint64 actorAdminId,
     target->status = status;
     target->stationIds = stationIds;
     target->updatedAt = now;
+    // 管理员资料、场站范围与审计记录放在同一事务内提交
     RepositoryTransaction transaction(repository_);
     if (!transaction.active() || !repository_->updateAdmin(*target)
         || !repository_->replaceAdminStationScopes(adminId, stationIds,
@@ -869,6 +899,7 @@ ServiceResult ApplicationService::updateAdminAccount(qint64 actorAdminId,
     return ServiceResult::success({{QStringLiteral("admin"), adminToJson(*target)}});
 }
 
+// 管理员自助修改密码：校验旧密码并写入新哈希
 ServiceResult ApplicationService::changeAdminPassword(qint64 actorAdminId,
                                                        const QString &currentPassword,
                                                        const QString &newPassword)
@@ -878,6 +909,7 @@ ServiceResult ApplicationService::changeAdminPassword(qint64 actorAdminId,
     if (!actor.has_value()) return failure;
     if (!repository_->supportsAdminAccounts()) return ServiceResult::failure(
         ErrorCode::ServiceUnavailable, QStringLiteral("ADMIN_ACCOUNTS_MIGRATION_REQUIRED"));
+    // 新密码长度与不得与旧密码相同的基本校验
     if (currentPassword.isEmpty() || newPassword.size() < 6
         || newPassword.size() > 128 || currentPassword == newPassword) {
         return invalidRequest();
@@ -887,6 +919,7 @@ ServiceResult ApplicationService::changeAdminPassword(qint64 actorAdminId,
                                       QStringLiteral("INVALID_CREDENTIALS"));
     }
     const QString now = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    // 改密后清除强制改密标记，并记录审计
     actor->passwordHash = hashAdminPassword(newPassword);
     actor->passwordAlgorithm = QStringLiteral("PBKDF2_SHA256");
     actor->mustChangePassword = false;
@@ -900,6 +933,7 @@ ServiceResult ApplicationService::changeAdminPassword(qint64 actorAdminId,
     return ServiceResult::success({{QStringLiteral("changed"), true}});
 }
 
+// 仪表盘快捷入口：只支持近7天或30天
 ServiceResult ApplicationService::getDashboard(qint64 actorAdminId, int days) const
 {
     if (days != 7 && days != 30) return invalidRequest();
@@ -908,6 +942,7 @@ ServiceResult ApplicationService::getDashboard(qint64 actorAdminId, int days) co
     return getDashboard(actorAdminId, today.addDays(1 - days), today);
 }
 
+// 按日期区间汇总营收、场站与充电桩状态
 ServiceResult ApplicationService::getDashboard(qint64 actorAdminId,
                                                 const QDate &startDate,
                                                 const QDate &endDate) const
@@ -933,6 +968,7 @@ ServiceResult ApplicationService::getDashboard(qint64 actorAdminId,
     if (!repository_->lastOperationSucceeded()) {
         return internalError();
     }
+    // 场站管理员只能看到授权场站的订单与设备
     if (actor->role == QStringLiteral("STATION_ADMIN")) {
         const auto outsideScope = [&actor](qint64 stationId) {
             return !actor->stationIds.contains(stationId);
@@ -953,6 +989,7 @@ ServiceResult ApplicationService::getDashboard(qint64 actorAdminId,
     const QTimeZone businessZone("Asia/Shanghai");
     const QDate today = QDateTime::currentDateTimeUtc().toTimeZone(businessZone).date();
 
+    // 仅统计已完成且已支付的订单，按业务日归集金额
     qint64 todayRevenue = 0;
     qint64 monthRevenue = 0;
     qint64 totalRevenue = 0;
@@ -973,6 +1010,7 @@ ServiceResult ApplicationService::getDashboard(qint64 actorAdminId,
         }
     }
 
+    // 汇总空闲、使用中和异常三类桩；故障与离线归入异常
     qint64 idle = 0;
     qint64 inUse = 0;
     qint64 fault = 0;
@@ -987,6 +1025,7 @@ ServiceResult ApplicationService::getDashboard(qint64 actorAdminId,
         }
     }
 
+    // 逐日补齐营收点，无数据的日期补零
     QJsonArray revenuePoints;
     for (QDate date = startDate; date <= endDate; date = date.addDays(1)) {
         revenuePoints.append(QJsonObject{
@@ -1014,6 +1053,7 @@ ServiceResult ApplicationService::getDashboard(qint64 actorAdminId,
     });
 }
 
+// 后台场站列表：按区域和关键字过滤并做权限筛选
 ServiceResult ApplicationService::listAdminStations(qint64 actorAdminId,
                                                      const QString &region,
                                                      const QString &keyword) const
@@ -1041,6 +1081,7 @@ ServiceResult ApplicationService::listAdminStations(qint64 actorAdminId,
             && !station.address.contains(keyword, Qt::CaseInsensitive)) {
             continue;
         }
+        // 后台不返回距离、拥堵预测等面向用户的字段
         station.distanceKm.reset();
         station.predictedCongestion.reset();
         station.recommended = false;
@@ -1051,6 +1092,7 @@ ServiceResult ApplicationService::listAdminStations(qint64 actorAdminId,
     });
 }
 
+// 新建场站并附带创建充电桩，仅系统管理员可用
 ServiceResult ApplicationService::createAdminStation(qint64 actorAdminId,
                                                       const QJsonObject &input)
 {
@@ -1066,6 +1108,7 @@ ServiceResult ApplicationService::createAdminStation(qint64 actorAdminId,
     qint64 price = 0;
     const QJsonValue longitudeValue = input.value(QStringLiteral("longitude"));
     const QJsonValue latitudeValue = input.value(QStringLiteral("latitude"));
+    // 逐项校验名称、坐标与电价等入参合法性
     if (!readString(input, QStringLiteral("name"), &station.name)
         || !readString(input, QStringLiteral("region"), &station.region)
         || !readString(input, QStringLiteral("address"), &station.address)
@@ -1089,6 +1132,7 @@ ServiceResult ApplicationService::createAdminStation(qint64 actorAdminId,
     if (pileItems.size() > 100) return invalidRequest();
     QList<PileDto> piles;
     QSet<QString> pileCodes;
+    // 逐个校验桩参数，桩编码在本次提交内不得重复
     for (const QJsonValue &value : pileItems) {
         if (!value.isObject()) return invalidRequest();
         const QJsonObject pileInput = value.toObject();
@@ -1116,6 +1160,7 @@ ServiceResult ApplicationService::createAdminStation(qint64 actorAdminId,
         pile.status = PileStatus::Idle;
         piles.append(pile);
     }
+    // 再与库中已有桩编码比对，重复则拒绝创建
     const QList<PileDto> existingPiles = repository_->listPiles();
     if (!repository_->lastOperationSucceeded()) return internalError();
     if (std::any_of(existingPiles.cbegin(), existingPiles.cend(), [&pileCodes](const PileDto &pile) {
@@ -1141,6 +1186,7 @@ ServiceResult ApplicationService::createAdminStation(qint64 actorAdminId,
     });
 }
 
+// 删除场站：存在历史订单时不允许删除
 ServiceResult ApplicationService::deleteAdminStation(qint64 actorAdminId,
                                                       qint64 stationId)
 {
@@ -1167,6 +1213,7 @@ ServiceResult ApplicationService::deleteAdminStation(qint64 actorAdminId,
     return internalError();
 }
 
+// 更新场站基本信息，先做完整入参校验
 ServiceResult ApplicationService::updateAdminStation(qint64 actorAdminId,
                                                       const QJsonObject &input)
 {
@@ -1198,6 +1245,7 @@ ServiceResult ApplicationService::updateAdminStation(qint64 actorAdminId,
     ServiceResult failure;
     const auto actor = activeAdmin(repository_, actorAdminId, &failure);
     if (!actor.has_value()) return failure;
+    // 检查当前管理员是否有该场站的管理权限
     if (!canAccessStation(*actor, stationId)) {
         return ServiceResult::failure(kStationScopeForbidden,
                                       QStringLiteral("STATION_SCOPE_FORBIDDEN"));
@@ -1224,6 +1272,7 @@ ServiceResult ApplicationService::updateAdminStation(qint64 actorAdminId,
     return ServiceResult::success({{QStringLiteral("station"), toJson(*updated)}});
 }
 
+// 启用或停用场站，并联动处理其下充电桩
 ServiceResult ApplicationService::setAdminStationStatus(qint64 actorAdminId,
                                                         qint64 stationId,
                                                         StationStatus status)
@@ -1249,6 +1298,7 @@ ServiceResult ApplicationService::setAdminStationStatus(qint64 actorAdminId,
     // their state for later maintenance handling.  Enabling a station never
     // force-starts piles, so operators can bring hardware online explicitly.
     QList<PileDto> changedPiles;
+    // 停用前确认没有预约中或充电中的桩
     if (status == StationStatus::Disabled) {
         const QList<PileDto> stationPiles = repository_->listPilesByStationId(stationId);
         if (!repository_->lastOperationSucceeded()) return internalError();
@@ -1258,6 +1308,7 @@ ServiceResult ApplicationService::setAdminStationStatus(qint64 actorAdminId,
                                               QStringLiteral("STATION_HAS_ACTIVE_PILES"));
             }
         }
+        // 空闲桩随场站一起置为离线，故障桩保持原状
         for (PileDto pile : stationPiles) {
             if (pile.status != PileStatus::Idle) continue;
             pile.status = PileStatus::Offline;
@@ -1276,6 +1327,7 @@ ServiceResult ApplicationService::setAdminStationStatus(qint64 actorAdminId,
         }
     }
 
+    // 场站更新失败时把已改动的桩状态回滚为空闲
     StationDto station = *existing;
     station.status = status;
     if (!repository_->updateStation(station)) {
@@ -1292,6 +1344,7 @@ ServiceResult ApplicationService::setAdminStationStatus(qint64 actorAdminId,
     return ServiceResult::success({{QStringLiteral("station"), toJson(*updated)}});
 }
 
+// 后台充电桩列表，可按场站过滤
 ServiceResult ApplicationService::listAdminPiles(
     qint64 actorAdminId,
     std::optional<qint64> stationId) const
@@ -1314,6 +1367,7 @@ ServiceResult ApplicationService::listAdminPiles(
     if (!repository_->lastOperationSucceeded()) {
         return internalError();
     }
+    // 未指定场站时，按管理员可见范围再过滤一次
     if (actor->role == QStringLiteral("STATION_ADMIN") && !stationId.has_value()) {
         piles.erase(std::remove_if(piles.begin(), piles.end(), [&actor](const PileDto &pile) {
             return !actor->stationIds.contains(pile.stationId);
@@ -1324,6 +1378,7 @@ ServiceResult ApplicationService::listAdminPiles(
     });
 }
 
+// 新增充电桩：校验参数、场站状态与编码唯一性
 ServiceResult ApplicationService::createAdminPile(qint64 actorAdminId,
                                                    const QJsonObject &input)
 {
@@ -1354,6 +1409,7 @@ ServiceResult ApplicationService::createAdminPile(qint64 actorAdminId,
         return ServiceResult::failure(ErrorCode::InvalidRequest,
                                       QStringLiteral("INVALID_STATION"));
     }
+    // 桩编码全局唯一，忽略大小写比较
     const QList<PileDto> existingPiles = repository_->listPiles();
     if (!repository_->lastOperationSucceeded()) return internalError();
     if (std::any_of(existingPiles.cbegin(), existingPiles.cend(), [&pileCode](const PileDto &pile) {
@@ -1372,6 +1428,7 @@ ServiceResult ApplicationService::createAdminPile(qint64 actorAdminId,
     return ServiceResult::success({{QStringLiteral("pile"), toJson(pile)}});
 }
 
+// 修改充电桩的编码、类型与额定功率
 ServiceResult ApplicationService::updateAdminPile(qint64 actorAdminId,
                                                    const QJsonObject &input)
 {
@@ -1414,6 +1471,7 @@ ServiceResult ApplicationService::updateAdminPile(qint64 actorAdminId,
                                       QStringLiteral("ILLEGAL_ORDER_STATE"));
     }
 
+    // 排除与其他桩重名的编码
     const QString normalizedCode = pileCode.trimmed().toCaseFolded();
     const bool duplicate = std::any_of(piles.cbegin(), piles.cend(),
                                        [pileId, &normalizedCode](const PileDto &pile) {
@@ -1435,6 +1493,7 @@ ServiceResult ApplicationService::updateAdminPile(qint64 actorAdminId,
     return ServiceResult::success({{QStringLiteral("pile"), toJson(*found)}});
 }
 
+// 先检查管理员权限，再由仓储按占用和历史订单判断能否删桩
 ServiceResult ApplicationService::deleteAdminPile(qint64 actorAdminId,
                                                    qint64 pileId)
 {
@@ -1454,6 +1513,7 @@ ServiceResult ApplicationService::deleteAdminPile(qint64 actorAdminId,
         return ServiceResult::failure(kStationScopeForbidden,
                                       QStringLiteral("STATION_SCOPE_FORBIDDEN"));
     }
+    // 把仓储删除结果映射为对应的错误码
     switch (repository_->deletePile(pileId)) {
     case DeletePileResult::Deleted:
         return ServiceResult::success({{QStringLiteral("success"), true}});
@@ -1469,6 +1529,7 @@ ServiceResult ApplicationService::deleteAdminPile(qint64 actorAdminId,
     return internalError();
 }
 
+// 手动设置桩状态，仅允许空闲、离线与故障
 ServiceResult ApplicationService::setAdminPileStatus(qint64 actorAdminId,
                                                       qint64 pileId,
                                                       PileStatus status)
@@ -1491,6 +1552,7 @@ ServiceResult ApplicationService::setAdminPileStatus(qint64 actorAdminId,
         return ServiceResult::failure(kStationScopeForbidden,
                                       QStringLiteral("STATION_SCOPE_FORBIDDEN"));
     }
+    // 使用中的桩或故障桩不允许随意改状态
     if (found->status == PileStatus::Reserved || found->status == PileStatus::Charging
         || (found->status == PileStatus::Fault && status != PileStatus::Fault)) {
         return ServiceResult::failure(ErrorCode::IllegalOrderState, QStringLiteral("ILLEGAL_ORDER_STATE"));
@@ -1500,6 +1562,7 @@ ServiceResult ApplicationService::setAdminPileStatus(qint64 actorAdminId,
     return ServiceResult::success({{QStringLiteral("pile"), toJson(*found)}});
 }
 
+// 通过桩网关下发重启指令，成功后恢复空闲
 ServiceResult ApplicationService::restartAdminPile(qint64 actorAdminId,
                                                     qint64 pileId)
 {
@@ -1539,6 +1602,7 @@ ServiceResult ApplicationService::restartAdminPile(qint64 actorAdminId,
     return ServiceResult::success({{QStringLiteral("pile"), toJson(*found)}});
 }
 
+// 后台用户列表，可按手机号或昵称关键字筛选
 ServiceResult ApplicationService::listAdminUsers(qint64 actorAdminId,
                                                  const QString &phoneKeyword) const
 {
@@ -1564,6 +1628,7 @@ ServiceResult ApplicationService::listAdminUsers(qint64 actorAdminId,
     return ServiceResult::success({{QStringLiteral("items"), items}});
 }
 
+// 启用或冻结用户账号
 ServiceResult ApplicationService::setAdminUserStatus(qint64 actorAdminId,
                                                      qint64 userId,
                                                      UserStatus status)
@@ -1583,6 +1648,7 @@ ServiceResult ApplicationService::setAdminUserStatus(qint64 actorAdminId,
         return ServiceResult::failure(ErrorCode::NotFound,
                                       QStringLiteral("NOT_FOUND"));
     }
+    // 冻结前确认用户没有进行中或待支付订单
     if (status == UserStatus::Frozen) {
         const QList<OrderDto> orders = repository_->listOrders();
         if (!repository_->lastOperationSucceeded()) {
@@ -1609,6 +1675,7 @@ ServiceResult ApplicationService::setAdminUserStatus(qint64 actorAdminId,
     return ServiceResult::success({{QStringLiteral("user"), toJson(*user)}});
 }
 
+// 后台订单列表，按管理员场站范围过滤
 ServiceResult ApplicationService::listAdminOrders(qint64 actorAdminId) const
 {
     if (repository_ == nullptr) {
@@ -1627,12 +1694,14 @@ ServiceResult ApplicationService::listAdminOrders(qint64 actorAdminId) const
     for (OrderDto order : orders) {
         if (actor->role == QStringLiteral("STATION_ADMIN")
             && !actor->stationIds.contains(order.stationId)) continue;
+        // 输出订单前更新模拟读数，并按锁定单价计算金额
         if (!refreshOrderReading(&order, now)) return internalError();
         items.append(toJson(order));
     }
     return ServiceResult::success({{QStringLiteral("items"), items}});
 }
 
+// 工单相关的内部辅助函数
 namespace {
 ServiceResult ticketsUnavailable()
 {
@@ -1640,6 +1709,7 @@ ServiceResult ticketsUnavailable()
                                   QStringLiteral("SUPPORT_TICKETS_MIGRATION_REQUIRED"));
 }
 
+// 分页多取一条来判断是否还有更多工单
 ServiceResult ticketPage(IRepository *repository, std::optional<qint64> userId,
                          std::optional<qint64> beforeId)
 {
@@ -1654,6 +1724,7 @@ ServiceResult ticketPage(IRepository *repository, std::optional<qint64> userId,
 }
 }
 
+// 用户提交工单，支持报修类型并做幂等处理
 ServiceResult ApplicationService::createSupportTicket(const QString &token, const QJsonObject &input)
 {
     ServiceResult failure;
@@ -1667,6 +1738,7 @@ ServiceResult ApplicationService::createSupportTicket(const QString &token, cons
                                       QStringLiteral("REPAIR_TICKETS_MIGRATION_REQUIRED"));
     RepositoryTransaction transaction(repository_);
     if (!transaction.active()) return internalError();
+    // 相同提交号已存在时直接返回原工单，内容不一致则报错
     const auto existing = repository_->findSupportSubmission(*userId, draft.submissionId);
     if (!repository_->lastOperationSucceeded()) return internalError();
     if (existing) {
@@ -1675,6 +1747,7 @@ ServiceResult ApplicationService::createSupportTicket(const QString &token, cons
         if (!transaction.commit()) return internalError();
         return ServiceResult::success({{"ticket", toJson(*existing)}});
     }
+    // 报修工单需校验所填桩编码确实存在
     if (!draft.pileCode.isEmpty()) {
         const auto piles = repository_->listPiles();
         if (!repository_->lastOperationSucceeded()) return internalError();
@@ -1693,6 +1766,7 @@ ServiceResult ApplicationService::createSupportTicket(const QString &token, cons
     return ServiceResult::success({{"ticket", toJson(ticket)}});
 }
 
+// 查询当前用户的工单列表
 ServiceResult ApplicationService::listSupportTickets(const QString &token, const QJsonObject &input) const
 {
     ServiceResult failure;
@@ -1708,6 +1782,7 @@ ServiceResult ApplicationService::listSupportTickets(const QString &token, const
     return ticketPage(repository_, *userId, beforeId);
 }
 
+// 按工单号查询详情，且只允许本人查看
 ServiceResult ApplicationService::getSupportTicket(const QString &token, const QJsonObject &input) const
 {
     ServiceResult failure;
@@ -1724,6 +1799,7 @@ ServiceResult ApplicationService::getSupportTicket(const QString &token, const Q
     return ServiceResult::success({{"ticket", toJson(*ticket)}});
 }
 
+// 管理员分页列出全部工单，仅系统管理员可用
 ServiceResult ApplicationService::listAdminSupportTickets(qint64 actorAdminId, std::optional<qint64> beforeId) const
 {
     ServiceResult failure;
@@ -1734,6 +1810,7 @@ ServiceResult ApplicationService::listAdminSupportTickets(qint64 actorAdminId, s
     return ticketPage(repository_, {}, beforeId);
 }
 
+// 管理员更新工单状态与回复，已解决时要求回复非空
 ServiceResult ApplicationService::updateAdminSupportTicket(qint64 actorAdminId, const QJsonObject &input)
 {
     ServiceResult failure;
@@ -1748,11 +1825,13 @@ ServiceResult ApplicationService::updateAdminSupportTicket(qint64 actorAdminId, 
         || !validTicketText(input.value("reply").toString(), 2000, status == TicketStatus::Resolved))
         return invalidRequest();
     if (!repository_ || !repository_->supportsSupportTickets()) return ticketsUnavailable();
+    // 改工单前开启仓储事务，失败即回滚
     RepositoryTransaction transaction(repository_);
     if (!transaction.active()) return internalError();
     auto ticket = repository_->findSupportTicket(ticketId);
     if (!repository_->lastOperationSucceeded()) return internalError();
     if (!ticket) return ServiceResult::failure(ErrorCode::NotFound, QStringLiteral("NOT_FOUND"));
+    // 写入新状态、回复与UTC更新时间
     ticket->status = status;
     ticket->reply = input.value("reply").toString();
     ticket->updatedAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);

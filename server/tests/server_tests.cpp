@@ -1,3 +1,4 @@
+// 本文件测试服务层、请求路由与管理端门面的基础行为
 #include "application/application_service.h"
 #include "application/session_store.h"
 #include "adapters/dashboard_exporter.h"
@@ -17,6 +18,7 @@
 using namespace charging::server;
 using namespace charging::protocol;
 
+// 服务端单元测试用例集合
 class ServerTests final : public QObject {
     Q_OBJECT
 
@@ -45,6 +47,7 @@ private slots:
     void rolePermissionsAreEnforcedByTheService();
 };
 
+// 各测试共用的内存仓库、会话与服务装配
 struct ServiceFixture {
     InMemoryRepository repository;
     SessionStore sessions;
@@ -53,6 +56,7 @@ struct ServiceFixture {
     ApplicationService service{&repository, &sessions, &pileGateway, &predictions};
 };
 
+// ping返回UTC服务器时间并回显echo字段
 void ServerTests::pingReturnsUtcServerTime()
 {
     ServiceFixture fixture;
@@ -72,6 +76,7 @@ void ServerTests::pingRejectsNonStringEcho()
     QCOMPARE(result.message, QStringLiteral("INVALID_REQUEST"));
 }
 
+// 路由回包保持版本、类型与requestId一致
 void ServerTests::routerPreservesRequestIdentity()
 {
     ServiceFixture fixture;
@@ -104,6 +109,7 @@ void ServerTests::routerRejectsUnimplementedMessage()
     QCOMPARE(response.message, QStringLiteral("INVALID_REQUEST"));
 }
 
+// 首次登录自动建号并发放会话令牌
 void ServerTests::loginCreatesAndAuthenticatesUser()
 {
     ServiceFixture fixture;
@@ -132,6 +138,7 @@ void ServerTests::frozenUserCannotLogin()
     QCOMPARE(result.message, QStringLiteral("FORBIDDEN"));
 }
 
+// 未登录不能查站点，登录后按区域筛选并给出距离
 void ServerTests::stationsRequireSessionAndFilterByRegion()
 {
     ServiceFixture fixture;
@@ -155,6 +162,7 @@ void ServerTests::stationsRequireSessionAndFilterByRegion()
     QVERIFY(station.value(QStringLiteral("distanceKm")).toDouble() > 0.0);
 }
 
+// 改昵称与充值都会写回仓库并返回新余额
 void ServerTests::profileAndRechargeUpdateRepository()
 {
     ServiceFixture fixture;
@@ -178,6 +186,7 @@ void ServerTests::profileAndRechargeUpdateRepository()
     QCOMPARE(recharge.data.value(QStringLiteral("balanceCents")).toInteger(), qint64{20500});
 }
 
+// 演示管理员使用固定的demo账号密码
 void ServerTests::adminLoginAcceptsDemoCredentials()
 {
     ServiceFixture fixture;
@@ -204,6 +213,7 @@ void ServerTests::adminLoginRejectsWrongPassword()
     QCOMPARE(result.message, QStringLiteral("INVALID_CREDENTIALS"));
 }
 
+// 看板收益点数量与请求的统计天数一致
 void ServerTests::adminDashboardContainsExactRevenueRange()
 {
     ServiceFixture fixture;
@@ -234,6 +244,7 @@ void ServerTests::adminDashboardAcceptsCustomDateRange()
     QCOMPARE(facade.getDashboard(end.addDays(-366), end).code, ErrorCode::InvalidRequest);
 }
 
+// 管理员建站时可同时批量创建充电桩
 void ServerTests::adminListsAndCreatesStationsWithPiles()
 {
     ServiceFixture fixture;
@@ -267,6 +278,7 @@ void ServerTests::adminListsAndCreatesStationsWithPiles()
     QCOMPARE(facade.listPiles().data.value(QStringLiteral("items")).toArray().size(), 8);
 }
 
+// 有订单的站点删除被拒，返回订单状态非法
 void ServerTests::adminDeletesOnlyStationsWithoutOrders()
 {
     ServiceFixture fixture;
@@ -303,6 +315,7 @@ void ServerTests::adminDeletesOnlyStationsWithoutOrders()
     QCOMPARE(missing.code, ErrorCode::NotFound);
 }
 
+// 故障桩不能重启或置为空闲，也不允许删除
 void ServerTests::adminManagesPileLifecycleSafely()
 {
     ServiceFixture fixture;
@@ -341,6 +354,7 @@ void ServerTests::adminManagesPileLifecycleSafely()
              ErrorCode::Ok);
 }
 
+// 编辑桩信息时桩编码不得与其他桩重复
 void ServerTests::adminEditsPileMetadataSafely()
 {
     ServiceFixture fixture;
@@ -380,6 +394,7 @@ void ServerTests::adminEditsPileMetadataSafely()
     }).code, ErrorCode::Ok);
 }
 
+// 停用站点前需处理运行中的桩，故障状态保留待维修
 void ServerTests::adminStationDisableEnforcesPileSafety()
 {
     ServiceFixture fixture;
@@ -425,6 +440,7 @@ void ServerTests::adminStationDisableEnforcesPileSafety()
     }
 }
 
+// 存在进行中订单的用户不能被冻结
 void ServerTests::adminCannotFreezeUserWithCurrentOrder()
 {
     ServiceFixture fixture;
@@ -436,6 +452,7 @@ void ServerTests::adminCannotFreezeUserWithCurrentOrder()
     QCOMPARE(result.message, QStringLiteral("CURRENT_ORDER_EXISTS"));
 }
 
+// 管理员账号的角色、自我停用保护与改密流程
 void ServerTests::adminAccountsSupportRolesScopesAndPasswordChanges()
 {
     ServiceFixture fixture;
@@ -507,6 +524,7 @@ void ServerTests::adminAccountsSupportRolesScopesAndPasswordChanges()
              ErrorCode::Ok);
 }
 
+// 校验密码长度边界，改密后当前管理端需重登，旧密码不可用
 void ServerTests::adminPasswordsAllowSixDigitsAndEnforceBoundaries()
 {
     ServiceFixture fixture;
@@ -532,6 +550,7 @@ void ServerTests::adminPasswordsAllowSixDigitsAndEnforceBoundaries()
     QVERIFY(account.login("six_digit_admin", QString(128, '3')).ok());
 }
 
+// 按角色限制可访问站点范围与功能模块
 void ServerTests::rolePermissionsAreEnforcedByTheService()
 {
     ServiceFixture fixture;
@@ -587,6 +606,7 @@ void ServerTests::rolePermissionsAreEnforcedByTheService()
     QCOMPARE(facade.listAdmins().message, QStringLiteral("ROLE_FORBIDDEN"));
 }
 
+// 看板快照文件采用原子写入，可被解析为JSON对象
 void ServerTests::dashboardExporterWritesAtomically()
 {
     QTemporaryDir directory;

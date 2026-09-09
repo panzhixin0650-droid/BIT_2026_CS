@@ -19,6 +19,7 @@
 #include <QUuid>
 #include <QVBoxLayout>
 
+// 本文件实现客服与工单页：模拟坐席对话、工单草稿与工单查询
 namespace charging::client {
 namespace {
 QLabel *label(const QString &text, QWidget *parent, const char *name)
@@ -35,6 +36,7 @@ QString htmlText(const QString &text)
 }
 }
 
+// 构造页面：对话、草稿、我的工单三段共用一套控件
 SupportDeskPage::SupportDeskPage(IChargingApi &api, AssistantService &desk,
                                      AssistantService &summarizer, QWidget *parent)
     : QWidget(parent), api_(api), desk_(desk), summarizer_(summarizer)
@@ -118,6 +120,7 @@ SupportDeskPage::SupportDeskPage(IChargingApi &api, AssistantService &desk,
     chatLayout->addLayout(actions);
     tabs_->addTab(conversation, QStringLiteral("客服对话"));
 
+    // 草稿页含标题、报修字段与摘要，提交前需用户核对
     auto *draft = new QWidget(tabs_);
     auto *draftLayout = new QVBoxLayout(draft);
     draftLayout->setContentsMargins(0, 8, 0, 0);
@@ -170,6 +173,7 @@ SupportDeskPage::SupportDeskPage(IChargingApi &api, AssistantService &desk,
     draftScroll->setWidget(draft);
     tabs_->addTab(draftScroll, QStringLiteral("工单草稿"));
 
+    // 我的工单页支持刷新、加载更多与查看管理员回复
     auto *tracking = new QWidget(tabs_);
     auto *trackingLayout = new QVBoxLayout(tracking);
     trackingLayout->setContentsMargins(0, 8, 0, 0);
@@ -204,6 +208,7 @@ SupportDeskPage::SupportDeskPage(IChargingApi &api, AssistantService &desk,
     connect(&waitingTimer_, &QTimer::timeout, this, &SupportDeskPage::updateControls);
     connect(generate_, &QPushButton::clicked, this, &SupportDeskPage::generateDraft);
     connect(submit_, &QPushButton::clicked, this, &SupportDeskPage::submitDraft);
+    // 新建草稿：提交中或已锁定未提交时不允许清空
     connect(newDraft_, &QPushButton::clicked, this, [this] {
         if (!createId_.isEmpty() || (draftLocked_ && !submitted_)) return;
         draftLocked_ = submitted_ = false;
@@ -225,6 +230,7 @@ SupportDeskPage::SupportDeskPage(IChargingApi &api, AssistantService &desk,
         if (index == 2) refreshTickets();
         updateControls();
     });
+    // 模型流式回复只更新界面文本，不产生任何订单动作
     connect(&desk_, &AssistantService::answerUpdated, this, [this](quint64 id, const QString &text) {
         if (id != chatId_) return;
         updatePendingAnswer(text);
@@ -244,6 +250,7 @@ SupportDeskPage::SupportDeskPage(IChargingApi &api, AssistantService &desk,
         pendingQuestion_.clear(); pendingAnswer_.clear();
         renderChat(); updateControls();
     });
+    // 摘要仅在远程返回且长度合法时填入草稿，仍需人工确认
     connect(&summarizer_, &AssistantService::finished, this, [this](quint64 id, const AssistantResult &result) {
         if (id != summaryId_) return;
         summaryId_ = 0;
@@ -259,6 +266,7 @@ SupportDeskPage::SupportDeskPage(IChargingApi &api, AssistantService &desk,
         }
         updateControls();
     });
+    // 提交结果回调：服务不可用时保持锁定以便用同一编号重试
     connect(&api_, &IChargingApi::supportTicketCreated, this, [this](const TicketResult &result) {
         if (createId_.isEmpty() || createId_ != result.response.requestId) return;
         createId_.clear();
@@ -276,6 +284,7 @@ SupportDeskPage::SupportDeskPage(IChargingApi &api, AssistantService &desk,
         }
         updateControls();
     });
+    // 工单列表返回后重建行数据，并核对本次提交是否已成功
     connect(&api_, &IChargingApi::supportTicketsListed, this, [this](const TicketListResult &result) {
         if (listId_.isEmpty() || listId_ != result.response.requestId) return;
         listId_.clear();
@@ -319,6 +328,7 @@ void SupportDeskPage::openDesk(const QList<AssistantTurn> &history)
     show();
 }
 
+// 发送提问：限制单条长度和总轮数，先占位再等回复
 void SupportDeskPage::send()
 {
     const auto question = input_->toPlainText().trimmed();
@@ -330,6 +340,7 @@ void SupportDeskPage::send()
     input_->clear(); renderChat(); updateControls();
 }
 
+// 进入故障报修：保留未提交草稿，否则预填桩号与标题
 void SupportDeskPage::openRepair(const QString &pileCode)
 {
     section_ = Section::Repair;
@@ -377,6 +388,7 @@ void SupportDeskPage::confirmSubmission(const protocol::SupportTicketDto &ticket
     updateControls();
 }
 
+// 根据最近对话生成工单摘要，报修单不走AI摘要
 void SupportDeskPage::generateDraft()
 {
     if (chatId_ || summaryId_ || history_.isEmpty() || draftLocked_ || repairDraft_) return;
@@ -386,6 +398,7 @@ void SupportDeskPage::generateDraft()
     updateControls();
 }
 
+// 提交前用协议校验草稿，并复用提交编号避免重复建单
 void SupportDeskPage::submitDraft()
 {
     if (!createId_.isEmpty() || summaryId_ || submitted_) return;
@@ -417,6 +430,7 @@ void SupportDeskPage::refreshTickets(bool more)
     updateControls();
 }
 
+// 取消模型请求：先清ID再取消，回填输入框内容
 void SupportDeskPage::cancelModels()
 {
     const bool hadChat = chatId_ != 0;
@@ -451,6 +465,7 @@ void SupportDeskPage::resetSession()
     renderChat(); updateControls(); hide();
 }
 
+// 重绘整段对话，并保持滚动条原来的贴底行为
 void SupportDeskPage::renderChat()
 {
     const bool bottom = chat_->verticalScrollBar()->value() >= chat_->verticalScrollBar()->maximum() - 24;
@@ -478,6 +493,7 @@ void SupportDeskPage::renderChat()
     chat_->verticalScrollBar()->setValue(bottom ? chat_->verticalScrollBar()->maximum() : previous);
 }
 
+// 流式追加回答文本，内容变短时替换尾部区域
 void SupportDeskPage::updatePendingAnswer(const QString &text)
 {
     const bool bottom = chat_->verticalScrollBar()->value() >= chat_->verticalScrollBar()->maximum() - 24;
@@ -497,6 +513,7 @@ void SupportDeskPage::updatePendingAnswer(const QString &text)
     chat_->verticalScrollBar()->setValue(bottom ? chat_->verticalScrollBar()->maximum() : previous);
 }
 
+// 统一刷新按钮、只读状态与提示文案
 void SupportDeskPage::updateControls()
 {
     for (int index = 0; index < tabs_->count(); ++index)
@@ -543,6 +560,7 @@ void SupportDeskPage::updateControls()
     if (transcript_.size() >= 24) notice_->setText(QStringLiteral("本次客服对话已达 24 轮。如需报修，请前往“我的”。"));
 }
 
+// 展示选中工单的状态、摘要与管理员回复
 void SupportDeskPage::showTicket()
 {
     const int row = tickets_->currentRow();
@@ -555,6 +573,7 @@ void SupportDeskPage::showTicket()
         QStringLiteral("\n充电桩报修 · %1\n故障类型：%2").arg(ticket.pileCode, ticket.faultType));
 }
 
+// 把错误码翻译成用户可读提示，会话失效时上报重登
 QString SupportDeskPage::errorMessage(const ApiResponse &response)
 {
     if (response.message == QStringLiteral("REPAIR_TICKETS_MIGRATION_REQUIRED"))

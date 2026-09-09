@@ -1,3 +1,4 @@
+// 本文件声明内存仓储替身，数据随进程结束而丢失
 #pragma once
 
 #include "i_repository.h"
@@ -8,11 +9,13 @@ namespace charging::server {
 
 // Explicit development/test Repository replacement. Data lives only for the
 // lifetime of server-app and is never selected by the default startup path.
+// 实现完整仓储接口，默认启动路径不会选用它
 class InMemoryRepository final : public IRepository {
 public:
     [[nodiscard]] bool supportsAdminAccounts() const override { return true; }
     InMemoryRepository();
 
+    // 能力标志：内存版直接支持管理员账号与工单
     [[nodiscard]] bool lastOperationSucceeded() const noexcept override;
     [[nodiscard]] bool supportsSupportTickets() const override;
     [[nodiscard]] bool supportsRepairTickets() const override { return true; }
@@ -31,6 +34,7 @@ public:
     [[nodiscard]] bool commitTransaction() override;
     void rollbackTransaction() override;
 
+    // 管理员账号与授权相关操作
     [[nodiscard]] std::optional<AdminRecord>
     findAdminByUsername(const QString &username) const override;
     [[nodiscard]] std::optional<AdminRecord>
@@ -49,6 +53,7 @@ public:
                                         const QString &detailsJson,
                                         const QString &createdAt) override;
 
+    // 用户查询、创建与余额变更
     [[nodiscard]] std::optional<charging::protocol::UserDto>
     findUserByPhone(const QString &phone) const override;
     [[nodiscard]] std::optional<charging::protocol::UserDto>
@@ -64,6 +69,7 @@ public:
     [[nodiscard]] QList<charging::protocol::UserDto>
     listUsers() const override;
 
+    // 站点与充电桩的读写操作
     [[nodiscard]] QList<charging::protocol::StationDto>
     listActiveStations() const override;
     [[nodiscard]] QList<charging::protocol::StationDto>
@@ -86,6 +92,7 @@ public:
     [[nodiscard]] bool updatePile(
         const charging::protocol::PileDto &pile) override;
 
+    // 订单查询与状态更新
     [[nodiscard]] QList<charging::protocol::OrderDto>
     listOrders(std::optional<qint64> userId = std::nullopt) const override;
     [[nodiscard]] std::optional<charging::protocol::OrderDto>
@@ -97,6 +104,7 @@ public:
         charging::protocol::OrderStatus expectedStatus) override;
 
 private:
+    // 给站点补算桩数量与在线率的私有辅助
     [[nodiscard]] charging::protocol::StationDto withPileCounts(
         charging::protocol::StationDto station) const;
 
@@ -113,6 +121,7 @@ private:
     QList<charging::protocol::SupportTicketDto> tickets_;
     qint64 nextTicketId_ = 1;
 
+    // 事务快照结构，保存各表与自增ID用于回滚
     struct Snapshot {
         QList<charging::protocol::UserDto> users;
         QList<AdminRecord> admins;

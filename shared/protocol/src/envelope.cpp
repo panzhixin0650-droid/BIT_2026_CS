@@ -1,3 +1,4 @@
+// 实现请求与响应信封的 JSON 生成和严格校验
 #include "charging/protocol/envelope.h"
 
 #include "charging/protocol/protocol_constants.h"
@@ -10,6 +11,7 @@
 namespace charging::protocol {
 namespace {
 
+// 写入错误信息并返回失败的小工具
 bool fail(QString *error, const QString &message)
 {
     if (error != nullptr) {
@@ -18,6 +20,7 @@ bool fail(QString *error, const QString &message)
     return false;
 }
 
+// 读取 int 字段，要求为整数且不超出 int 范围
 bool readInt(const QJsonObject &json, const QString &key, int *value, QString *error)
 {
     const QJsonValue item = json.value(key);
@@ -34,6 +37,7 @@ bool readInt(const QJsonObject &json, const QString &key, int *value, QString *e
     return true;
 }
 
+// 读取字符串字段，可选择是否要求非空
 bool readString(const QJsonObject &json,
                 const QString &key,
                 QString *value,
@@ -48,6 +52,7 @@ bool readString(const QJsonObject &json,
     return true;
 }
 
+// data 必须是 JSON 对象，否则解析失败
 bool readData(const QJsonObject &json, QJsonObject *data, QString *error)
 {
     const QJsonValue item = json.value(QStringLiteral("data"));
@@ -60,6 +65,7 @@ bool readData(const QJsonObject &json, QJsonObject *data, QString *error)
 
 }  // namespace
 
+// 请求转 JSON，仅在有令牌时写入 token
 QJsonObject RequestEnvelope::toJson() const
 {
     QJsonObject json{
@@ -74,6 +80,7 @@ QJsonObject RequestEnvelope::toJson() const
     return json;
 }
 
+// 解析请求信封并校验协议版本是否受支持
 bool RequestEnvelope::fromJson(const QJsonObject &json,
                                RequestEnvelope *result,
                                QString *error)
@@ -93,6 +100,7 @@ bool RequestEnvelope::fromJson(const QJsonObject &json,
         return fail(error, QStringLiteral("unsupported version"));
     }
 
+    // token 为可选字段，出现时必须是字符串
     if (json.contains(QStringLiteral("token"))) {
         const QJsonValue token = json.value(QStringLiteral("token"));
         if (!token.isString()) {
@@ -108,6 +116,7 @@ bool RequestEnvelope::fromJson(const QJsonObject &json,
     return true;
 }
 
+// 响应转 JSON，固定携带 code 与 message
 QJsonObject ResponseEnvelope::toJson() const
 {
     return {
@@ -120,6 +129,7 @@ QJsonObject ResponseEnvelope::toJson() const
     };
 }
 
+// 解析响应信封，message 允许为空字符串
 bool ResponseEnvelope::fromJson(const QJsonObject &json,
                                 ResponseEnvelope *result,
                                 QString *error)

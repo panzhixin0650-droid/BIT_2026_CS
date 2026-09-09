@@ -4,9 +4,11 @@
 -- Nominatim results queried on 2026-09-05; users, piles and orders are
 -- synthetic records constructed from those real station locations.
 
+-- 扩展种子：再补20站20用户100桩200单，数据可复现
 PRAGMA foreign_keys = ON;
 BEGIN IMMEDIATE;
 
+-- 递归生成20个用户，其中两个为冻结低余额
 INSERT OR IGNORE INTO users (user_id, phone, nickname, balance_cents, status, created_at)
 WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < 20)
 SELECT 5 + x, printf('1390000%04d', x), printf('城市演示用户%02d', x),
@@ -15,6 +17,7 @@ SELECT 5 + x, printf('1390000%04d', x), printf('城市演示用户%02d', x),
        strftime('%Y-%m-%dT%H:%M:%SZ', 'now', printf('-%d days', 20 + x))
 FROM n;
 
+-- 二十个城市站点，坐标来自公开地图查询结果
 INSERT OR IGNORE INTO charging_stations
     (station_id, name, region, address, longitude, latitude,
      price_cents_per_kwh, status, created_at)
@@ -40,6 +43,7 @@ VALUES
  (22,'安坤智能充电站','历下区','济南市历下区姚家街道泺邑路',117.0882105,36.6669858,133,'ACTIVE',strftime('%Y-%m-%dT%H:%M:%SZ','now','-62 days')),
  (23,'合肥城市公共充电站','蜀山区','合肥市蜀山区创新大道',117.2830420,31.8611900,131,'ACTIVE',strftime('%Y-%m-%dT%H:%M:%SZ','now','-61 days'));
 
+-- 每站五个桩，按序号决定快慢充与状态
 INSERT OR IGNORE INTO charging_piles
     (pile_id, station_id, pile_code, pile_type, rated_power_kw, status)
 WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < 100)
@@ -54,6 +58,7 @@ SELECT 12 + x, 4 + ((x - 1) / 5),
             ELSE 'IDLE' END
 FROM n;
 
+-- 批量生成200条已完成订单用于列表与统计
 INSERT OR IGNORE INTO charging_orders
     (order_id, order_no, user_id, pile_id, mode, status,
      reserved_at, started_at, ended_at, paid_at,
@@ -80,6 +85,7 @@ SELECT
     3600,
     5000 + (x % 8) * 1000,
     CASE WHEN x % 3 = 0 THEN 135 ELSE 145 END,
+    -- 金额按电量乘单价四舍五入到分算出
     (((5000 + (x % 8) * 1000) * CASE WHEN x % 3 = 0 THEN 135 ELSE 145 END + 500) / 1000),
     strftime('%Y-%m-%dT%H:%M:%SZ','now',printf('-%d days', x % 45 + 1),'-50 minutes')
 FROM n;

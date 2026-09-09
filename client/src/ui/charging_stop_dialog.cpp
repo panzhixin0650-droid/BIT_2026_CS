@@ -1,3 +1,4 @@
+// 文件用途：结束充电前的二次确认弹窗
 #include "ui/charging_stop_dialog.h"
 
 #include <QAbstractButton>
@@ -5,6 +6,7 @@
 
 namespace charging::client {
 
+// 提示会生成账单并尝试扣款，用户确认才返回真
 bool confirmChargingStop(QWidget *parent)
 {
     QMessageBox confirmation(parent);

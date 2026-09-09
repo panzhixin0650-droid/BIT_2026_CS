@@ -1,3 +1,4 @@
+// 订单页面：列表卡片与详情视图的展示与交互
 #include "ui/order_page.h"
 #include "ui/reservation_hint.h"
 
@@ -23,6 +24,7 @@ namespace charging::client {
 
 namespace {
 
+// 订单状态转中文文案
 QString orderStatusText(protocol::OrderStatus status)
 {
     switch (status) {
@@ -40,6 +42,7 @@ QString orderStatusText(protocol::OrderStatus status)
     return QStringLiteral("未知");
 }
 
+// 不同状态对应的显示颜色
 QString orderStatusColor(protocol::OrderStatus status)
 {
     switch (status) {
@@ -57,6 +60,7 @@ QString orderStatusColor(protocol::OrderStatus status)
     return QStringLiteral("#697969");
 }
 
+// 判断是否为进行中的订单，用于高亮
 bool isCurrentStatus(protocol::OrderStatus status)
 {
     return status == protocol::OrderStatus::Reserved
@@ -64,6 +68,7 @@ bool isCurrentStatus(protocol::OrderStatus status)
         || status == protocol::OrderStatus::PendingPayment;
 }
 
+// 整数分金额格式化为元显示
 QString formatMoney(qint64 cents)
 {
     return QStringLiteral("¥%1.%2")
@@ -71,6 +76,7 @@ QString formatMoney(qint64 cents)
         .arg(cents % 100, 2, 10, QChar('0'));
 }
 
+// ISO时间转本地时间字符串
 QString formatDateTime(const QString &isoDateTime)
 {
     const QDateTime parsed = QDateTime::fromString(isoDateTime, Qt::ISODate);
@@ -78,6 +84,7 @@ QString formatDateTime(const QString &isoDateTime)
                             : isoDateTime;
 }
 
+// 秒数转小时分钟文案
 QString formatDuration(qint64 seconds)
 {
     const qint64 hours = seconds / 3600;
@@ -88,12 +95,14 @@ QString formatDuration(qint64 seconds)
     return QStringLiteral("%1分钟").arg(minutes);
 }
 
+// 预约充电与直接充电的文案
 QString orderModeText(protocol::OrderMode mode)
 {
     return mode == protocol::OrderMode::Reservation ? QStringLiteral("预约充电")
                                                      : QStringLiteral("直接充电");
 }
 
+// 支持鼠标与键盘激活的订单卡片
 class ClickableOrderCard final : public QFrame {
 public:
     explicit ClickableOrderCard(QWidget *parent = nullptr)
@@ -138,6 +147,7 @@ private:
     std::function<void()> activatedHandler_;
 };
 
+// 创建订单卡片，进行中订单用高亮样式
 ClickableOrderCard *createCard(QWidget *parent, bool highlighted = false)
 {
     auto *card = new ClickableOrderCard(parent);
@@ -159,6 +169,7 @@ ClickableOrderCard *createCard(QWidget *parent, bool highlighted = false)
 
 }  // namespace
 
+// 构造：列表页与详情页放入页面栈
 OrderPage::OrderPage(QWidget *parent)
     : QWidget(parent)
 {
@@ -216,6 +227,7 @@ OrderPage::OrderPage(QWidget *parent)
     listLayout->addWidget(messageLabel_);
     listLayout->addWidget(scrollArea, 1);
 
+    // 详情页：返回按钮、标题与可滚动详情卡
     detailPage_ = new QWidget(pages_);
     detailPage_->setObjectName(QStringLiteral("orderDetailPage"));
     auto *detailLayout = new QVBoxLayout(detailPage_);
@@ -280,6 +292,7 @@ OrderPage::OrderPage(QWidget *parent)
     detailMessageLabel_->setObjectName(QStringLiteral("orderDetailMessage"));
     detailMessageLabel_->setWordWrap(true);
     detailMessageLabel_->hide();
+    // 详情底部各操作按钮，按状态显示
     cancelButton_ = new QPushButton(QStringLiteral("取消预约"), detailCard);
     cancelButton_->setObjectName(QStringLiteral("orderDetailCancelButton"));
     navigationButton_ =
@@ -326,6 +339,7 @@ OrderPage::OrderPage(QWidget *parent)
     pages_->addWidget(detailPage_);
     pages_->setCurrentWidget(listPage_);
 
+    // 按钮点击转成对外信号，结束充电前先确认
     connect(refreshButton_, &QPushButton::clicked, this, &OrderPage::refreshRequested);
     connect(backButton, &QPushButton::clicked, this, &OrderPage::showListPage);
     connect(cancelButton_, &QPushButton::clicked, this, [this]() {
@@ -358,6 +372,7 @@ OrderPage::OrderPage(QWidget *parent)
     });
 }
 
+// 加载中禁用刷新与列表并给出提示
 void OrderPage::setLoading(bool loading)
 {
     refreshButton_->setDisabled(loading);
@@ -368,6 +383,7 @@ void OrderPage::setLoading(bool loading)
     }
 }
 
+// 业务操作进行中统一禁用详情按钮
 void OrderPage::setActionBusy(bool busy)
 {
     actionBusy_ = busy;
@@ -380,6 +396,7 @@ void OrderPage::setActionBusy(bool busy)
     rechargeButton_->setDisabled(busy);
 }
 
+// 重建订单列表卡片，空列表给出提示
 void OrderPage::showOrders(const QList<protocol::OrderDto> &orders)
 {
     clearOrderCards();
@@ -444,6 +461,7 @@ void OrderPage::showOrders(const QList<protocol::OrderDto> &orders)
     }
 }
 
+// 列表层的错误提示
 void OrderPage::showError(const QString &message)
 {
     setLoading(false);
@@ -458,6 +476,7 @@ void OrderPage::showMessage(const QString &message, bool error)
     messageLabel_->setVisible(!message.isEmpty());
 }
 
+// 详情层的提示或错误信息
 void OrderPage::showDetailMessage(const QString &message, bool error)
 {
     detailMessageLabel_->setText(message);
@@ -466,6 +485,7 @@ void OrderPage::showDetailMessage(const QString &message, bool error)
     detailMessageLabel_->setVisible(!message.isEmpty());
 }
 
+// 仅当正在查看该订单详情时才即时刷新
 bool OrderPage::updateOrderDetail(const protocol::OrderDto &order)
 {
     ordersById_.insert(order.orderId, order);
@@ -481,6 +501,7 @@ void OrderPage::showListPage()
     pages_->setCurrentWidget(listPage_);
 }
 
+// 重置页面：清卡片、清提示、回列表
 void OrderPage::reset()
 {
     setLoading(false);
@@ -491,6 +512,7 @@ void OrderPage::reset()
     pages_->setCurrentWidget(listPage_);
 }
 
+// 清空缓存订单与已有卡片控件
 void OrderPage::clearOrderCards()
 {
     ordersById_.clear();
@@ -500,6 +522,7 @@ void OrderPage::clearOrderCards()
     }
 }
 
+// 按订单数据拼出详情表格与可访问文本
 void OrderPage::showOrderDetail(qint64 orderId)
 {
     if (!ordersById_.contains(orderId)) {
@@ -540,6 +563,7 @@ void OrderPage::showOrderDetail(qint64 orderId)
     appendDetail(QStringLiteral("充电桩"), order.pileCode);
     appendDetail(QStringLiteral("充电方式"), orderModeText(order.mode));
     appendDetail(QStringLiteral("创建时间"), formatDateTime(order.createdAt));
+    // 预约、开始、结束、支付等时间按需显示
     if (order.reservedAt.has_value()) {
         appendDetail(QStringLiteral("预约时间"),
                      formatDateTime(*order.reservedAt));
@@ -566,6 +590,7 @@ void OrderPage::showOrderDetail(qint64 orderId)
                      QStringLiteral("%1 度").arg(
                          order.energyWh / 1000.0, 0, 'f', 2));
     }
+    // 显示充电开始时锁定的单价
     if (order.unitPriceCentsPerKwh.has_value()) {
         appendDetail(QStringLiteral("锁定单价"),
                      QStringLiteral("%1/度").arg(
@@ -579,6 +604,7 @@ void OrderPage::showOrderDetail(qint64 orderId)
     detailBodyLabel_->setText(detailTable);
     detailBodyLabel_->setAccessibleDescription(
         accessibleDetails.join(QChar('\n')));
+    // 按订单状态决定各操作按钮的可见与可用
     cancelButton_->setProperty("orderId", order.orderId);
     navigationButton_->setProperty("stationId", order.stationId);
     navigationButton_->setVisible(

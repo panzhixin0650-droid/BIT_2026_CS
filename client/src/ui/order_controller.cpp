@@ -1,3 +1,4 @@
+// 订单控制器：串接订单页操作与后端订单接口
 #include "ui/order_controller.h"
 
 #include "api/i_charging_api.h"
@@ -7,6 +8,7 @@
 
 namespace charging::client {
 
+// 构造时连接页面操作与各类接口回调
 OrderController::OrderController(OrderPage &page, IChargingApi &api, QObject *parent)
     : QObject(parent), page_(page), api_(api)
 {
@@ -37,6 +39,7 @@ OrderController::OrderController(OrderPage &page, IChargingApi &api, QObject *pa
             this, &OrderController::handleStationDetail);
 }
 
+// 离开页面只放弃导航意图，已提交业务仍继续
 void OrderController::leavePage()
 {
     // Only abandon navigation intent; submitted business operations still complete.
@@ -49,6 +52,7 @@ void OrderController::leavePage()
     page_.showListPage();
 }
 
+// 有请求在途时不重复拉取订单列表
 void OrderController::refreshOrders()
 {
     if (!pendingListRequestId_.isEmpty()
@@ -63,6 +67,7 @@ void OrderController::refreshOrders()
     pendingListRequestId_ = api_.listOrders();
 }
 
+// 先查站点详情，再交由主窗口打开导航
 void OrderController::requestNavigation(qint64 stationId)
 {
     if (stationId <= 0 || !pendingListRequestId_.isEmpty()
@@ -78,6 +83,7 @@ void OrderController::requestNavigation(qint64 stationId)
     pendingNavigationRequestId_ = api_.getStation(stationId);
 }
 
+// 刷新指定订单的充电进度
 void OrderController::requestProgress(qint64 orderId)
 {
     if (orderId <= 0 || !pendingListRequestId_.isEmpty()
@@ -93,6 +99,7 @@ void OrderController::requestProgress(qint64 orderId)
     pendingProgressRequestId_ = api_.getChargingProgress(orderId);
 }
 
+// 请求结束充电，由服务端结算金额
 void OrderController::requestStop(qint64 orderId)
 {
     if (orderId <= 0 || !pendingListRequestId_.isEmpty()
@@ -108,6 +115,7 @@ void OrderController::requestStop(qint64 orderId)
     pendingStopRequestId_ = api_.stopCharging(orderId);
 }
 
+// 用钱包余额结算待支付订单
 void OrderController::requestPayment(qint64 orderId)
 {
     if (orderId <= 0 || !pendingListRequestId_.isEmpty()
@@ -123,6 +131,7 @@ void OrderController::requestPayment(qint64 orderId)
     pendingPaymentRequestId_ = api_.payOrder(orderId);
 }
 
+// 取消预约订单
 void OrderController::requestCancellation(qint64 orderId)
 {
     if (orderId <= 0 || !pendingListRequestId_.isEmpty()
@@ -138,6 +147,7 @@ void OrderController::requestCancellation(qint64 orderId)
     pendingCancellationRequestId_ = api_.cancel(orderId);
 }
 
+// 回调先校验请求编号与消息类型再处理
 void OrderController::handleOrderList(const OrderListResult &result)
 {
     if (pendingListRequestId_.isEmpty()
@@ -163,6 +173,7 @@ void OrderController::handleOrderList(const OrderListResult &result)
     }
 }
 
+// 取消成功后回列表并重新刷新订单
 void OrderController::handleCancellation(const OrderResult &result)
 {
     if (pendingCancellationRequestId_.isEmpty()
@@ -187,6 +198,7 @@ void OrderController::handleCancellation(const OrderResult &result)
     refreshOrders();
 }
 
+// 结束充电结果：按是否结清生成不同提示
 void OrderController::handleStop(const ChargingStopResult &result)
 {
     if (pendingStopRequestId_.isEmpty()
@@ -215,6 +227,7 @@ void OrderController::handleStop(const ChargingStopResult &result)
     refreshOrders();
 }
 
+// 进度刷新成功则更新当前打开的详情
 void OrderController::handleProgress(const ChargingProgressResult &result)
 {
     if (pendingProgressRequestId_.isEmpty()
@@ -240,6 +253,7 @@ void OrderController::handleProgress(const ChargingProgressResult &result)
     }
 }
 
+// 结算成功后提示实付与余额并刷新列表
 void OrderController::handlePayment(const PaymentResult &result)
 {
     if (pendingPaymentRequestId_.isEmpty()
@@ -266,6 +280,7 @@ void OrderController::handlePayment(const PaymentResult &result)
     refreshOrders();
 }
 
+// 站点详情返回后发出导航就绪信号
 void OrderController::handleStationDetail(const StationDetailResult &result)
 {
     if (pendingNavigationRequestId_.isEmpty()
@@ -289,6 +304,7 @@ void OrderController::handleStationDetail(const StationDetailResult &result)
     emit navigationReady(result.payload->station);
 }
 
+// 重置：清空在途请求与页面状态
 void OrderController::reset()
 {
     pendingListRequestId_.clear();

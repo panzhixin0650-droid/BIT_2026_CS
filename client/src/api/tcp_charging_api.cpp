@@ -1,3 +1,4 @@
+// 文件用途：通过TCP按协议帧与服务端通信的客户端API实现
 #include "api/tcp_charging_api.h"
 
 #include "charging/protocol/dto.h"
@@ -17,10 +18,12 @@
 namespace charging::client {
 namespace {
 
+// 手机号须11位数字，另限制JSON整数的安全范围
 const QRegularExpression kPhonePattern(QStringLiteral("^\\d{11}$"));
 constexpr double kMaxSafeJsonInteger = 9007199254740991.0;
 constexpr qint64 kMaxSafeJsonIntegerValue = 9007199254740991LL;
 
+// 统一写回错误说明并返回失败
 bool fail(QString *error, const QString &message)
 {
     if (error != nullptr) {
@@ -29,6 +32,7 @@ bool fail(QString *error, const QString &message)
     return false;
 }
 
+// 以下读取函数逐个校验响应字段类型
 bool readObject(const QJsonObject &json,
                 const char *field,
                 QJsonObject *value,
@@ -43,6 +47,7 @@ bool readObject(const QJsonObject &json,
     return true;
 }
 
+// 读字符串，可要求非空
 bool readString(const QJsonObject &json,
                 const char *field,
                 QString *value,
@@ -72,6 +77,7 @@ bool readBool(const QJsonObject &json,
     return true;
 }
 
+// 整数字段须为有限整数且不超出安全范围
 bool readInteger(const QJsonObject &json,
                  const char *field,
                  qint64 *value,
@@ -91,6 +97,7 @@ bool readInteger(const QJsonObject &json,
     return true;
 }
 
+// 把JSON对象或数组解析成DTO，出错时附上字段名
 template<typename Dto>
 bool readDto(const QJsonObject &json,
              const char *field,
@@ -141,6 +148,7 @@ bool readDtoList(const QJsonObject &json,
     return true;
 }
 
+// 从响应信封提取请求ID、类型与错误码等元信息
 ApiResponse apiResponse(const protocol::ResponseEnvelope &response)
 {
     ApiResponse result;
@@ -151,6 +159,7 @@ ApiResponse apiResponse(const protocol::ResponseEnvelope &response)
     return result;
 }
 
+// 构造本地失败响应，不经过网络
 ApiResponse apiFailure(const QString &requestId,
                        const QString &type,
                        int code,
@@ -176,6 +185,7 @@ bool isPositiveSafeJsonInteger(qint64 value)
 
 }  // namespace
 
+// 构造函数接好socket各信号，随后尝试建立连接
 TcpChargingApi::TcpChargingApi(QString host,
                                quint16 port,
                                int requestTimeoutMs,
@@ -197,6 +207,7 @@ TcpChargingApi::TcpChargingApi(QString host,
     QTimer::singleShot(0, this, [this]() { ensureConnected(); });
 }
 
+// 析构时断开信号并清理未完成请求的计时器
 TcpChargingApi::~TcpChargingApi()
 {
     disconnect(&socket_, nullptr, this, nullptr);
@@ -209,6 +220,7 @@ TcpChargingApi::~TcpChargingApi()
     sendQueue_.clear();
 }
 
+// 登录前先本地校验手机号格式
 QString TcpChargingApi::loginUser(const QString &phone)
 {
     if (!kPhonePattern.match(phone).hasMatch()) {
@@ -229,6 +241,7 @@ QString TcpChargingApi::getProfile()
     return submit(protocol::MessageType::UserProfileGet, {}, true);
 }
 
+// 昵称长度先本地检查，避免发无效请求
 QString TcpChargingApi::updateNickname(const QString &nickname)
 {
     if (nickname.isEmpty() || nickname.size() > 32) {
@@ -249,6 +262,7 @@ QString TcpChargingApi::recharge(qint64 amountCents)
                   {{QStringLiteral("amountCents"), jsonInteger(amountCents)}}, true);
 }
 
+// 站点列表：经纬度须成对出现且在合法范围内
 QString TcpChargingApi::listStations(const StationQuery &query)
 {
     const bool hasLongitude = query.longitude.has_value();
@@ -299,6 +313,7 @@ QString TcpChargingApi::listOrders()
     return submit(protocol::MessageType::OrderList, {}, true);
 }
 
+// 预约请求：桩编号去空格并限制长度
 QString TcpChargingApi::reserve(const QString &pileCode)
 {
     const QString normalized = pileCode.trimmed();
@@ -320,6 +335,7 @@ QString TcpChargingApi::cancel(qint64 orderId)
                   {{QStringLiteral("orderId"), jsonInteger(orderId)}}, true);
 }
 
+// 启动充电可带预约单号，参数非法时本地直接拒绝
 QString TcpChargingApi::startCharging(
     const QString &pileCode,
     std::optional<qint64> reservationOrderId)
@@ -375,6 +391,7 @@ QString TcpChargingApi::nextRequestId()
     return QStringLiteral("tcp-%1").arg(++requestSequence_);
 }
 
+// submit 负责组帧、登记待响应请求并启动超时计时
 QString TcpChargingApi::submit(const char *type,
                                const QJsonObject &data,
                                bool requiresToken)
@@ -400,6 +417,7 @@ QString TcpChargingApi::submit(const char *type,
         return requestId;
     }
 
+    // 超时仍未响应就按传输失败处理
     auto *timer = new QTimer(this);
     timer->setSingleShot(true);
     connect(timer, &QTimer::timeout, this, [this, requestId]() {
@@ -418,6 +436,7 @@ QString TcpChargingApi::submit(const char *type,
     return requestId;
 }
 
+// 参数非法不发网络请求，下一轮事件循环回失败
 QString TcpChargingApi::rejectInvalid(const char *type, const QString &message)
 {
     const QString requestId = nextRequestId();
@@ -431,6 +450,7 @@ QString TcpChargingApi::rejectInvalid(const char *type, const QString &message)
     return requestId;
 }
 
+// 仅在未连接时发起连接，地址无效则报错
 void TcpChargingApi::ensureConnected()
 {
     if (socket_.state() != QAbstractSocket::UnconnectedState) {
@@ -449,6 +469,7 @@ void TcpChargingApi::ensureConnected()
     socket_.connectToHost(host_, port_);
 }
 
+// 连接建立后把排队的请求依次写出
 void TcpChargingApi::sendQueuedRequests()
 {
     while (socket_.state() == QAbstractSocket::ConnectedState
@@ -466,6 +487,7 @@ void TcpChargingApi::sendQueuedRequests()
     socket_.flush();
 }
 
+// 收到数据后解帧，逐条与待响应请求配对
 void TcpChargingApi::handleReadyRead()
 {
     const protocol::DecodeResult decoded = decoder_.append(socket_.readAll());
@@ -482,6 +504,7 @@ void TcpChargingApi::handleReadyRead()
             return;
         }
 
+        // 无法匹配或重复的响应只告警并忽略
         auto pending = pending_.find(response.requestId);
         if (pending == pending_.end() || pending->responseReceived) {
             qWarning().noquote()
@@ -516,9 +539,11 @@ void TcpChargingApi::handleReadyRead()
     }
 }
 
+// 按消息类型解析data，再发出对应的完成信号
 void TcpChargingApi::handleResponse(const protocol::ResponseEnvelope &response)
 {
     const ApiResponse metadata = apiResponse(response);
+    // 会话失效时清掉本地token
     if (response.code == protocol::ErrorCode::InvalidSession) {
         token_.clear();
     }
@@ -544,6 +569,7 @@ void TcpChargingApi::handleResponse(const protocol::ResponseEnvelope &response)
         return;
     }
 
+    // 登出无论结果先清token，避免残留会话
     if (response.type == QString::fromLatin1(protocol::MessageType::AuthLogout)) {
         token_.clear();
         bool success = false;
@@ -610,6 +636,7 @@ void TcpChargingApi::handleResponse(const protocol::ResponseEnvelope &response)
         return;
     }
 
+    // 当前订单允许为null，表示没有进行中订单
     if (response.type == QString::fromLatin1(protocol::MessageType::OrderCurrent)) {
         CurrentOrderPayload payload;
         const QJsonValue item = response.data.value(QStringLiteral("order"));
@@ -642,6 +669,7 @@ void TcpChargingApi::handleResponse(const protocol::ResponseEnvelope &response)
         return;
     }
 
+    // 预约、取消、启动共用订单载荷，按类型分派信号
     if (response.type == QString::fromLatin1(protocol::MessageType::OrderReserve)
         || response.type == QString::fromLatin1(protocol::MessageType::OrderCancel)
         || response.type == QString::fromLatin1(protocol::MessageType::OrderStart)) {
@@ -678,6 +706,7 @@ void TcpChargingApi::handleResponse(const protocol::ResponseEnvelope &response)
         return;
     }
 
+    // 停止充电还需读取是否已支付与差额
     if (response.type == QString::fromLatin1(protocol::MessageType::OrderStop)) {
         ChargingStopPayload payload;
         if (!readDto(response.data, "order", &payload.order, &error)
@@ -718,6 +747,7 @@ void TcpChargingApi::handleResponse(const protocol::ResponseEnvelope &response)
         return;
     }
 
+    // 工单创建与详情都从ticket字段解析
     if (response.type == protocol::MessageType::SupportTicketCreate
         || response.type == protocol::MessageType::SupportTicketDetail) {
         TicketPayload payload;
@@ -730,6 +760,7 @@ void TcpChargingApi::handleResponse(const protocol::ResponseEnvelope &response)
         else emit supportTicketDetailed(TicketResult{metadata, payload});
         return;
     }
+    // 工单分页校验条数与hasMore是否自相一致
     if (response.type == protocol::MessageType::SupportTicketList) {
         TicketListPayload payload;
         if (!readDtoList(response.data, "items", &payload.items, &error)
@@ -744,6 +775,7 @@ void TcpChargingApi::handleResponse(const protocol::ResponseEnvelope &response)
     emitMalformedPayload(response, QStringLiteral("unsupported response type"));
 }
 
+// socket出错：没有待处理请求时只清理状态
 void TcpChargingApi::handleSocketError(QAbstractSocket::SocketError error)
 {
     Q_UNUSED(error)
@@ -758,6 +790,7 @@ void TcpChargingApi::handleSocketError(QAbstractSocket::SocketError error)
     failTransport(QStringLiteral("暂时无法连接服务，请检查网络后重试"));
 }
 
+// 断线清空token，未完成的请求统一置为失败
 void TcpChargingApi::handleDisconnected()
 {
     if (handlingTransportFailure_) {
@@ -770,6 +803,7 @@ void TcpChargingApi::handleDisconnected()
     }
 }
 
+// 传输失败时收敛所有待响应请求并复位连接
 void TcpChargingApi::failTransport(const QString &message)
 {
     if (handlingTransportFailure_) {
@@ -808,6 +842,7 @@ void TcpChargingApi::failTransport(const QString &message)
     }
 }
 
+// 按消息类型把失败结果转成对应的完成信号
 void TcpChargingApi::emitFailure(const QString &requestId,
                                  const QString &type,
                                  int code,
@@ -848,6 +883,7 @@ void TcpChargingApi::emitFailure(const QString &requestId,
         emit paymentCompleted(PaymentResult{response, std::nullopt});
     } else if (type == protocol::MessageType::SupportTicketCreate) {
         emit supportTicketCreated(TicketResult{response, std::nullopt});
+    // 工单列表与详情响应各自转成对应结果信号发出
     } else if (type == protocol::MessageType::SupportTicketList) {
         emit supportTicketsListed(TicketListResult{response, std::nullopt});
     } else if (type == protocol::MessageType::SupportTicketDetail) {
@@ -855,6 +891,7 @@ void TcpChargingApi::emitFailure(const QString &requestId,
     }
 }
 
+// 载荷解析失败时记日志，并统一报服务响应数据无效
 void TcpChargingApi::emitMalformedPayload(
     const protocol::ResponseEnvelope &response,
     const QString &detail)
@@ -868,6 +905,7 @@ void TcpChargingApi::emitMalformedPayload(
                 QStringLiteral("服务响应数据无效，请稍后重试"));
 }
 
+// 建单前用一次序列化回读校验草稿字段是否合法
 QString TcpChargingApi::createSupportTicket(const protocol::SupportTicketDraft &draft)
 {
     protocol::SupportTicketDraft validated;
@@ -876,6 +914,7 @@ QString TcpChargingApi::createSupportTicket(const protocol::SupportTicketDraft &
     return submit(protocol::MessageType::SupportTicketCreate, protocol::toJson(draft), true);
 }
 
+// 列表可带分页游标，游标编号非法则本地直接拒绝
 QString TcpChargingApi::listSupportTickets(std::optional<qint64> beforeId)
 {
     QJsonObject data;
@@ -888,6 +927,7 @@ QString TcpChargingApi::listSupportTickets(std::optional<qint64> beforeId)
     return submit(protocol::MessageType::SupportTicketList, data, true);
 }
 
+// 查详情前先校验工单编号为正整数
 QString TcpChargingApi::getSupportTicket(qint64 ticketId)
 {
     qint64 id = 0;

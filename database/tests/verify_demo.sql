@@ -1,9 +1,11 @@
+-- 校验初始schema与演示数据是否符合预期的断言脚本
 .bail on
 
 PRAGMA foreign_keys = ON;
 
 BEGIN;
 
+-- 断言表：passed不为1时插入失败即中止
 CREATE TEMP TABLE demo_assertion (
     assertion_name TEXT NOT NULL,
     passed INTEGER NOT NULL CHECK (passed = 1)
@@ -42,6 +44,7 @@ INSERT INTO demo_assertion VALUES (
     )
 );
 
+-- 核对各表演示数据的条数
 INSERT INTO demo_assertion VALUES ('five demo users', (SELECT count(*) = 5 FROM users));
 INSERT INTO demo_assertion VALUES ('one demo admin', (SELECT count(*) = 1 FROM admins));
 INSERT INTO demo_assertion VALUES (
@@ -57,6 +60,7 @@ INSERT INTO demo_assertion VALUES (
     (SELECT count(*) = 9 FROM charging_orders WHERE status = 'COMPLETED')
 );
 
+-- 共享登录样例用户的手机号与余额
 INSERT INTO demo_assertion VALUES (
     'shared login fixture identity',
     EXISTS (
@@ -98,6 +102,7 @@ INSERT INTO demo_assertion VALUES (
     )
 );
 
+-- 桩的充电次数与总时长与共享样例一致
 INSERT INTO demo_assertion VALUES (
     'pile history aggregates match the shared fixture',
     (
@@ -136,6 +141,7 @@ INSERT INTO demo_assertion VALUES (
     )
 );
 
+-- 占用中的订单状态必须与桩状态一致
 INSERT INTO demo_assertion VALUES (
     'occupied orders agree with pile state',
     NOT EXISTS (
@@ -180,6 +186,7 @@ INSERT INTO demo_assertion VALUES (
     )
 );
 
+-- 所有已存金额都符合分计算公式
 INSERT INTO demo_assertion VALUES (
     'all stored amounts use the V1 formula',
     NOT EXISTS (
@@ -201,6 +208,7 @@ INSERT INTO demo_assertion VALUES (
     )
 );
 
+-- 两个部分唯一索引必须存在
 INSERT INTO demo_assertion VALUES (
     'required partial unique indexes exist',
     (
@@ -214,6 +222,7 @@ INSERT INTO demo_assertion VALUES (
     )
 );
 
+-- 只做校验，结束时回滚不留下数据
 ROLLBACK;
 
 SELECT 'database verification: OK';

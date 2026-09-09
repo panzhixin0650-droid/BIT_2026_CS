@@ -1,3 +1,4 @@
+// 环形占比图控件，用于电桩状态、订单状态等分类构成展示
 #include "pile_status_chart.h"
 #include <algorithm>
 
@@ -28,12 +29,14 @@ PileStatusChart::PileStatusChart(QWidget *parent)
     setFocusPolicy(Qt::StrongFocus);
 }
 
+// 全部分类为零时不播放动画
 void PileStatusChart::playIntro()
 {
     if (std::any_of(slices_.cbegin(), slices_.cend(), [](const auto &slice) { return slice.count > 0; })) intro_->replay();
 }
 
 
+// 更新扇区数据并生成无障碍描述文本
 void PileStatusChart::setSlices(QList<PileStatusSlice> slices)
 {
     intro_->finish();
@@ -55,11 +58,13 @@ void PileStatusChart::setCaption(const QString &caption, bool interactive)
     update();
 }
 
+// 设置数值换算倍数与单位，如分转元、Wh转kWh
 void PileStatusChart::setValueFormat(qreal divisor, const QString &unit)
 {
     valueDivisor_ = qMax(1.0,divisor); valueUnit_ = unit; update();
 }
 
+// 绘制环形图：按占比画扇区，进度用于入场动画
 void PileStatusChart::paintEvent(QPaintEvent *event)
 {
     Q_UNUSED(event);
@@ -103,6 +108,7 @@ void PileStatusChart::paintEvent(QPaintEvent *event)
                             pieRect_.height() * 0.34);
     }
 
+    // 圆心显示合计值，字号按可用宽度自动缩小
     if (total > 0) {
         QFont number = font(); number.setPixelSize(24); number.setWeight(QFont::DemiBold);
         const QString totalText = QString::number(total/valueDivisor_, 'f', valueDivisor_==1 ? 0 : 2);
@@ -114,6 +120,7 @@ void PileStatusChart::paintEvent(QPaintEvent *event)
         QFont caption = font(); caption.setPixelSize(12); painter.setFont(caption); painter.setPen(QColor("#64748b"));
         painter.drawText(pieRect_.adjusted(0,36,0,0),Qt::AlignCenter,caption_);
     }
+    // 右侧图例逐项列出标签、数值与百分比
     const qreal legendX = pieRect_.right() + 22;
     const qreal rowHeight = 42;
     const qreal legendTop = (height() - slices_.size() * rowHeight) / 2;
@@ -137,6 +144,7 @@ void PileStatusChart::paintEvent(QPaintEvent *event)
 
 }
 
+// 判断坐标落在哪个图例行或哪个扇区，返回其序号
 int PileStatusChart::sliceAt(const QPointF &point) const
 {
     for (int index = 0; index < legendRects_.size(); ++index) {
@@ -161,6 +169,7 @@ int PileStatusChart::sliceAt(const QPointF &point) const
     return -1;
 }
 
+// 可交互时左键点击扇区发出状态键，供页面跳转明细
 void PileStatusChart::mousePressEvent(QMouseEvent *event)
 {
     if (interactive_ && event->button() == Qt::LeftButton) {
@@ -174,6 +183,7 @@ void PileStatusChart::mousePressEvent(QMouseEvent *event)
     QWidget::mousePressEvent(event);
 }
 
+// 悬停显示数值与占比提示，并高亮对应扇区
 void PileStatusChart::mouseMoveEvent(QMouseEvent *event)
 {
     const int index = sliceAt(event->position());
@@ -218,6 +228,7 @@ void PileStatusChart::keyPressEvent(QKeyEvent *event)
     QWidget::keyPressEvent(event);
 }
 
+// 鼠标离开时清除高亮与提示
 void PileStatusChart::leaveEvent(QEvent *event)
 {
     Q_UNUSED(event);

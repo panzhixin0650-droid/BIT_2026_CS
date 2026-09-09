@@ -1,3 +1,4 @@
+// 管理端门面声明：界面统一经此访问服务，不直连仓储
 #pragma once
 
 #include "application/service_result.h"
@@ -16,10 +17,12 @@ class ApplicationService;
 
 // In-process administrator boundary. The UI will call this facade rather than
 // accessing Repository or SQL directly.
+// 进程内调用，不走 TCP 协议
 class AdminFacade final {
 public:
     explicit AdminFacade(ApplicationService *service);
 
+    // 登录与退出会改变门面内保存的管理员身份
     [[nodiscard]] ServiceResult login(const QString &username,
                                       const QString &password);
     void logout();
@@ -30,6 +33,7 @@ public:
     [[nodiscard]] ServiceResult updateAdmin(const QJsonObject &input) const;
     [[nodiscard]] ServiceResult changePassword(const QString &currentPassword,
                                                const QString &newPassword);
+    // 看板查询提供天数与日期区间两种重载
     [[nodiscard]] ServiceResult getDashboard(int days) const;
     [[nodiscard]] ServiceResult getDashboard(const QDate &startDate,
                                              const QDate &endDate) const;
@@ -59,6 +63,7 @@ public:
     [[nodiscard]] ServiceResult updateSupportTicket(const QJsonObject &input) const;
 
 private:
+    // 当前管理员编号为 0 表示未登录
     ApplicationService *service_ = nullptr;
     qint64 currentAdminId_ = 0;
 };

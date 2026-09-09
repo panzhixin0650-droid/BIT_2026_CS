@@ -1,3 +1,4 @@
+/* 大屏样式表：定义配色变量、面板布局与图表容器尺寸 */
 :root {
   color-scheme: light;
   --page-bg: #edf4fb;
@@ -16,6 +17,7 @@
   --radius: 14px;
 }
 
+/* 全局盒模型与 hidden 元素的基础规则 */
 * {
   box-sizing: border-box;
 }
@@ -30,6 +32,7 @@ html {
   background: var(--page-bg);
 }
 
+/* 页面渐变背景与中英文字体，数字等宽便于对齐 */
 body {
   min-height: 100vh;
   margin: 0;
@@ -53,6 +56,7 @@ button {
   color: inherit;
 }
 
+/* 背景光晕装饰层，不参与鼠标交互 */
 .page-glow {
   position: fixed;
   z-index: -1;
@@ -76,6 +80,7 @@ button {
   background: #26d1bd;
 }
 
+/* 整页三段式：顶栏、指标卡区、主内容网格 */
 .dashboard-shell {
   position: relative;
   display: grid;
@@ -85,6 +90,7 @@ button {
   padding: 12px 14px 14px;
 }
 
+/* 顶栏三列：品牌、快照信息、全屏按钮 */
 .topbar {
   display: grid;
   grid-template-columns: minmax(350px, 1.05fr) minmax(560px, 1.9fr) 42px;
@@ -101,6 +107,7 @@ button {
   gap: 12px;
 }
 
+/* 品牌图标方块的渐变底色与投影 */
 .brand-mark {
   display: grid;
   place-items: center;
@@ -145,6 +152,7 @@ button {
   white-space: nowrap;
 }
 
+/* 顶栏快照信息胶囊条的排版样式 */
 .meta-strip {
   display: flex;
   align-items: center;
@@ -194,6 +202,7 @@ button {
   font-size: 9px;
 }
 
+/* 全屏图标按钮及悬停抬升反馈 */
 .icon-button {
   display: grid;
   place-items: center;
@@ -223,6 +232,7 @@ button {
   stroke-width: 1.7;
 }
 
+/* 指标卡区固定五列等宽网格 */
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -260,6 +270,7 @@ button {
   opacity: 0.035;
 }
 
+/* 指标卡图标沿用卡片主色，底层垫半透明白 */
 .kpi-icon {
   position: relative;
   display: grid;
@@ -298,6 +309,7 @@ button {
   font-size: 11px;
 }
 
+/* 指标数值随视口缩放，过长时省略号截断 */
 .kpi-value {
   margin-top: 1px;
   overflow: hidden;
@@ -326,6 +338,7 @@ button {
 .kpi-violet { color: var(--violet); }
 .kpi-red { color: var(--red); }
 
+/* 主网格左中右三栏及各栏行高比例分配 */
 .dashboard-grid {
   display: grid;
   grid-template-columns: minmax(240px, 0.88fr) minmax(560px, 2.75fr) minmax(260px, 1fr);
@@ -352,6 +365,7 @@ button {
   grid-template-rows: minmax(230px, 0.9fr) minmax(215px, 0.82fr) minmax(145px, 0.58fr);
 }
 
+/* 通用面板：纵向排列并裁剪溢出内容 */
 .panel {
   position: relative;
   display: flex;
@@ -374,6 +388,7 @@ button {
   border-bottom: 1px solid rgba(173, 197, 224, 0.29);
 }
 
+/* 面板标题左侧的渐变竖条装饰 */
 .panel-header::before {
   position: absolute;
   top: 14px;
@@ -397,6 +412,7 @@ button {
   font-size: 9px;
 }
 
+/* 面板角标与数据来源徽章的配色变体 */
 .panel-badge,
 .source-badge {
   flex: 0 0 auto;
@@ -428,6 +444,7 @@ button {
   background: #ecfaf5;
 }
 
+/* 图表容器允许收缩，避免撑破网格布局 */
 .chart {
   min-width: 0;
   min-height: 0;
@@ -468,6 +485,7 @@ button {
   font-size: 11px;
 }
 
+/* 可用率评分卡与圆锥渐变进度环 */
 .utilization-score {
   display: flex;
   align-items: center;
@@ -504,6 +522,7 @@ button {
   box-shadow: inset 0 0 0 10px #fff;
 }
 
+/* 各状态占比的进度条列表样式 */
 .progress-list {
   display: grid;
   padding: 2px 17px;
@@ -543,6 +562,7 @@ button {
   box-shadow: 0 0 9px color-mix(in srgb, var(--bar-color, var(--blue)) 42%, transparent);
 }
 
+/* 资源汇总两列，用虚线与分隔线区分 */
 .resource-summary {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -573,6 +593,7 @@ button {
   font-size: 16px;
 }
 
+/* 营收天数切换按钮组，选中态高亮渐变 */
 .segmented-control {
   display: inline-flex;
   padding: 3px;
@@ -603,6 +624,7 @@ button {
   min-height: 230px;
 }
 
+/* 营收图底部四项汇总，竖线分隔 */
 .chart-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -637,6 +659,7 @@ button {
   white-space: nowrap;
 }
 
+/* 预测面板左图右读数的两列布局 */
 .forecast-content {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 178px;
@@ -657,6 +680,7 @@ button {
   justify-content: center;
 }
 
+/* 拥堵状态卡，按等级切换为黄色或红色主题 */
 .forecast-status {
   display: flex;
   align-items: center;
@@ -708,6 +732,7 @@ button {
 .forecast-status.is-high .forecast-status-dot { background: var(--red); box-shadow: 0 0 0 5px rgba(238, 83, 96, 0.11); }
 .forecast-status.is-high strong { color: #c34651; }
 
+/* 预测读数与快照列表共用的定义列表排版 */
 .forecast-readout dl,
 .snapshot-list {
   display: grid;
@@ -746,6 +771,7 @@ button {
   text-align: right;
 }
 
+/* 无数据时的居中空状态提示 */
 .empty-state {
   display: grid;
   place-items: center;
@@ -754,6 +780,7 @@ button {
   font-size: 11px;
 }
 
+/* 健康度仪表图与下方结论文案区 */
 .chart-gauge {
   flex: 1 1 auto;
   min-height: 132px;
@@ -780,6 +807,7 @@ button {
   font-size: 9px;
 }
 
+/* 营收对照条形行，进度宽度由内联变量控制 */
 .revenue-bars {
   display: grid;
   flex: 1 1 auto;
@@ -828,6 +856,7 @@ button {
   line-height: 1.5;
 }
 
+/* 数据快照列表项，末项去掉底部分隔线 */
 .snapshot-list {
   flex: 1 1 auto;
   padding: 10px 15px 12px;
@@ -845,6 +874,7 @@ button {
   border-bottom: 0;
 }
 
+/* 加载遮罩固定覆盖整页，加载完成后隐藏 */
 .loading-overlay {
   position: fixed;
   z-index: 50;
@@ -860,6 +890,7 @@ button {
   transition: opacity 220ms ease, visibility 220ms ease;
 }
 
+/* 加载完成后遮罩淡出并隐藏，不再拦截点击 */
 .loading-overlay.is-hidden {
   visibility: hidden;
   opacity: 0;
@@ -876,6 +907,7 @@ button {
   font-size: 10px;
 }
 
+/* 用深色圆弧配合旋转动画，提示正在加载 */
 .loading-spinner {
   width: 30px;
   height: 30px;
@@ -885,6 +917,7 @@ button {
   animation: spin 750ms linear infinite;
 }
 
+/* 错误提示条固定在页面底部，默认由 hidden 属性隐藏 */
 .error-banner {
   position: fixed;
   z-index: 60;
@@ -906,10 +939,12 @@ button {
   display: flex;
 }
 
+/* 定义转一圈的关键帧，供加载指示器循环使用 */
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
 
+/* 宽屏断点：收窄顶栏与三栏比例，隐藏较宽的信息胶囊 */
 @media (max-width: 1420px) {
   .topbar {
     grid-template-columns: minmax(325px, 1fr) minmax(480px, 1.5fr) 42px;
@@ -928,6 +963,7 @@ button {
   }
 }
 
+/* 中屏断点：右侧栏换行占满整行，指标改为三列 */
 @media (max-width: 1100px) {
   .dashboard-shell {
     grid-template-rows: auto auto auto;
@@ -956,6 +992,7 @@ button {
   }
 }
 
+/* 窄屏断点：隐藏信息条，主体改为单列堆叠 */
 @media (max-width: 820px) {
   .dashboard-shell {
     padding: 9px;
@@ -998,6 +1035,7 @@ button {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  /* 窄屏下预测读数移到内容下方，用虚线分隔 */
   .forecast-readout {
     display: grid;
     grid-template-columns: 140px minmax(0, 1fr);
@@ -1009,6 +1047,7 @@ button {
   }
 }
 
+/* 手机断点：指标单列，图表汇总两列显示 */
 @media (max-width: 520px) {
   .brand-mark {
     width: 40px;
@@ -1037,6 +1076,7 @@ button {
   }
 }
 
+/* 尊重系统减少动效设置，几乎关闭所有动画与过渡 */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

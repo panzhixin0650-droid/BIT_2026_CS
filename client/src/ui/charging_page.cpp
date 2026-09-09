@@ -1,3 +1,4 @@
+// 文件用途：充电页界面，展示订单状态、进度环、指标与操作按钮
 #include "ui/charging_page.h"
 #include "ui/client_theme.h"
 #include "common/charging_session_state.h"
@@ -17,6 +18,7 @@
 
 namespace charging::client {
 
+// 构造函数搭建整页布局与局部样式
 ChargingPage::ChargingPage(QWidget *parent) : QWidget(parent)
 {
     setObjectName("chargingPage");
@@ -40,6 +42,7 @@ ChargingPage::ChargingPage(QWidget *parent) : QWidget(parent)
         #chargingRepairButton { min-height:30px; font-size:11px; font-weight:400; color:#71806e; }
     )QSS"));
 
+    // 外层滚动区，内容随窗口高度滚动
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(0, 0, 0, 0);
     auto *scroll = new QScrollArea(this);
@@ -58,6 +61,7 @@ ChargingPage::ChargingPage(QWidget *parent) : QWidget(parent)
     title->setFont(titleFont);
     layout->addWidget(title);
 
+    // 会话卡片：状态标签、站桩名、预约提示与进度环
     auto *session = new QFrame(body);
     session->setProperty("role", "card");
     auto *sessionLayout = new QVBoxLayout(session);
@@ -82,6 +86,7 @@ ChargingPage::ChargingPage(QWidget *parent) : QWidget(parent)
     sessionLayout->addWidget(ring_, 1);
     layout->addWidget(session, 1);
 
+    // 用小工厂生成四个指标卡：功率、电量、时长、金额
     auto *grid = new QGridLayout;
     grid->setSpacing(10);
     auto metric = [&](const QString &name, const char *object, int row, int column) {
@@ -106,6 +111,7 @@ ChargingPage::ChargingPage(QWidget *parent) : QWidget(parent)
     amount_ = metric(QStringLiteral("本次费用"), "chargingAmount", 1, 1);
     layout->addLayout(grid);
 
+    // 参考价一行，右侧按钮展开计价规则说明
     price_ = new QLabel(body);
     price_->setObjectName("chargingPrice");
     price_->setWordWrap(true);
@@ -125,6 +131,7 @@ ChargingPage::ChargingPage(QWidget *parent) : QWidget(parent)
     message_->setTextFormat(Qt::PlainText);
     layout->addWidget(message_);
 
+    // 统一创建各操作按钮：开始、结束、充值、订单等
     auto button = [&](const QString &text, const char *object) {
         auto *result = new QPushButton(text, body);
         result->setObjectName(object);
@@ -154,6 +161,7 @@ ChargingPage::ChargingPage(QWidget *parent) : QWidget(parent)
     repair_->setFlat(true);
     layout->addWidget(repair_, 0, Qt::AlignHCenter);
 
+    // 开始按钮在报价失败时改为触发重试加载
     connect(start_, &QPushButton::clicked, this, [this] {
         if (!quote_ && !quoteError_.isEmpty()) emit quoteRetryRequested();
         else emit startRequested(pileCode_);
@@ -168,8 +176,10 @@ ChargingPage::ChargingPage(QWidget *parent) : QWidget(parent)
     root->addWidget(scroll);
     render();
 }
+// prepare 切换到新桩并清空旧订单与报价
 void ChargingPage::prepare(const QString &code){pileCode_=code.trimmed();order_.reset();message_->clear();clearQuote();}
 void ChargingPage::showOrder(const protocol::OrderDto &order){order_=order;pileCode_=order.pileCode;render();}
+// 报价的三种状态入口：清空、成功、失败
 void ChargingPage::clearQuote()
 {
     quote_.reset();
@@ -191,9 +201,11 @@ void ChargingPage::showQuoteError(const QString &message)
     quoteLoading_ = false;
     render();
 }
+// 忙状态与提示文字，错误用红色显示
 void ChargingPage::setBusy(bool busy){busy_=busy;render();}
 void ChargingPage::showMessage(const QString &message,bool error){message_->setText(message);message_->setVisible(!message.isEmpty());message_->setStyleSheet(error?"color:#b54b38;":"color:#386a3c;");}
 void ChargingPage::reset(){pileCode_.clear();order_.reset();busy_=false;message_->clear();clearQuote();}
+// render 按订单状态统一刷新整页显示
 void ChargingPage::render(){
     message_->setVisible(!message_->text().isEmpty());
     using S=protocol::OrderStatus;
@@ -211,10 +223,12 @@ void ChargingPage::render(){
     qint64 secs=order_?order_->durationSeconds:0;
     QString progressCaption=charging?QStringLiteral("预计剩余 %1 秒").arg(qMax<qint64>(0,protocol::DemoChargingDurationSeconds-secs)):finished?QStringLiteral("本次充电结束"):QStringLiteral("连接充电枪后开始");
     if (cancelled) progressCaption = QStringLiteral("请重新选桩");
+    // 进度按 Demo 固定充电时长换算，不代表车辆电量
     ring_->setProgress(session::demoProgressPercent(secs), progressCaption);
     power_->setText(charging?QStringLiteral("7.2 kW"):QStringLiteral("—"));energy_->setText(QStringLiteral("%1 kWh").arg((order_?order_->energyWh:0)/1000.0,0,'f',3));
     duration_->setText(QStringLiteral("%1:%2").arg(secs/60,2,10,QChar('0')).arg(secs%60,2,10,QChar('0')));
     amount_->setText(QStringLiteral("¥ %1").arg((order_?order_->amountCents:0)/100.0,0,'f',2));
+    // 已锁价显示本单单价，否则显示当前参考价
     const bool locked = order_ && order_->unitPriceCentsPerKwh.has_value();
     price_->setVisible(ready || locked);
     if (locked) {
@@ -227,9 +241,11 @@ void ChargingPage::render(){
         price_->setText(quoteLoading_ ? QStringLiteral("正在获取充电参考价…") : quoteError_);
         pricingInfo_->setRules({});
     }
+    // 缺少参考价且加载失败时，按钮文案变为重试加载
     const bool retry = ready && !quote_ && !quoteLoading_ && !quoteError_.isEmpty();
     start_->setText(retry ? QStringLiteral("重试加载") : QStringLiteral("开始充电"));
     start_->setVisible(ready);start_->setEnabled(!busy_ && (quote_.has_value() || retry));stop_->setVisible(charging);stop_->setEnabled(!busy_);
+    // 按订单状态决定各按钮是否可见
     recharge_->setVisible(debt);orders_->setVisible(finished||reserved||cancelled);home_->setVisible(!charging&&!debt);scan_->setVisible(!charging&&!debt);repair_->setVisible(!pileCode_.isEmpty()&&!charging);
 }
 }

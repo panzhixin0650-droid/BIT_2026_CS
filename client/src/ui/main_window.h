@@ -33,9 +33,11 @@ class AssistantService;
 class SupportPage;
 class SupportDeskPage;
 
+// 主窗口：持有全部页面与控制器的装配入口
 class MainWindow final : public QMainWindow {
 public:
     explicit MainWindow(IChargingApi &api, QWidget *parent = nullptr);
+    // 可注入地图服务与助理配置的构造重载
     MainWindow(IChargingApi &api,
                IMapService &mapService,
                QWidget *parent = nullptr);
@@ -47,12 +49,15 @@ private:
     void openOrders();
     void showProfile();
     void openCharging(const QString &pileCode);
+    // 共用初始化流程，供各构造函数调用
     void initialize(IChargingApi &api, IMapService &mapService,
                     const AssistantConfig &assistantConfig = {});
+    // 登录成功进首页，会话失效回登录页
     void showAuthenticatedHome(const protocol::UserDto &user, bool isNewUser);
     void showLoginPage(const QString &message = {});
     void updateAccountHeader(const protocol::UserDto &user);
 
+    // 页面栈在登录页与主标签页之间切换
     QStackedWidget *pages_ = nullptr;
     LoginPage *loginPage_ = nullptr;
     QTabWidget *mainTabs_ = nullptr;
@@ -65,6 +70,7 @@ private:
     ScanPage *scanPage_ = nullptr;
     AssistantService *assistantService_ = nullptr;
     SupportPage *supportPage_ = nullptr;
+    // 客服台、报修、工单页均按需创建
     SupportDeskPage *supportDesk_ = nullptr;
     SupportDeskPage *repairPage_ = nullptr;
     SupportDeskPage *ticketsPage_ = nullptr;
@@ -79,6 +85,7 @@ private:
     StationBrowserController *stationBrowserController_ = nullptr;
     OrderController *orderController_ = nullptr;
     std::unique_ptr<AvatarStorage> avatarStorage_;
+    // 未注入时由窗口自己持有的Mock地图服务
     std::unique_ptr<IMapService> ownedMapService_;
 };
 

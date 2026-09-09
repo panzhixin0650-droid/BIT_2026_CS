@@ -1,3 +1,4 @@
+// 本文件测试头像本地存储的保存、归一化与路径恢复
 #include "local/avatar_storage.h"
 
 #include <QFileInfo>
@@ -7,6 +8,7 @@
 
 using charging::client::AvatarStorage;
 
+// 头像存储测试集合
 class AvatarStorageTests : public QObject {
     Q_OBJECT
 
@@ -15,6 +17,7 @@ private slots:
     void rejectsUnreadableImage();
 };
 
+// 保存后限制在 512 像素内，并记录可查询的文件路径
 void AvatarStorageTests::savesNormalizedAvatarAndRestoresPath()
 {
     QTemporaryDir temporaryDirectory;
@@ -43,10 +46,12 @@ void AvatarStorageTests::savesNormalizedAvatarAndRestoresPath()
     QVERIFY(storedImage.width() <= 512);
     QVERIFY(storedImage.height() <= 512);
 
+    // 重新构造存储对象仍能读回上次的头像路径
     AvatarStorage restoredStorage(dataDirectory, settingsFile);
     QCOMPARE(restoredStorage.avatarPath(userKey), savedPath);
 }
 
+// 不可读图片被拒绝，且不留下任何记录
 void AvatarStorageTests::rejectsUnreadableImage()
 {
     QTemporaryDir temporaryDirectory;

@@ -12,12 +12,14 @@ class QStackedWidget;
 
 namespace charging::client {
 
+// 个人中心页面声明：概览、详情、头像三段视图
 class ProfilePage final : public QWidget {
     Q_OBJECT
 
 public:
     explicit ProfilePage(QWidget *parent = nullptr);
 
+    // 外部注入用户、余额、头像与忙碌状态
     void setUser(const protocol::UserDto &user);
     void setBalance(qint64 balanceCents);
     void setAvatarPath(const QString &path);
@@ -26,6 +28,7 @@ public:
     void openDetails();
     void showOverview();
 
+// 向控制器上报的用户操作信号
 signals:
     void ordersRequested();
     void repairRequested();
@@ -41,6 +44,7 @@ signals:
 protected:
     void resizeEvent(QResizeEvent *event) override;
 private:
+    // 根据窗口尺寸刷新头像大图
     void updateFullAvatar();
     QStackedWidget *sections_ = nullptr;
     QLabel *detailMessage_ = nullptr;
@@ -49,8 +53,10 @@ private:
     QLabel *fullAvatar_ = nullptr;
     QPushButton *avatarButton_ = nullptr;
     QString savedNickname_;
+    // 金额格式化：整数分转元显示
     [[nodiscard]] QString formatBalance(qint64 balanceCents) const;
 
+    // 缓存头像图像及各控件指针，便于随时更新
     QImage avatarImage_;
     QLabel *avatarLabel_ = nullptr;
     QLabel *nicknameLabel_ = nullptr;

@@ -1,3 +1,4 @@
+// 客户端主窗口：装配登录页、底部导航各页面与对应控制器
 #include "ui/main_window.h"
 #include "ui/support_desk_page.h"
 #include "ui/station_map_view.h"
@@ -44,6 +45,7 @@ namespace charging::client {
 
 namespace {
 
+// 底部导航条的尺寸与阴影常量
 constexpr int navigationItemSize = 68;
 constexpr int navigationPadding = 12;
 constexpr int navigationBottomGap = 28;
@@ -51,6 +53,7 @@ constexpr int navigationHeight = navigationItemSize + 2 * navigationPadding;
 constexpr int navigationShadowRadius = 13;
 constexpr int navigationShadowOffset = 3;
 
+// 自绘底部导航标签栏，等宽点击区、选中项为方块
 class NavigationTabBar final : public QTabBar {
 public:
     explicit NavigationTabBar(QWidget *parent = nullptr)
@@ -76,6 +79,7 @@ public:
     }
 
 protected:
+    // 逐个标签绘制图标与文字，按状态选择配色
     void paintEvent(QPaintEvent *event) override
     {
         Q_UNUSED(event)
@@ -138,6 +142,7 @@ protected:
     }
 };
 
+// 带圆角容器和阴影的导航标签页容器
 class NavigationTabWidget final : public QTabWidget {
 public:
     explicit NavigationTabWidget(QWidget *parent = nullptr)
@@ -152,6 +157,7 @@ public:
         tabBar()->installEventFilter(this);
     }
 
+    // 让地图页可覆盖导航区域，进入沉浸式全屏
     void overlayMapPage(StationBrowserPage *page)
     {
         mapPage_ = page;
@@ -174,6 +180,7 @@ protected:
             qMax(0, width() - 2 * (outerMargin + navigationPadding)));
     }
 
+    // 手工绘制导航条下方阴影，避免整片重绘
     void paintEvent(QPaintEvent *event) override
     {
         QTabWidget::paintEvent(event);
@@ -195,6 +202,7 @@ protected:
         }
     }
 
+    // 跟随标签栏移动或缩放，同步阴影容器位置
     bool eventFilter(QObject *watched, QEvent *event) override
     {
         if (watched == tabBar()
@@ -219,6 +227,7 @@ protected:
     }
 
 private:
+    // 按当前页决定是否隐藏导航，并调整页面显示区域
     void updateMapOverlay()
     {
         if (!contentStack_ || !mapPage_ || updatingOverlay_) return;
@@ -253,6 +262,7 @@ private:
     QFrame *navigationContainer_ = nullptr;
 };
 
+// 提示存在待支付订单，确认后跳转订单页
 void showPendingPaymentNotice(QWidget *parent)
 {
     QMessageBox notice(QMessageBox::Warning,
@@ -265,6 +275,7 @@ void showPendingPaymentNotice(QWidget *parent)
     notice.exec();
 }
 
+// 充电结束提示：金额结清或欠费需充值
 void showChargingStoppedNotice(QWidget *parent,
                                const ChargingStopPayload &result)
 {
@@ -287,6 +298,7 @@ void showChargingStoppedNotice(QWidget *parent,
     notice.exec();
 }
 
+// 待支付订单被自动结算后的提示
 void showAutomaticSettlementNotice(QWidget *parent,
                                    const PaymentPayload &result)
 {
@@ -303,6 +315,7 @@ void showAutomaticSettlementNotice(QWidget *parent,
     notice.exec();
 }
 
+// 充值成功并显示当前余额
 void showRechargeSuccessNotice(QWidget *parent, qint64 balanceCents)
 {
     QMessageBox notice(
@@ -317,6 +330,7 @@ void showRechargeSuccessNotice(QWidget *parent, qint64 balanceCents)
     notice.exec();
 }
 
+// 充值成功但余额仍不足或需核对订单时的提示
 void showRechargeAttentionNotice(QWidget *parent,
                                  qint64 balanceCents,
                                  const QString &message,
@@ -342,6 +356,7 @@ void showRechargeAttentionNotice(QWidget *parent,
 
 }  // namespace
 
+// 未注入地图服务时默认使用Mock地图
 MainWindow::MainWindow(IChargingApi &api, QWidget *parent)
     : QMainWindow(parent)
     , ownedMapService_(std::make_unique<MockMapService>())
@@ -364,6 +379,7 @@ MainWindow::MainWindow(IChargingApi &api, IMapService &mapService,
     initialize(api, mapService, assistantConfig);
 }
 
+// 统一初始化：建页面、连信号、创建各控制器
 void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
                             const AssistantConfig &assistantConfig)
 {
@@ -385,6 +401,7 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
     mainTabs_->tabBar()->setExpanding(true);
     mainTabs_->tabBar()->setUsesScrollButtons(false);
 
+    // 首页站点浏览页并配置地图脚本地址
     homePage_ = new StationBrowserPage(mainTabs_);
     homePage_->configureHomeMap(mapService.mapScriptUrl());
     static_cast<NavigationTabWidget *>(mainTabs_)->overlayMapPage(homePage_);
@@ -392,8 +409,10 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
     chargingPage_ = new ChargingPage(mainTabs_);
     scanPage_ = new ScanPage(mainTabs_);
 
+    // 普通AI助理页与后续按需创建的模拟客服页
     assistantService_ = new AssistantService(assistantConfig, this);
     supportPage_ = new SupportPage(*assistantService_, mainTabs_);
+    // 懒加载客服台/报修/工单页，各自使用独立助理实例
     const auto ensureDeskPage = [this, &api, assistantConfig](SupportDeskPage *&page, const QString &name) {
         if (page) return;
         const auto config = assistantConfig.forSupportDesk();
@@ -419,6 +438,7 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
         pages_->setCurrentWidget(repairPage_);
     });
 
+    // 依次注册底部导航的各个功能页
     mainTabs_->addTab(homePage_,
                       clientNavigationIcon(NavigationIcon::Route),
                       QStringLiteral("首页"));
@@ -431,6 +451,7 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
     mainTabs_->addTab(supportPage_,
                       clientNavigationIcon(NavigationIcon::Support),
                       QStringLiteral("客服助理"));
+    // 我的分区内含个人主页与订单容器两层
     profileSection_ = new QStackedWidget(mainTabs_);
     profileSection_->setObjectName("profileSection");
     profilePage_ = new ProfilePage(profileSection_);
@@ -460,6 +481,7 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
     pages_->addWidget(loginPage_);
     pages_->addWidget(mainTabs_);
     pages_->setCurrentWidget(loginPage_);
+    // 外壳布局：顶部品牌栏加下方页面区
     auto *shell = new QWidget(this);
     shell->setObjectName("applicationShell");
     auto *shellLayout = new QVBoxLayout(shell);
@@ -491,12 +513,14 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
     shellLayout->addWidget(header);
     shellLayout->addWidget(pages_, 1);
     setCentralWidget(shell);
+    // 点账号按钮回到我的页并展开个人详情
     connect(headerAccount_, &QPushButton::clicked, this, [this] {
         if (!authenticated_) return;
         pages_->setCurrentWidget(mainTabs_);
         showProfile();
         profilePage_->openDetails();
     });
+    // 仅登录且停留在数据页时才允许点刷新
     const auto updateRefresh = [this] {
         const bool mainData = pages_->currentWidget() == mainTabs_
             && (mainTabs_->currentWidget() == homePage_ || mainTabs_->currentWidget() == chargingPage_
@@ -505,6 +529,7 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
     };
     connect(pages_, &QStackedWidget::currentChanged, this, updateRefresh);
     connect(mainTabs_, &QTabWidget::currentChanged, this, updateRefresh);
+    // 刷新按钮按当前页面分发到对应控制器
     connect(headerRefresh_, &QPushButton::clicked, this, [this, updateRefresh] {
         if (!authenticated_) return;
         if (ticketsPage_ && pages_->currentWidget() == ticketsPage_) ticketsPage_->refreshCurrentPage();
@@ -517,10 +542,12 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
     });
     updateRefresh();
 
+    // 创建登录、个人、站点、订单、充电各控制器
     loginController_ = new LoginController(*loginPage_, api, this);
     avatarStorage_ = std::make_unique<AvatarStorage>();
     profileController_ =
         new ProfileController(*profilePage_, api, *avatarStorage_, this);
+    // 选头像时打开本地演示相册页
     connect(profilePage_, &ProfilePage::avatarSelectionRequested, this, [this] {
         if (!avatarAlbum_) {
             avatarAlbum_ = new PhotoAlbumPage(pages_, {}, PhotoAlbumPage::Purpose::Avatar);
@@ -552,6 +579,7 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
             &LoginController::loginSucceeded,
             this,
             &MainWindow::showAuthenticatedHome);
+    // 切换标签时刷新目标页数据并离开订单页
     connect(mainTabs_, &QTabWidget::currentChanged, this, [this](int index) {
         QWidget *selectedPage = mainTabs_->widget(index);
         if (selectedPage != profileSection_) {
@@ -596,6 +624,7 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
                 showRechargeAttentionNotice(
                     this, balanceCents, message, insufficientBalance);
             });
+    // 个人页自动结算待支付订单后提示并同步站点
     connect(profileController_,
             &ProfileController::pendingOrderSettled,
             this,
@@ -606,12 +635,14 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
             &ProfileController::pendingOrderSettled,
             stationBrowserController_,
             &StationBrowserController::synchronizePendingOrderSettlement);
+    // 定位变化后重新拉取站点列表
     connect(stationBrowserController_,
             &StationBrowserController::authenticationRequired,
             this,
             &MainWindow::showLoginPage);
     connect(mapController_, &MapController::locationChanged,
             stationBrowserController_, &StationBrowserController::refreshStations);
+    // 从订单或站点发起导航时切回首页地图
     const auto openOrderStationNavigation =
         [this](const protocol::StationDto &station) {
             homePage_->showListPage();
@@ -622,6 +653,7 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
             &StationBrowserController::navigationReady,
             this,
             openOrderStationNavigation);
+    // 当前订单需处理：待支付去订单页，否则去充电页
     connect(stationBrowserController_,
             &StationBrowserController::currentOrderRequiresAttention,
             this, [this](protocol::OrderStatus status) {
@@ -647,6 +679,7 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
             &OrderController::chargingStopped,
             stationBrowserController_,
             &StationBrowserController::synchronizeChargingStop);
+    // 充电结束弹提示，欠费则引导到个人页充值
     const auto showChargingStopResult =
         [this](const ChargingStopPayload &result) {
             showChargingStoppedNotice(this, result);
@@ -662,11 +695,13 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
             &StationBrowserController::chargingStopped,
             this,
             showChargingStopResult);
+    // 预约赴约、直接充电与扫码都进入充电页
     connect(homePage_, &StationBrowserPage::reservationScanRequested, this, &MainWindow::openCharging);
     connect(homePage_, &StationBrowserPage::directChargingRequested, this, &MainWindow::openCharging);
     connect(orderPage_, &OrderPage::reservationScanRequested, this, &MainWindow::openCharging);
     connect(scanPage_, &ScanPage::scanRequested, this, &MainWindow::openCharging);
     connect(chargingController_, &ChargingController::authenticationRequired, this, &MainWindow::showLoginPage);
+    // 订单已完成或取消则清除首页当前订单卡片
     connect(chargingController_, &ChargingController::orderChanged, this, [this](const protocol::OrderDto &order) {
         if (order.status == protocol::OrderStatus::Completed || order.status == protocol::OrderStatus::Cancelled)
             homePage_->showCurrentOrder(std::nullopt);
@@ -675,6 +710,7 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
     connect(chargingController_, &ChargingController::sessionStarted, stationBrowserController_, &StationBrowserController::refreshStations);
     connect(chargingController_, &ChargingController::reservationReleased, stationBrowserController_, &StationBrowserController::refreshStations);
     connect(chargingController_, &ChargingController::reservationReleased, orderController_, &OrderController::refreshOrders);
+    // 会话结束后刷新钱包余额与站点空闲情况
     connect(chargingController_, &ChargingController::sessionFinished, this, [this] {
         profileController_->refreshProfile();
         stationBrowserController_->refreshStations();
@@ -685,6 +721,7 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
     connect(chargingPage_, &ChargingPage::scanRequested, this, [this]{mainTabs_->setCurrentWidget(scanPage_);});
     connect(scanPage_, &ScanPage::cancelled, this, [this]{mainTabs_->setCurrentWidget(homePage_);});
 
+    // 登录界面显示期间预热首页地图，异步不涉登录数据
     const QUrl mapScriptUrl = mapService.mapScriptUrl();
     // Let login paint first. During account entry, prepare the *home* canvas,
     // including SDK parsing / map initialization / default-area tiles. Nothing
@@ -702,17 +739,20 @@ void MainWindow::initialize(IChargingApi &api, IMapService &mapService,
     });
 }
 
+// 带桩号进入充电页准备下一步操作
 void MainWindow::openCharging(const QString &pileCode)
 {
     chargingController_->prepare(pileCode);
     mainTabs_->setCurrentWidget(chargingPage_);
 }
+// 进入我的分区并显示订单列表
 void MainWindow::openOrders()
 {
     mainTabs_->setCurrentWidget(profileSection_);
     profileSection_->setCurrentWidget(orderContainer_);
     orderController_->refreshOrders();
 }
+// 回到个人主页并刷新资料
 void MainWindow::showProfile()
 {
     mainTabs_->setCurrentWidget(profileSection_);
@@ -721,6 +761,7 @@ void MainWindow::showProfile()
     profileController_->refreshProfile();
 }
 
+// 析构先清理客服页会话，再销毁地图控制器
 MainWindow::~MainWindow()
 {
     for (auto *page : {supportDesk_, repairPage_, ticketsPage_}) {
@@ -732,6 +773,7 @@ MainWindow::~MainWindow()
     mapController_ = nullptr;
 }
 
+// 登录成功：重置会话状态并展示首页
 void MainWindow::showAuthenticatedHome(const protocol::UserDto &user, bool isNewUser)
 {
     for (auto *page : {supportDesk_, repairPage_, ticketsPage_}) if (page) page->resetSession();
@@ -748,6 +790,7 @@ void MainWindow::showAuthenticatedHome(const protocol::UserDto &user, bool isNew
     chargingController_->activate();
 }
 
+// 退出或会话失效：重置各控制器并回到登录页
 void MainWindow::showLoginPage(const QString &message)
 {
     authenticated_ = false;
@@ -766,6 +809,7 @@ void MainWindow::showLoginPage(const QString &message)
     pages_->setCurrentWidget(loginPage_);
 }
 
+// 顶部账号显示昵称与脱敏手机号
 void MainWindow::updateAccountHeader(const protocol::UserDto &user)
 {
     if (!authenticated_) {

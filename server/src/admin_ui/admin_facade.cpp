@@ -1,3 +1,4 @@
+// 管理端门面实现：进程内转调应用服务，并保存当前管理员身份
 #include "admin_facade.h"
 
 #include "application/application_service.h"
@@ -5,11 +6,13 @@
 
 namespace charging::server {
 
+// 持有应用服务指针，本身不做业务判断
 AdminFacade::AdminFacade(ApplicationService *service)
     : service_(service)
 {
 }
 
+// 登录成功才记录管理员编号，后续调用据此鉴权
 ServiceResult AdminFacade::login(const QString &username,
                                  const QString &password)
 {
@@ -25,6 +28,7 @@ ServiceResult AdminFacade::login(const QString &username,
     return result;
 }
 
+// 退出登录只清空当前管理员编号
 void AdminFacade::logout()
 {
     currentAdminId_ = 0;
@@ -51,6 +55,7 @@ ServiceResult AdminFacade::updateAdmin(const QJsonObject &input) const
     return service_->updateAdminAccount(currentAdminId_, input);
 }
 
+// 改密成功后清空身份，要求重新登录
 ServiceResult AdminFacade::changePassword(const QString &currentPassword,
                                           const QString &newPassword)
 {
@@ -61,6 +66,7 @@ ServiceResult AdminFacade::changePassword(const QString &currentPassword,
     return result;
 }
 
+// 看板可按天数或日期区间查询
 ServiceResult AdminFacade::getDashboard(int days) const
 {
     return service_->getDashboard(currentAdminId_, days);
@@ -88,6 +94,7 @@ ServiceResult AdminFacade::updateStation(const QJsonObject &input) const
     return service_->updateAdminStation(currentAdminId_, input);
 }
 
+// 站点启停等状态变更交由服务层校验权限
 ServiceResult AdminFacade::setStationStatus(qint64 stationId,
                                             charging::protocol::StationStatus status) const
 {
@@ -125,6 +132,7 @@ ServiceResult AdminFacade::setPileStatus(qint64 pileId,
     return service_->setAdminPileStatus(currentAdminId_, pileId, status);
 }
 
+// 重启电桩前由服务层判断桩是否占用
 ServiceResult AdminFacade::restartPile(qint64 pileId) const
 {
     return service_->restartAdminPile(currentAdminId_, pileId);
@@ -147,6 +155,7 @@ ServiceResult AdminFacade::listOrders() const
     return service_->listAdminOrders(currentAdminId_);
 }
 
+// 工单接口先确认已登录且服务可用，否则返回无权限
 ServiceResult AdminFacade::listSupportTickets(std::optional<qint64> beforeId) const
 {
     if (currentAdminId_ <= 0 || !service_)
