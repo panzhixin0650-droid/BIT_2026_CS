@@ -126,6 +126,7 @@ LoginPage::LoginPage(QWidget *parent, LayoutMode layoutMode)
     codeHintLabel_->setObjectName(QStringLiteral("verificationCodeHint"));
     codeHintLabel_->setWordWrap(true);
     codeHintLabel_->setStyleSheet(QStringLiteral("color: #697969;"));
+    codeHintLabel_->hide();
 
     errorLabel_ = new QLabel(card);
     errorLabel_->setObjectName(QStringLiteral("loginErrorLabel"));
@@ -148,7 +149,6 @@ LoginPage::LoginPage(QWidget *parent, LayoutMode layoutMode)
     cardLayout->addWidget(phoneInput_);
     cardLayout->addWidget(codeLabel);
     cardLayout->addLayout(codeLayout);
-    cardLayout->addWidget(codeHintLabel_);
     cardLayout->addWidget(errorLabel_);
     cardLayout->addWidget(loginButton_);
 

@@ -31,15 +31,20 @@ void drawStation(QPainter &p)
     p.setPen(Qt::NoPen);
     p.setBrush(QColor("#d9e5d2"));
     p.drawRoundedRect(QRectF(274, 51, 35, 79), 7, 7);
-    p.setBrush(QColor("#122f29"));
+    p.setBrush(Qt::NoBrush);
+    p.setPen(QPen(QColor("#6f8d7f"), 1));
     p.drawRoundedRect(QRectF(280, 61, 23, 30), 4, 4);
-    p.setPen(QPen(QColor("#c3e88d"), 2.5, Qt::SolidLine, Qt::RoundCap));
+    p.setPen(QPen(QColor("#b7791f"), 2.5, Qt::SolidLine, Qt::RoundCap));
     p.drawPolyline(QPolygonF{QPointF(294, 66), QPointF(287, 76),
                             QPointF(295, 76), QPointF(289, 85)});
-    p.setPen(QPen(QColor("#96ae90"), 3, Qt::SolidLine, Qt::RoundCap));
+    // Keep the charging cable on the station side of the car.  The old path
+    // ran almost horizontally from the charger into the rear silhouette and
+    // read like an exhaust pipe at smaller sizes.
     QPainterPath cable;
-    cable.moveTo(308, 72); cable.cubicTo(336, 67, 327, 125, 299, 117);
-    cable.cubicTo(280, 112, 278, 104, 260, 107);
+    cable.moveTo(307, 103);
+    cable.cubicTo(316, 114, 301, 131, 280, 134);
+    cable.cubicTo(269, 137, 258, 129, 258, 115);
+    p.setPen(QPen(QColor("#96ae90"), 3, Qt::SolidLine, Qt::RoundCap));
     p.drawPath(cable);
 
     QPainterPath body;
@@ -66,6 +71,10 @@ void drawStation(QPainter &p)
     p.setPen(Qt::NoPen);
     p.setBrush(QColor("#edfaac")); p.drawRoundedRect(QRectF(44, 99, 21, 6), 2, 2);
     p.setBrush(QColor("#7f9b76")); p.drawRoundedRect(QRectF(242, 98, 13, 5), 2, 2);
+    p.setPen(QPen(QColor("#96ae90"), 1.5, Qt::SolidLine, Qt::RoundCap));
+    p.setBrush(Qt::NoBrush); p.drawRoundedRect(QRectF(250, 106, 11, 10), 3, 3);
+    p.setPen(QPen(QColor("#c8e99a"), 2, Qt::SolidLine, Qt::RoundCap));
+    p.drawLine(QPointF(257, 111), QPointF(263, 111));
     for (qreal x : {88.0, 214.0}) {
         p.setBrush(QColor("#112e29")); p.drawEllipse(QPointF(x, 125), 18, 18);
         p.setBrush(QColor("#9eb3a2")); p.drawEllipse(QPointF(x, 125), 10, 10);
